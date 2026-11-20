@@ -22,6 +22,8 @@ pub(super) static PRICES: Table = Table {
     columns: Cow::Borrowed(COLUMNS),
     wildcard: Names::Static(&["date", "currency", "amount"]),
     rows: Rows::Records(rows),
+    provided_by: None,
+    labels: Vec::new(),
 };
 
 fn rows<'a>(ledger: &'a Ledger, _projection: &Projection) -> Vec<Record<'a>> {

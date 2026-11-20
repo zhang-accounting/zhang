@@ -1,7 +1,8 @@
 //! Tables: the row sources a query reads, selected with `FROM #name`.
 //!
-//! Every table is a static [`Table`] in the registry ([`tables`]): a name, a description,
-//! typed columns ([`ColumnDef`]), the columns `SELECT *` expands to, and a row source. The
+//! A core table is a static [`Table`] in the registry ([`tables`]): a name, a description,
+//! typed columns ([`ColumnDef`]), the columns `SELECT *` expands to, and a row source. A catalog
+//! adds the tables and the `postings` columns its extensions provide (`crate::extension`). The
 //! compiler resolves the query's table in its catalog ([`crate::Catalog`]) first and then its
 //! column names against that table only, into handles ([`crate::catalog`]); the projector
 //! prunes the table's columns; the executor reads rows through
@@ -18,10 +19,12 @@
 //!   [`Record`] per row, which only borrows the ledger; its columns are computed
 //!   when an expression reads them. A builder may skip work that only unprojected columns
 //!   need (see [`Projection::contains`]).
-//! - [`Rows::Generated`]: record tables whose rows are not read from the ledger but generated,
-//!   such as the months of `#budgets`, so that their number is not bounded by the size of the
-//!   ledger. Their builder charges every row to the result budget and checks the deadline
-//!   while it builds them ([`Limits`]), before any filter runs.
+//! - [`Rows::Extension`]: the tables of a provider (`crate::extension`), whose rows are its
+//!   snapshot of the ledger: the rows of a record table, or the periods of a series table, which
+//!   are not read from the ledger but generated, such as the months of `#budgets`, so that their
+//!   number is not bounded by the size of the ledger. The generation charges every row to the
+//!   result budget and checks the deadline while it builds them ([`Limits`]), before any filter
+//!   runs.
 //!
 //! A column named `base.attribute` is an attribute of the structured value `base`, read
 //! with attribute access (`open.date` in `#accounts`); `base` itself is a column too.
@@ -30,10 +33,11 @@
 //!
 //! Add a module with a `static` [`Table`] whose columns read a [`Record`] variant (add one
 //! when no existing variant fits), register it in [`TABLES`], and describe it in the query
-//! language reference. Its columns appear in `GET /api/query/schema` automatically.
+//! language reference. Its columns appear in `GET /api/query/schema` automatically. A table
+//! that is no part of the core, such as the budget tables, is an extension's: its provider
+//! declares it in a manifest and publishes its rows in a snapshot (`crate::extension`).
 
 mod accounts;
-mod budgets;
 mod cache;
 mod directives;
 mod entries;
@@ -47,6 +51,7 @@ use std::cell::OnceCell;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::path::Path;
+use std::sync::Arc;
 
 use chrono::{NaiveDate, NaiveDateTime};
 use zhang_ast::{Commodity, Directive, Meta, Spanned};
@@ -54,12 +59,16 @@ use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
 
 pub(crate) use self::cache::{Head, LedgerCache};
+pub(crate) use self::directives::date_of;
+pub(crate) use self::entries::entry_type;
 pub use self::postings::COLUMNS;
-pub(crate) use self::postings::{position, Entry, MaybeOwned, Row, Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
+pub(crate) use self::postings::{position, time_value, Entry, MaybeOwned, Row, Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
 #[cfg(test)]
 use crate::catalog::ColumnRef;
+use crate::catalog::TableRef;
 use crate::error::LocatedError;
 use crate::executor::{Budget, Deadline};
+use crate::extension::{self, ExtensionKind, ExtensionRows, LabelColumn, Labels, RecordRow, SeriesRow, TableData};
 use crate::functions::AccountDirectives;
 use crate::prices::PriceMap;
 use crate::projector::Projection;
@@ -78,14 +87,16 @@ pub struct Table {
     /// the columns `SELECT *` expands to, in order
     pub(crate) wildcard: Names,
     pub(crate) rows: Rows,
+    /// the provider of an extension's table; `None` for a core table
+    pub provided_by: Option<Arc<str>>,
+    /// the label columns among the columns of a `postings` table, by slot ([`label_getter`])
+    pub(crate) labels: Vec<Arc<LabelColumn>>,
 }
 
 /// Names a table keeps: `'static` ones of a core table, or owned ones.
 #[derive(Debug, Clone)]
 pub(crate) enum Names {
     Static(&'static [&'static str]),
-    // built by the catalogs of extension tables
-    #[cfg_attr(not(test), allow(dead_code))]
     Owned(Vec<String>),
 }
 
@@ -141,20 +152,16 @@ pub(crate) enum Rows {
     Postings,
     /// one [`Record`] per row, built for a projection
     Records(RecordSource),
-    /// one generated [`Record`] per row, built for a projection within [`Limits`]
-    Generated(GeneratedSource),
+    /// the rows of a provider's snapshot of the ledger: a record table's, or the periods of a series table generated
+    /// within [`Limits`] (see [`crate::extension`])
+    Extension(ExtensionRows),
 }
 
 /// Builds the rows of a record table, in the table's row order.
 pub(crate) type RecordSource = for<'a> fn(&'a Ledger, &Projection) -> Vec<Record<'a>>;
 
-/// Builds the generated rows of a record table, in the table's row order, calling
-/// [`Limits::row`] for every row before it builds it.
-/// It gets `today()` of the execution, and the last date a row needs to have (see
-/// [`crate::optimizer::date_bound`]): rows dated after it are not generated.
-pub(crate) type GeneratedSource = for<'a> fn(&'a Ledger, Generation, &Projection, &mut Limits<'_>) -> Result<Vec<Record<'a>>, LocatedError>;
-
-/// What a [`GeneratedSource`] needs to know of the execution.
+/// What the generation of the periods of a series table needs to know of the execution: `today()` and the last date a
+/// row needs to have (see [`crate::optimizer::date_bound`]); rows dated after it are not generated.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Generation {
     /// `today()` of the execution
@@ -163,7 +170,7 @@ pub(crate) struct Generation {
     pub until: Option<NaiveDate>,
 }
 
-/// The limits of one execution as a [`GeneratedSource`] sees them: every generated row costs
+/// The limits of one execution as the generation of a series sees them: every generated row costs
 /// one value of the result budget, and the deadline is checked as rows are generated, so a
 /// table that would generate too many rows stops with `TooLarge` or `Timeout` instead of
 /// holding them all.
@@ -193,9 +200,12 @@ pub static POSTINGS: Table = Table {
     columns: Cow::Borrowed(COLUMNS),
     wildcard: Names::Static(&postings::WILDCARD_COLUMNS),
     rows: Rows::Postings,
+    provided_by: None,
+    labels: Vec::new(),
 };
 
-/// Every table, in the order the schema lists them.
+/// Every core table, in the order the schema lists them; a catalog lists the tables of its extensions before the
+/// last ones ([`TRAILING`]).
 static TABLES: &[&Table] = &[
     &POSTINGS,
     &entries::ENTRIES,
@@ -207,21 +217,22 @@ static TABLES: &[&Table] = &[
     &directives::DOCUMENTS,
     &accounts::ACCOUNTS,
     &directives::COMMODITIES,
-    &budgets::BUDGETS,
-    &budgets::BUDGET_EVENTS,
-    &budgets::BUDGET_DEFINITIONS,
     &errors::ERRORS,
 ];
 
-/// Every table a query can read, `postings` first: the tables of [`crate::Catalog::core`].
+/// How many of the core tables come after the extensions' tables in a catalog: `#errors`, which the schema has
+/// always listed last.
+pub(crate) const TRAILING: usize = 1;
+
+/// Every core table a query can read, `postings` first: the tables of [`crate::Catalog::core`].
 pub fn tables() -> &'static [&'static Table] {
     TABLES
 }
 
-/// The column `name` of the `postings` table.
+/// The column `name` of the `postings` table of the catalog of every ledger ([`crate::Catalog::standard`]).
 #[cfg(test)]
 pub(crate) fn column(name: &str) -> Option<ColumnRef> {
-    POSTINGS.column_ref(name)
+    crate::Catalog::standard().postings().column(name)
 }
 
 /// A column of a table.
@@ -234,6 +245,8 @@ pub struct ColumnDef {
     /// how predicates can read the column in place, without copying it into a [`Value`]
     /// (postings only)
     pub(crate) borrow: Borrow,
+    /// the provider of an extension's column; `None` for a core column
+    pub provided_by: Option<Arc<str>>,
 }
 
 impl fmt::Debug for ColumnDef {
@@ -244,48 +257,94 @@ impl fmt::Debug for ColumnDef {
 
 impl ColumnDef {
     /// A column of a record table.
-    pub(crate) const fn record(name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Record<'_>) -> Value) -> ColumnDef {
+    pub(crate) const fn record(name: &'static str, ty: DataType, description: &'static str, get: RecordGetter) -> ColumnDef {
         ColumnDef {
             name: Cow::Borrowed(name),
             ty,
             description: Cow::Borrowed(description),
             get: Get::Record(get),
             borrow: Borrow::No,
+            provided_by: None,
         }
     }
 
     /// A column of the `postings` table.
-    pub(crate) const fn posting(name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Row<'_>) -> Value) -> ColumnDef {
+    pub(crate) const fn posting(name: &'static str, ty: DataType, description: &'static str, get: PostingGetter) -> ColumnDef {
         ColumnDef {
             name: Cow::Borrowed(name),
             ty,
             description: Cow::Borrowed(description),
             get: Get::Posting(get),
             borrow: Borrow::No,
+            provided_by: None,
         }
     }
 
     /// A column of the `postings` table that predicates read in place through `borrow`.
-    pub(crate) const fn posting_borrowing(
-        name: &'static str, ty: DataType, description: &'static str, get: fn(&Dataset<'_>, &Row<'_>) -> Value, borrow: Borrow,
-    ) -> ColumnDef {
+    pub(crate) const fn posting_borrowing(name: &'static str, ty: DataType, description: &'static str, get: PostingGetter, borrow: Borrow) -> ColumnDef {
         ColumnDef {
             name: Cow::Borrowed(name),
             ty,
             description: Cow::Borrowed(description),
             get: Get::Posting(get),
             borrow,
+            provided_by: None,
         }
     }
 }
 
-/// How a column reads its value from a row.
+/// How a column reads its value from a row: a getter, as a plain function pointer. The columns of the extensions have
+/// getters too, one per position of a cell ([`cell_getter`]) and per slot of a label column ([`label_getter`]), so that
+/// reading any column is the one indirect call it has always been.
 #[derive(Clone, Copy)]
 pub(crate) enum Get {
-    /// a column of the `postings` table
-    Posting(fn(&Dataset<'_>, &Row<'_>) -> Value),
+    /// a column of a `postings` table
+    Posting(PostingGetter),
     /// a column of a record table
-    Record(fn(&Dataset<'_>, &Record<'_>) -> Value),
+    Record(RecordGetter),
+}
+
+/// The getter of a column of a `postings` table.
+pub(crate) type PostingGetter = for<'a> fn(&Dataset<'a>, &Row<'a>) -> Value;
+
+/// The getter of a column of a record table.
+pub(crate) type RecordGetter = fn(&Dataset<'_>, &Record<'_>) -> Value;
+
+/// How many columns an extension's table can have: the getters of its cells, by position.
+pub(crate) const MAX_CELLS: usize = 64;
+
+/// How many label columns a catalog can have: their getters, by slot.
+pub(crate) const MAX_LABELS: usize = 16;
+
+/// The getter of the cell at `index` of the rows of an extension's table; `None` past [`MAX_CELLS`].
+pub(crate) fn cell_getter(index: usize) -> Option<RecordGetter> {
+    fn cell<const INDEX: usize>(_: &Dataset<'_>, record: &Record<'_>) -> Value {
+        record.cell(INDEX)
+    }
+    macro_rules! cells {
+        ($($index:literal)*) => { [$(cell::<$index> as RecordGetter),*] };
+    }
+    static CELLS: [RecordGetter; MAX_CELLS] = cells!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63);
+    CELLS.get(index).copied()
+}
+
+/// The membership test of a set column of a `postings` table, read in place ([`Borrow::Contains`]).
+pub(crate) type ContainsTest = for<'a> fn(&Dataset<'a>, &Row<'a>, &str) -> bool;
+
+/// The getter and the membership test of the label column at `slot` of a `postings` table ([`Table::labels`]);
+/// `None` past [`MAX_LABELS`].
+pub(crate) fn label_getter(slot: usize) -> Option<(PostingGetter, ContainsTest)> {
+    fn labels<'a, const SLOT: u16>(data: &Dataset<'a>, row: &Row<'a>) -> Value {
+        Value::Set(data.labels(SLOT).of_row(data, row))
+    }
+    fn holds<'a, const SLOT: u16>(data: &Dataset<'a>, row: &Row<'a>, label: &str) -> bool {
+        data.labels(SLOT).holds(data, row, label)
+    }
+    macro_rules! labels {
+        ($($slot:literal)*) => { [$((labels::<$slot> as PostingGetter, holds::<$slot> as ContainsTest)),*] };
+    }
+    static LABELS: [(PostingGetter, ContainsTest); MAX_LABELS] = labels!(0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15);
+    LABELS.get(slot).copied()
 }
 
 impl Get {
@@ -296,7 +355,7 @@ impl Get {
     /// "s"`) builds the getter's value in a temporary and copies it into the executor's result, a `Value` per column
     /// read (about 22 instructions); left to the compiler, the getter writes into the result, as it did before the
     /// handles kept their getters.
-    pub(crate) fn value(self, data: &Dataset<'_>, row: RowRef<'_, '_>) -> Value {
+    pub(crate) fn value<'a>(self, data: &Dataset<'a>, row: RowRef<'_, 'a>) -> Value {
         match (self, row) {
             (Get::Posting(get), RowRef::Posting(row)) => get(data, row),
             (Get::Record(get), RowRef::Record(record)) => get(data, record),
@@ -312,8 +371,9 @@ pub(crate) enum Borrow {
     No,
     /// a string column, read without copying; `None` is NULL. `get` returns the same string.
     Str(for<'r> fn(&'r Dataset<'_>, &'r Row<'_>) -> Option<&'r str>),
-    /// a set column, as a membership test that does not build the set
-    Contains(fn(&Dataset<'_>, &Row<'_>, &str) -> bool),
+    /// a set column, as a membership test that does not build the set; of a label column, one that evaluates the
+    /// predicate of the label asked for only ([`label_getter`])
+    Contains(ContainsTest),
 }
 
 /// One row of a record table. It only borrows the ledger; the table's columns compute their
@@ -335,12 +395,10 @@ pub(crate) enum Record<'a> {
         /// when it books with the ledger's default
         booking: Option<zhang_core::inventory::BookingMethod>,
     },
-    /// one month of a budget
-    Budget(budgets::BudgetMonth<'a>),
-    /// a budget, as its directives define it
-    BudgetDefinition(budgets::BudgetDefinition<'a>),
-    /// one effect of a budget directive
-    BudgetEvent(budgets::BudgetEvent<'a>),
+    /// a row of an extension's record table
+    Extension(&'a RecordRow),
+    /// a period of an extension's series table
+    Series(SeriesRow<'a>),
     /// a ledger error
     Error(errors::LedgerError<'a>),
 }
@@ -353,11 +411,20 @@ impl<'a> Record<'a> {
             Record::Entry { directive, .. } => directive.data.meta(),
             Record::Account { open, close, .. } => open.or(*close).and_then(|directive| directive.data.meta()),
             Record::Document(document) => Some(document.metadata()),
-            Record::Budget(month) => month.metadata(),
-            Record::BudgetDefinition(budget) => Some(budget.meta),
-            Record::BudgetEvent(event) => event.directive.data.meta(),
+            Record::Extension(row) => row.meta.as_deref(),
+            Record::Series(row) => row.metadata(),
             // an error's details are not directive metadata (see `meta`)
             Record::Error(_) => None,
+        }
+    }
+
+    /// The cell at `index` of an extension's row, as a series fills it in a generated period; NULL on any other row.
+    fn cell(&self, index: usize) -> Value {
+        match self {
+            // TODO(P1.4): a missing cell reads NULL silently; the publish checks of a snapshot rule it out
+            Record::Extension(row) => row.cells.get(index).cloned().unwrap_or(Value::Null),
+            Record::Series(row) => row.cell(index),
+            _ => Value::Null,
         }
     }
 
@@ -438,8 +505,8 @@ pub(crate) struct Dataset<'a> {
     ledger: &'a Ledger,
     /// what every query of the ledger shares (see [`LedgerCache`])
     cache: &'a LedgerCache,
-    /// the budgets of the ledger, folded once for the `budgets` column
-    budgets: OnceCell<budgets::Budgets<'a>>,
+    /// the label columns of the table, by slot, each resolved on its first read
+    labels: Box<[OnceCell<Labels<'a>>]>,
 }
 
 impl<'a> Dataset<'a> {
@@ -453,7 +520,25 @@ impl<'a> Dataset<'a> {
         let records = match projection.table().rows() {
             Rows::Postings => return Ok(Dataset::postings(ledger, cache, now, projection, scope)),
             Rows::Records(source) => source(ledger, projection),
-            Rows::Generated(source) => source(ledger, Generation { today, until }, projection, limits)?,
+            Rows::Extension(rows) => {
+                let table = projection.table();
+                let unavailable = || {
+                    LocatedError::eval(
+                        format!("table #{} is unavailable: {} has no data for this ledger", table.name(), rows.provider),
+                        None,
+                    )
+                };
+                let data = extension::snapshot(ledger, &rows.provider)
+                    .and_then(|snapshot| snapshot.table(ledger, table.name()))
+                    .ok_or_else(unavailable)?;
+                match (&rows.kind, data) {
+                    (ExtensionKind::Records, TableData::Records(records)) => records.iter().map(Record::Extension).collect(),
+                    (ExtensionKind::Series(spec), TableData::Series(partitions)) => {
+                        extension::series::rows(ledger, table, &rows.provider, spec, partitions, Generation { today, until }, limits)?
+                    }
+                    _ => return Err(unavailable()),
+                }
+            }
         };
         Ok(Dataset {
             postings: false,
@@ -465,7 +550,7 @@ impl<'a> Dataset<'a> {
             projection,
             ledger,
             cache,
-            budgets: OnceCell::new(),
+            labels: Box::new([]),
         })
     }
 
@@ -497,9 +582,22 @@ impl<'a> Dataset<'a> {
         self.cache.prices(self.ledger)
     }
 
-    /// The budgets of the ledger, folded once per query.
-    fn budgets(&self) -> &budgets::Budgets<'a> {
-        self.budgets.get_or_init(|| budgets::budgets(self.ledger))
+    /// The label column at `slot` of the table, resolved for this execution on its first read: the labels of its
+    /// provider's snapshot of the ledger, the predicate bound to each. A provider without a snapshot of the ledger
+    /// gives no label.
+    pub(crate) fn labels(&self, slot: u16) -> &Labels<'a> {
+        self.labels[slot as usize].get_or_init(|| {
+            let column = &self.projection.table().labels()[slot as usize];
+            let labels = extension::snapshot(self.ledger, &column.provider)
+                .and_then(|snapshot| snapshot.labels(self.ledger, &column.name))
+                .unwrap_or_default();
+            Labels::resolve(column, labels)
+        })
+    }
+
+    /// The label columns of a `postings` table, unresolved, for a new execution.
+    pub(crate) fn unresolved_labels(table: &TableRef) -> Box<[OnceCell<Labels<'a>>]> {
+        table.labels().iter().map(|_| OnceCell::new()).collect()
     }
 
     /// The `#entries` / `#transactions` rows of the ledger.

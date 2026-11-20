@@ -45,7 +45,7 @@ use crate::catalog::{ColumnRef, TableRef};
 use crate::compiler::{AggregateCall, CExpr, Plan, Running, RunningPlan};
 use crate::executor::Env;
 use crate::functions::AggregateKind;
-use crate::table::{Borrow, RowRef};
+use crate::table::{Borrow, RowRef, Rows};
 use crate::value::Value;
 
 /// The columns of its table one plan reads.
@@ -195,10 +195,10 @@ pub(crate) fn project(plan: &Plan) -> Projection {
 }
 
 impl Projection {
-    /// Every column of the `postings` table: rows carry everything.
+    /// Every column of the `postings` table of the catalog of every ledger: rows carry everything.
     #[cfg(test)]
     pub fn all() -> Projection {
-        Projection::all_of(crate::catalog::Catalog::core().postings().clone())
+        Projection::all_of(crate::catalog::Catalog::standard().postings().clone())
     }
 
     /// Every column of `table`.
@@ -225,6 +225,13 @@ impl Projection {
     /// Whether the column is projected; never for a column of another table.
     pub fn contains(&self, column: &ColumnRef) -> bool {
         *column.table() == self.table && self.columns.contains(column.index())
+    }
+
+    /// Whether an execution reads data of the catalog's extensions: the rows of an extension's table, or a label
+    /// column.
+    pub fn reads_extensions(&self) -> bool {
+        matches!(self.table.rows(), Rows::Extension(_))
+            || (self.table.columns().iter().enumerate()).any(|(index, column)| self.columns.contains(index) && column.provided_by.is_some())
     }
 
     /// Whether the column `name` (case-insensitive) of the projected table is projected: what a row source asks to
@@ -275,7 +282,8 @@ pub(crate) fn borrowed_str<'r>(expr: &'r CExpr, env: &Env<'r, '_>) -> Option<Opt
 }
 
 /// A membership test of a set column of the current row ([`Borrow::Contains`]), which does
-/// not build the set; `None` when the operand has to be evaluated instead.
+/// not build the set (of a label column, it evaluates the predicate of the label asked for only);
+/// `None` when the operand has to be evaluated instead.
 pub(crate) fn set_membership<'r, 'a>(expr: &'r CExpr, env: &Env<'r, 'a>) -> Option<impl Fn(&str) -> bool + use<'r, 'a>> {
     match expr {
         CExpr::Column(column) => match (column.borrow(), env.data, env.row) {
@@ -419,7 +427,13 @@ option "operating_currency" "USD"
     }
 
     fn every_column() -> impl Iterator<Item = String> {
-        COLUMNS.iter().map(|column| format!("SELECT {}", column.name))
+        let postings = Catalog::standard().postings();
+        postings
+            .columns()
+            .iter()
+            .map(|column| format!("SELECT {}", column.name))
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     #[test]
@@ -442,7 +456,7 @@ option "operating_currency" "USD"
 
     /// Run `sql` over the rows of its table built for `projection` (or the query's own).
     fn run_table(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
-        run_table_in(Catalog::core(), ledger, sql, projection)
+        run_table_in(Catalog::standard(), ledger, sql, projection)
     }
 
     /// [`run_table`] with the tables of `catalog`.
@@ -470,7 +484,7 @@ option "operating_currency" "USD"
             "{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n2024-04-04 note Assets:Bank \"x\"\n"
         ));
         let mut checked = 0;
-        for table in Catalog::core().tables().iter().filter(|table| !table.is_postings()) {
+        for table in Catalog::standard().tables().iter().filter(|table| !table.is_postings()) {
             let all = Projection::all_of(table.clone());
             let queries = table
                 .columns()
@@ -495,7 +509,8 @@ option "operating_currency" "USD"
         assert_eq!(projection.to_string(), "[payee, position, price, tags] (4 of 36 columns)");
 
         assert_eq!(Query::compile("SELECT count(*)").unwrap().projection.to_string(), "[] (0 of 36 columns)");
-        assert_eq!(Projection::all().names().len(), COLUMNS.len());
+        // the core's columns and the budgets column of zhang:budget
+        assert_eq!(Projection::all().names().len(), COLUMNS.len() + 1);
     }
 
     /// The in-place readers of a column give the same answer as its value.
@@ -518,7 +533,8 @@ option "operating_currency" "USD"
                 params: &params,
                 regexes: &regexes,
             };
-            for column in (0..COLUMNS.len()).map(|index| Catalog::core().postings().column_at(index)) {
+            let postings = Catalog::standard().postings();
+            for column in (0..postings.columns().len()).map(|index| postings.column_at(index)) {
                 let expr = CExpr::Column(column.clone());
                 let value = column.value(&data, RowRef::Posting(row));
                 if let Some(text) = borrowed_str(&expr, &env) {
@@ -534,7 +550,8 @@ option "operating_currency" "USD"
                 };
             }
         }
-        assert_eq!(checked, data.rows.len() * 10);
+        // 10 core columns and the label column budgets
+        assert_eq!(checked, data.rows.len() * 11);
     }
 
     /// A test-only table with more columns than a `u64` has bits: `c0` to `c69`, three rows
@@ -545,6 +562,8 @@ option "operating_currency" "USD"
         columns: Cow::Borrowed(WIDE_COLUMNS),
         wildcard: Names::Static(&["c0", "c64", "c69"]),
         rows: Rows::Records(wide_rows),
+        provided_by: None,
+        labels: Vec::new(),
     };
 
     macro_rules! wide_columns {

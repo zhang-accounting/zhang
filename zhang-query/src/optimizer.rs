@@ -63,6 +63,7 @@ use crate::compiler::{
 };
 use crate::error::LocatedError;
 use crate::executor::eval_constant;
+use crate::extension::{ExtensionKind, ExtensionRows};
 use crate::functions::ParamType;
 use crate::params::Params;
 use crate::projector::infallible;
@@ -160,6 +161,18 @@ pub(crate) fn bind(plan: &Plan, params: &Params) -> Plan {
     plan
 }
 
+/// `expr` with every parameter replaced by its value in `params`, and the expression rules run again over the constants
+/// this makes, as [`bind`] does for a plan: the predicate of a label column bound to one label.
+pub(crate) fn bind_expr(expr: &CExpr, params: &Params) -> CExpr {
+    let patterns = Patterns::default();
+    let rules = Rules {
+        prepare: true,
+        strict_regex: false,
+        patterns: Some(&patterns),
+    };
+    optimize_with(substitute(expr.clone(), params), rules).expect("binding raises no compile error")
+}
+
 /// Replace every parameter by its bound value (NULL when unbound, as when evaluated).
 fn substitute(expr: CExpr, params: &Params) -> CExpr {
     match expr {
@@ -234,15 +247,19 @@ fn late_targets(plan: &Plan) -> Vec<usize> {
 /// rather than through the end of the ledger, keeps a query of this month working when a date
 /// typo dates an entry centuries ahead.
 pub(crate) fn date_bound(plan: &Plan) -> Option<DateBound> {
-    if !matches!(plan.table.rows(), Rows::Generated(_)) {
+    let Rows::Extension(ExtensionRows {
+        kind: ExtensionKind::Series(series),
+        ..
+    }) = plan.table.rows()
+    else {
         return None;
-    }
+    };
     let conjuncts = match plan.filter.as_ref()? {
         CExpr::And(operands) => operands.as_slice(),
         filter => std::slice::from_ref(filter),
     };
     for conjunct in conjuncts {
-        if let Some(bound) = bounding_date(conjunct) {
+        if let Some(bound) = bounding_date(conjunct, series.period) {
             return Some(bound);
         }
         if !infallible(conjunct) {
@@ -252,9 +269,9 @@ pub(crate) fn date_bound(plan: &Plan) -> Option<DateBound> {
     None
 }
 
-/// The date bound of a filter conjunct (see [`date_bound`]).
-fn bounding_date(expr: &CExpr) -> Option<DateBound> {
-    let is_date = |expr: &CExpr| matches!(expr, CExpr::Column(column) if column.name() == "date");
+/// The date bound of a filter conjunct (see [`date_bound`]) of a series table whose period is the column at `period`.
+fn bounding_date(expr: &CExpr, period: usize) -> Option<DateBound> {
+    let is_date = |expr: &CExpr| matches!(expr, CExpr::Column(column) if column.index() == period);
     let is_month = |expr: &CExpr| matches!(expr, CExpr::Scalar { function, args, .. } if function.name == "yearmonth" && matches!(args.as_slice(), [date] if is_date(date)));
     let is_today = |expr: &CExpr| matches!(expr, CExpr::Scalar { function, args, .. } if function.name == "today" && args.is_empty());
     let bound = |expr: &CExpr| match expr {

@@ -6,13 +6,22 @@
 //! index. The compiler resolves names through a [`Catalog`]; the optimizer, the projector and
 //! the executor only see the handles. A table is a core table, a `static` [`Table`] of
 //! [`crate::table`] ([`TableRef::Static`]), or one a catalog builds at run time and shares
-//! ([`TableRef::Shared`]), whose names and columns it owns. [`Catalog::core`] is the catalog every
-//! query compiles against ([`crate::Query::compile_in`]).
+//! ([`TableRef::Shared`]), whose names and columns it owns: the tables of the catalog's extensions,
+//! and its `postings` table when the extensions add columns to it.
+//!
+//! [`Catalog::core`] has the core tables only. [`Catalog::standard`] adds the tables of the native
+//! providers, the budget tables of `zhang:budget`: it is the catalog of every ledger
+//! ([`Catalog::of_ledger`]) and the one [`crate::Query::compile`] compiles against. A handle holds
+//! a table's schema, never its rows, which an execution looks up in the ledger it runs on.
 
+use std::borrow::Cow;
 use std::fmt;
 use std::sync::{Arc, LazyLock};
 
-use crate::table::{self, Borrow, ColumnDef, Dataset, Get, RowRef, Rows, Table};
+use zhang_core::ledger::Ledger;
+
+use crate::extension::{self, CatalogDigest, LabelColumn, Manifest};
+use crate::table::{self, Borrow, ColumnDef, Dataset, Get, RowRef, Rows, Table, POSTINGS};
 use crate::value::{DataType, Value};
 
 /// The tables a query can read: the default `postings` table first, then the tables `FROM #name`
@@ -21,27 +30,77 @@ use crate::value::{DataType, Value};
 pub struct Catalog {
     /// never empty: `postings` is the first table
     tables: Vec<TableRef>,
+    /// the digest of the extensions the tables come from
+    digest: CatalogDigest,
 }
 
 impl Catalog {
-    /// The core tables: the catalog [`crate::Query::compile`] compiles against.
+    /// The core tables only.
     pub fn core() -> &'static Catalog {
-        static CORE: LazyLock<Catalog> = LazyLock::new(|| Catalog::of(table::tables().iter().map(|table| TableRef::Static(table))));
+        static CORE: LazyLock<Catalog> = LazyLock::new(|| Catalog::with_extensions(&[]).expect("the core catalog"));
         &CORE
     }
 
+    /// The core tables and those of the native providers, compiled into zhang: the catalog of every ledger today,
+    /// which [`crate::Query::compile`] compiles against.
+    pub fn standard() -> &'static Arc<Catalog> {
+        static STANDARD: LazyLock<Arc<Catalog>> = LazyLock::new(|| {
+            // the tests build it from the same manifests, so this cannot fail in a release
+            Arc::new(Catalog::with_extensions(extension::native_manifests()).unwrap_or_else(|err| panic!("a native provider is invalid: {err}")))
+        });
+        &STANDARD
+    }
+
+    /// The catalog of the tables of `ledger`: the one a query to run on it compiles against.
+    pub fn of_ledger(_ledger: &Ledger) -> Arc<Catalog> {
+        Catalog::standard().clone()
+    }
+
+    /// The core tables and those of the providers of `manifests`, which are checked: the core's tables, then the
+    /// providers' in order, then `#errors`, which the schema has always listed last. `postings` has the providers'
+    /// label columns after its own.
+    pub(crate) fn with_extensions(manifests: &[Manifest]) -> Result<Catalog, String> {
+        let extensions = extension::build(manifests)?;
+        let core = table::tables();
+        let (data, trailing) = core.split_at(core.len() - table::TRAILING);
+        let postings = if extensions.labels.is_empty() {
+            TableRef::Static(&POSTINGS)
+        } else {
+            let (columns, labels): (Vec<_>, Vec<_>) = extensions.labels.into_iter().unzip();
+            TableRef::Shared(Arc::new(Table {
+                name: POSTINGS.name.clone(),
+                description: POSTINGS.description.clone(),
+                columns: Cow::Owned(POSTINGS.columns.iter().cloned().chain(columns).collect()),
+                wildcard: POSTINGS.wildcard.clone(),
+                rows: Rows::Postings,
+                provided_by: None,
+                labels,
+            }))
+        };
+        let tables = std::iter::once(postings)
+            .chain(data.iter().filter(|table| !table.is_postings()).map(|table| TableRef::Static(table)))
+            .chain(extensions.tables)
+            .chain(trailing.iter().map(|table| TableRef::Static(table)));
+        Ok(Catalog::of(tables, extensions.digest))
+    }
+
     /// The catalog of `tables`, the first of which is a `postings` table (the only one).
-    fn of(tables: impl IntoIterator<Item = TableRef>) -> Catalog {
+    fn of(tables: impl IntoIterator<Item = TableRef>, digest: CatalogDigest) -> Catalog {
         let tables = tables.into_iter().collect::<Vec<_>>();
         assert!(tables.first().is_some_and(TableRef::is_postings), "a catalog starts with the postings table");
         assert!(!tables[1..].iter().any(TableRef::is_postings), "a catalog has one postings table");
-        Catalog { tables }
+        Catalog { tables, digest }
     }
 
     /// The core tables and `extra` after them: a catalog with test-only tables.
     #[cfg(test)]
     pub(crate) fn core_and(extra: impl IntoIterator<Item = TableRef>) -> Catalog {
-        Catalog::of(Catalog::core().tables.iter().cloned().chain(extra))
+        Catalog::of(Catalog::core().tables.iter().cloned().chain(extra), Catalog::core().digest)
+    }
+
+    /// The digest of the catalog's extensions: a query that reads them runs only on ledgers whose catalog has it.
+    pub fn digest(&self) -> CatalogDigest {
+        self.digest
     }
 
     /// Every table, `postings` first.
@@ -92,6 +151,16 @@ impl TableRef {
     /// Whether this is the `postings` table, the default of a query without `FROM #name`.
     pub fn is_postings(&self) -> bool {
         self.table().is_postings()
+    }
+
+    /// The provider of an extension's table; `None` for a core table.
+    pub fn provided_by(&self) -> Option<&str> {
+        self.table().provided_by.as_deref()
+    }
+
+    /// The label columns of a `postings` table, by slot.
+    pub(crate) fn labels(&self) -> &[Arc<LabelColumn>] {
+        &self.table().labels
     }
 
     /// The columns, in schema order; a column handle's index is its position here.
@@ -195,7 +264,7 @@ impl ColumnRef {
     }
 
     /// The value of the column at `row`; see [`Get::value`].
-    pub fn value(&self, data: &Dataset<'_>, row: RowRef<'_, '_>) -> Value {
+    pub fn value<'a>(&self, data: &Dataset<'a>, row: RowRef<'_, 'a>) -> Value {
         self.get.value(data, row)
     }
 }
@@ -207,19 +276,8 @@ impl fmt::Debug for ColumnRef {
     }
 }
 
-impl Table {
-    /// A handle to the column `name` (case-insensitive) of this core table.
-    #[cfg(test)]
-    pub(crate) fn column_ref(&'static self, name: &str) -> Option<ColumnRef> {
-        TableRef::Static(self).column(name)
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::borrow::Cow;
-    use std::sync::Arc;
-
     use chrono::NaiveDate;
 
     use super::*;
@@ -248,7 +306,7 @@ mod tests {
         let rows = match &table.rows {
             Rows::Postings => Rows::Postings,
             Rows::Records(source) => Rows::Records(*source),
-            Rows::Generated(source) => Rows::Generated(*source),
+            Rows::Extension(_) => unreachable!("a core table"),
         };
         TableRef::Shared(Arc::new(Table {
             name: Cow::Owned(name.to_owned()),
@@ -256,6 +314,8 @@ mod tests {
             columns: Cow::Owned(table.columns.iter().cloned().chain(extra).collect()),
             wildcard: Names::Owned(table.wildcard.iter().map(str::to_owned).collect()),
             rows,
+            provided_by: None,
+            labels: vec![],
         }))
     }
 
@@ -301,7 +361,7 @@ mod tests {
         });
         let postings = owned_copy(&POSTINGS, "postings", Some(extra));
         let others = Catalog::core().tables().iter().filter(|table| !table.is_postings()).cloned();
-        let catalog = Catalog::of(std::iter::once(postings.clone()).chain(others));
+        let catalog = Catalog::of(std::iter::once(postings.clone()).chain(others), Catalog::core().digest());
         assert_eq!(catalog.postings(), &postings);
         assert!(postings.is_postings());
         assert_eq!(

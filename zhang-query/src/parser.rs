@@ -1184,9 +1184,9 @@ impl<'s> Parser<'s> {
 
 #[cfg(test)]
 pub(crate) mod tests {
-    /// Parse a complete query for the tables of the core catalog.
+    /// Parse a complete query for the tables of the catalog of every ledger.
     pub(crate) fn parse(src: &str) -> Result<Select, QueryError> {
-        parse_in(src, crate::catalog::Catalog::core().postings())
+        parse_in(src, crate::catalog::Catalog::standard().postings())
     }
 
     /// [`KEYWORDS`] lists exactly the words the parser reads as keywords: those it matches with `keyword` or

@@ -47,6 +47,8 @@ pub(super) static ENTRIES: Table = Table {
         "accounts",
     ]),
     rows: Rows::Records(entry_rows),
+    provided_by: None,
+    labels: Vec::new(),
 };
 
 pub(super) static TRANSACTIONS: Table = Table {
@@ -55,6 +57,8 @@ pub(super) static TRANSACTIONS: Table = Table {
     columns: Cow::Borrowed(TRANSACTION_COLUMNS),
     wildcard: Names::Static(&["date", "flag", "payee", "narration", "tags", "links", "accounts"]),
     rows: Rows::Records(transaction_rows),
+    provided_by: None,
+    labels: Vec::new(),
 };
 
 /// The entries, in ledger order: the dated directives without the transactions the ledger
@@ -137,7 +141,7 @@ fn date_part(data: &Dataset<'_>, record: &Record<'_>, part: fn(NaiveDate) -> u32
 
 /// The type of an entry: beancount's directive name, or zhang's keyword for the directives
 /// beancount does not have. A `balance ... with pad` is a `balance`, a beancount `pad` a `pad`.
-fn entry_type(directive: &Directive) -> &'static str {
+pub(crate) fn entry_type(directive: &Directive) -> &'static str {
     match directive {
         Directive::Open(_) => "open",
         Directive::Close(_) => "close",
