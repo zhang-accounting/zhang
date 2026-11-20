@@ -1449,7 +1449,7 @@ Assets:Broker:GLD,,17
 {
   "data": {
     "columns": [
-      { "name": "date", "type": "date", "description": "Date of the transaction." }
+      { "name": "date", "type": "date", "description": "Date of the transaction.", "provided_by": null }
     ],
     "functions": [
       { "name": "count", "signature": "count(*) -> int", "description": "Number of rows.", "aggregate": true }
@@ -1458,7 +1458,8 @@ Assets:Broker:GLD,,17
       {
         "name": "postings",
         "description": "One row per posting of every transaction, ...",
-        "columns": [{ "name": "date", "type": "date", "description": "Date of the transaction." }]
+        "columns": [{ "name": "date", "type": "date", "description": "Date of the transaction.", "provided_by": null }],
+        "provided_by": null
       }
     ]
   }
@@ -1467,6 +1468,7 @@ Assets:Broker:GLD,,17
 
 - `columns` 每列一项，共 34 项，顺序与[列](#列)表格相同。
 - `tables` 每个表一项，先是 `postings`，然后按[其他表](#其他表)中列出的顺序排列，最后是 `budgets`、`budget_events` 和 `errors`。`name` 不带 `#`。`postings` 一项的列与 `columns` 相同；结构化列的字段以 `open.date` 这样的名字列为单独的列。
+- `provided_by` 是不属于 zhang 核心的表或列的提供者，例如预算表和 `postings` 的 `budgets` 列为 `zhang:budget`；核心的表和列为 `null`。schema 描述的是当前服务的账本：对它的查询能用到的表和列。
 - `functions` 每个重载一项，共 100 项：先是聚合函数，然后是标量函数，其中包括 `account_sortkey` 和 `maxwidth`。`signature` 的写法与本页表格相同；[聚合函数](#聚合函数)的 `aggregate` 为 `true`，其他函数为 `false`。
 
 ## 示例

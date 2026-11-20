@@ -438,6 +438,9 @@ pub struct ColumnDoc {
     pub name: String,
     pub ty: DataType,
     pub description: String,
+    /// the provider of the column, such as `zhang:budget` for the `budgets` column of `postings`; `None` for a column
+    /// of the core
+    pub provided_by: Option<String>,
 }
 
 /// A table a query can read with `FROM #name`, for documentation.
@@ -447,6 +450,8 @@ pub struct TableDoc {
     pub name: String,
     pub description: String,
     pub columns: Vec<ColumnDoc>,
+    /// the provider of the table, such as `zhang:budget` for `#budgets`; `None` for a table of the core
+    pub provided_by: Option<String>,
 }
 
 /// One function overload, for documentation.
@@ -479,39 +484,53 @@ fn column_docs(table: &catalog::TableRef) -> Vec<ColumnDoc> {
             name: column.name.to_string(),
             ty: column.ty,
             description: column.description.to_string(),
+            provided_by: column.provided_by.as_deref().map(str::to_owned),
         })
         .collect()
 }
 
-/// Describe every table of the catalog of every ledger ([`Catalog::standard`]) and every function overload.
+/// Describe every table and every function overload of the catalog of every ledger ([`Catalog::standard`]).
 pub fn schema() -> Schema {
-    let catalog = Catalog::standard();
-    let columns = column_docs(catalog.postings());
-    let tables = catalog
-        .tables()
-        .iter()
-        .map(|table| TableDoc {
-            name: table.name().to_owned(),
-            description: table.description().to_owned(),
-            columns: column_docs(table),
-        })
-        .collect();
-    let aggregates = functions::aggregates::AGGREGATE_FUNCTIONS.iter().map(|function| FunctionDoc {
-        name: function.name,
-        signature: function.signature(),
-        description: function.description,
-        aggregate: true,
-    });
-    let scalars = functions::SCALAR_FUNCTIONS.iter().map(|function| FunctionDoc {
-        name: function.name,
-        signature: function.signature(),
-        description: function.description,
-        aggregate: false,
-    });
-    Schema {
-        columns,
-        functions: aggregates.chain(scalars).collect(),
-        tables,
-        keywords: parser::KEYWORDS.to_vec(),
+    Catalog::standard().schema()
+}
+
+/// Describe every table and every function overload a query on `ledger` can use: those of its catalog
+/// ([`Catalog::of_ledger`]).
+pub fn schema_of(ledger: &Ledger) -> Schema {
+    Catalog::of_ledger(ledger).schema()
+}
+
+impl Catalog {
+    /// Describe every table of the catalog, its own `postings` table first, and every function overload.
+    pub fn schema(&self) -> Schema {
+        let columns = column_docs(self.postings());
+        let tables = self
+            .tables()
+            .iter()
+            .map(|table| TableDoc {
+                name: table.name().to_owned(),
+                description: table.description().to_owned(),
+                columns: column_docs(table),
+                provided_by: table.provided_by().map(str::to_owned),
+            })
+            .collect();
+        let aggregates = functions::aggregates::AGGREGATE_FUNCTIONS.iter().map(|function| FunctionDoc {
+            name: function.name,
+            signature: function.signature(),
+            description: function.description,
+            aggregate: true,
+        });
+        let scalars = functions::SCALAR_FUNCTIONS.iter().map(|function| FunctionDoc {
+            name: function.name,
+            signature: function.signature(),
+            description: function.description,
+            aggregate: false,
+        });
+        Schema {
+            columns,
+            functions: aggregates.chain(scalars).collect(),
+            tables,
+            keywords: parser::KEYWORDS.to_vec(),
+        }
     }
 }

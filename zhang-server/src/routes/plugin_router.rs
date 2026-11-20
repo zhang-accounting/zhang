@@ -385,7 +385,7 @@ impl RouterHost for ServerRouterHost {
 
     /// the schema as `GET /api/query/schema` answers it
     fn schema(&self) -> Result<Value, QueryFailure> {
-        serde_json::to_value(QuerySchemaEntity::from(zhang_query::schema())).map_err(|e| unlocated(format!("the schema cannot be encoded: {e}")))
+        serde_json::to_value(QuerySchemaEntity::from(zhang_query::schema_of(&self.ledger))).map_err(|e| unlocated(format!("the schema cannot be encoded: {e}")))
     }
 
     /// the built-in query `name` ([`builtin::get`]) with its parameters read as `POST /api/query/builtins/{name}`

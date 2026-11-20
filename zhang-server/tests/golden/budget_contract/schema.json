@@ -33,32 +33,55 @@
     }
   ],
   "tables": [
-    {"name": "postings", "columns": [{"name": "budgets", "type": "set"}]},
+    {
+      "name": "postings",
+      "columns": [{"name": "budgets", "type": "set", "provided_by": "zhang:budget"}],
+      "provided_by": null
+    },
     {
       "name": "budgets",
       "columns": [
-        {"name": "name", "type": "str"},
-        {"name": "alias", "type": "str"},
-        {"name": "category", "type": "str"},
-        {"name": "currency", "type": "str"},
-        {"name": "date", "type": "date"},
-        {"name": "year", "type": "int"},
-        {"name": "month", "type": "int"},
-        {"name": "assigned", "type": "amount"},
-        {"name": "added", "type": "amount"},
-        {"name": "activity", "type": "amount"},
-        {"name": "available", "type": "amount"},
-        {"name": "accounts", "type": "set"},
-        {"name": "closed", "type": "bool"}
-      ]
+        {"name": "name", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "alias", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "category", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "currency", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "date", "type": "date", "provided_by": "zhang:budget"},
+        {"name": "year", "type": "int", "provided_by": "zhang:budget"},
+        {"name": "month", "type": "int", "provided_by": "zhang:budget"},
+        {"name": "assigned", "type": "amount", "provided_by": "zhang:budget"},
+        {"name": "added", "type": "amount", "provided_by": "zhang:budget"},
+        {"name": "activity", "type": "amount", "provided_by": "zhang:budget"},
+        {"name": "available", "type": "amount", "provided_by": "zhang:budget"},
+        {"name": "accounts", "type": "set", "provided_by": "zhang:budget"},
+        {"name": "closed", "type": "bool", "provided_by": "zhang:budget"}
+      ],
+      "provided_by": "zhang:budget"
     },
     {
       "name": "budget_events",
-      "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}]
+      "columns": [
+        {"name": "name", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "date", "type": "date", "provided_by": "zhang:budget"},
+        {"name": "time", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "timestamp", "type": "int", "provided_by": "zhang:budget"},
+        {"name": "type", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "amount", "type": "amount", "provided_by": "zhang:budget"}
+      ],
+      "provided_by": "zhang:budget"
     },
     {
       "name": "budget_definitions",
-      "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}]
+      "columns": [
+        {"name": "name", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "date", "type": "date", "provided_by": "zhang:budget"},
+        {"name": "currency", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "alias", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "category", "type": "str", "provided_by": "zhang:budget"},
+        {"name": "accounts", "type": "set", "provided_by": "zhang:budget"},
+        {"name": "close", "type": "date", "provided_by": "zhang:budget"},
+        {"name": "close_time", "type": "str", "provided_by": "zhang:budget"}
+      ],
+      "provided_by": "zhang:budget"
     }
   ]
 }

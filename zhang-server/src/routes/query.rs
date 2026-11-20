@@ -116,6 +116,7 @@ pub async fn with_ledger<T: Send + 'static>(ledger: &LedgerState, work: impl FnO
 /// limit and the result size limit. The query length is capped by the parser.
 async fn execute(ledger: &LedgerState, text: String, max_result_values: u64, count_total: bool) -> ServerResult<QueryResult> {
     // compiling needs no ledger; run it, and the CPU-bound execution, off the async workers
+    // TODO(P1.4): compile inside `with_ledger` against `Catalog::of_ledger`, once plugins give a ledger tables of its own
     let query = tokio::task::spawn_blocking(move || Query::compile(&text)).await??;
     let options = ExecuteOptions {
         count_total,
@@ -205,9 +206,12 @@ async fn run_builtins(ledger: &LedgerState, payload: Vec<BuiltinQueryBatchItem>)
 }
 
 /// The columns and functions available to queries.
+// those of the served ledger: zhang's core, and what its providers add, such as the budget tables of `zhang:budget`,
+// each with its `provided_by`
 #[api(group = "query")]
-pub async fn get_query_schema() -> ApiResult<QuerySchemaEntity> {
-    ResponseWrapper::json(zhang_query::schema().into())
+pub async fn get_query_schema(ledger: State<SharedLedger>) -> ApiResult<QuerySchemaEntity> {
+    let schema = with_ledger(&ledger, |ledger| Ok(zhang_query::schema_of(ledger))).await?;
+    ResponseWrapper::json(schema.into())
 }
 
 /// The queries saved in the ledger by `query` directives, in ledger order (by date, then
@@ -535,15 +539,40 @@ mod result_limit_test {
 
 #[cfg(test)]
 mod schema_test {
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use axum::extract::State;
     use axum::response::IntoResponse;
     use gotcha::Schematic;
+    use serde_json::json;
+    use zhang_core::clock::Clock;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::data_type::DataType;
+    use zhang_core::ledger::{Ledger, LedgerProcessContext};
 
     use super::get_query_schema;
     use crate::response::QuerySchemaEntity;
+    use crate::state::SharedLedger;
+
+    fn ledger() -> SharedLedger {
+        let directives = ZhangDataType {}.transform("1970-01-01 open Assets:Bank\n".to_owned(), None).unwrap();
+        let ledger = Ledger::process(LedgerProcessContext {
+            directives,
+            entry: (PathBuf::from("."), "main.zhang".to_owned()),
+            dialect: zhang_core::data_type::Dialect::Zhang,
+            visited_files: vec![],
+            data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+            clock: Clock::System,
+        })
+        .unwrap();
+        SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger)))
+    }
 
     #[tokio::test]
     async fn the_schema_lists_every_table_with_its_columns() {
-        let response = get_query_schema().await.into_response();
+        let response = get_query_schema(State(ledger())).await.into_response();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let schema = &body["data"];
@@ -558,13 +587,25 @@ mod schema_test {
             let name = table["name"].as_str().unwrap();
             assert!(!name.starts_with('#') && !name.is_empty(), "{}", name);
             assert!(!table["description"].as_str().unwrap().is_empty(), "{}", name);
+            // the budget tables are zhang:budget's, every other one the core's
+            let budgets = name.starts_with("budget");
+            assert_eq!(table["provided_by"], if budgets { json!("zhang:budget") } else { json!(null) }, "{}", name);
             let columns = table["columns"].as_array().unwrap();
             assert!(!columns.is_empty(), "{}", name);
             for column in columns {
-                assert_eq!(column.as_object().unwrap().len(), 3, "{}: {}", name, column);
+                assert_eq!(column.as_object().unwrap().len(), 4, "{}: {}", name, column);
                 for field in ["name", "type", "description"] {
                     assert!(!column[field].as_str().unwrap().is_empty(), "{}: {}", name, column);
                 }
+                // the columns of a budget table, and the budgets column of postings, are zhang:budget's
+                let provided = budgets || (name == "postings" && column["name"] == "budgets");
+                assert_eq!(
+                    column["provided_by"],
+                    if provided { json!("zhang:budget") } else { json!(null) },
+                    "{}: {}",
+                    name,
+                    column
+                );
             }
         }
     }
@@ -574,8 +615,12 @@ mod schema_test {
         let schema = serde_json::to_value(QuerySchemaEntity::generate_schema().schema).unwrap();
         assert_eq!(schema["required"], serde_json::json!(["columns", "functions", "tables", "keywords"]));
         let table = &schema["properties"]["tables"]["items"];
-        assert_eq!(table["required"], serde_json::json!(["name", "description", "columns"]));
+        assert_eq!(table["required"], serde_json::json!(["name", "description", "columns", "provided_by"]));
         assert_eq!(table["properties"]["columns"]["type"], "array");
+        assert_eq!(table["properties"]["provided_by"]["nullable"], true);
+        let column = &table["properties"]["columns"]["items"];
+        assert_eq!(column["required"], serde_json::json!(["name", "type", "description", "provided_by"]));
+        assert_eq!(column["properties"]["provided_by"]["nullable"], true);
     }
 }
 
