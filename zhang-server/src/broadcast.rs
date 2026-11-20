@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::response::sse::Event;
-use futures_util::future;
 use serde::Serialize;
+use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio::sync::Mutex;
 use tokio::time::interval;
@@ -34,6 +34,24 @@ mod test {
 
     use super::BroadcastEvent;
     use crate::state::ReloadFailure;
+
+    /// A client that does not read misses what its buffer cannot hold, and the broadcast does not wait for it; a
+    /// client that reads gets every event
+    #[tokio::test]
+    async fn a_client_that_does_not_read_does_not_hold_up_a_broadcast() {
+        let broadcaster = super::Broadcaster::create();
+        let _stalled = broadcaster.new_client().await;
+        let mut reading = broadcaster.new_client().await;
+        let broadcasts = async {
+            for _ in 0..50 {
+                broadcaster.broadcast(BroadcastEvent::Reload).await;
+                let _event = reading.recv().await.expect("the event");
+            }
+        };
+        tokio::time::timeout(std::time::Duration::from_secs(10), broadcasts)
+            .await
+            .expect("the broadcasts do not wait for the client that does not read");
+    }
 
     /// the event the web UI switches on by `type`, with the failure's fields beside it
     #[test]
@@ -83,14 +101,15 @@ impl Broadcaster {
         });
     }
 
-    /// Removes all non-responsive clients from broadcast list.
+    /// Removes the clients that are gone from the broadcast list. A client that does not read, whose buffer is full,
+    /// stays: the ping never waits for one
     async fn remove_stale_clients(&self) {
         let clients = self.inner.lock().await.clients.clone();
 
         let mut ok_clients = Vec::new();
 
         for client in clients {
-            if client.send(Event::default().comment("ping")).await.is_ok() {
+            if !matches!(client.try_send(Event::default().comment("ping")), Err(TrySendError::Closed(_))) {
                 ok_clients.push(client.clone());
             }
         }
@@ -109,14 +128,14 @@ impl Broadcaster {
         rx
     }
 
-    /// Broadcasts `msg` to all clients.
+    /// Broadcasts `msg` to all clients, without waiting for any: a client that does not read (a suspended phone, a
+    /// connection whose window is shut), whose buffer is full, misses it, rather than hold up the reload that tells
+    /// it, and every writer and reader after it. Disconnected clients get swept up by `remove_stale_clients`
     pub async fn broadcast(&self, msg: BroadcastEvent) {
         let clients = self.inner.lock().await.clients.clone();
-        let send_futures = clients.iter().map(|client| client.send(msg.to_data()));
-
-        // try to send to all clients, ignoring failures
-        // disconnected clients will get swept up by `remove_stale_clients`
-        let _ = future::join_all(send_futures).await;
+        for client in &clients {
+            client.try_send(msg.to_data()).ok();
+        }
     }
 
     pub async fn client_number(&self) -> usize {

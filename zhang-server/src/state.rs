@@ -66,8 +66,6 @@ impl SharedLedger {
         // a plugin's commit marks the sender, not the ledger, as it holds the read lock ([`ReloadSender::mark_written`])
         if ledger.stale || reload_sender.write_pending() {
             ledger.reload().await.map_err(ServerError::UnloadableLedger)?;
-            // the readers read on while the write plans and writes
-            ledger.downgrade();
         }
         Ok(ledger)
     }
@@ -107,46 +105,34 @@ pub(crate) fn write_cycle(ledger: &Arc<RwLock<Ledger>>) -> Arc<RwLock<()>> {
 ///
 /// 1. The [write cycle](write_cycle), exclusive, from the start of the writer to its end: writes and reloads run one
 ///    after the other, exactly as when a writer held the ledger's write lock for its whole write, so a write plans
-///    against the ledger its files hold. The request of a router plugin that may write holds it shared, so a commit
-///    never comes between a write and its reload.
-/// 2. The ledger's lock: read while the writer plans and writes its files, so the readers read on; released while the
-///    next ledger loads, with no lock held; written for the swap, and kept written from then on until the writer is
-///    dropped, so what a write records with the ledger it answers from (its tombstones, the ids it answers) is seen
-///    with that ledger and never before (a write that reloads first, before it plans, reads it again once swapped).
-///    The writer never waits for the write lock holding the read lock.
+///    against the ledger its files hold, and the ledger a writer reads is not replaced before it is done. The request
+///    of a router plugin that may write holds it shared, so a commit never comes between a write and its reload, and
+///    so does the file watcher while it looks at what changed, so it looks at the ledger a load in progress swaps in.
+/// 2. The ledger's lock: read by the writer, with the readers, while it plans and writes its files and once it swapped
+///    the next ledger in; released while that one loads, with no lock held; written only for the swap itself (and to
+///    mark the ledger stale), never while the readers are told of the reload, which a client that does not read could
+///    hold up. The writer never waits for the write lock holding the read lock.
 /// 3. The reload sender's own locks (the tombstones, the fingerprint, the failure kept) and the commit lock of the
 ///    plugins' writes: short, and never held across an `.await`.
 ///
-/// The ledger a reload replaces is dropped off the async workers and with no lock held, after the swap, and before the
-/// next reload loads ([`ReloadSender::retire`]).
+/// What a write records for the requests after it, its tombstones, it records with the write, before the reload:
+/// a writer whose client goes away during the reload is dropped there. The ledger a reload replaces is dropped off the
+/// async workers and with no lock held, after the swap, and before the next reload loads ([`ReloadSender::retire`]).
 pub struct LedgerWriter {
-    /// the ledger served, as the writer holds it now
-    served: Held,
+    /// the ledger served, read; `None` for a moment only, within a method of the writer, between the read lock and the
+    /// write lock
+    served: Option<OwnedRwLockReadGuard<Ledger>>,
     ledger: Arc<RwLock<Ledger>>,
     reload_sender: Arc<ReloadSender>,
     /// the write cycle, held until the writer is dropped; released after the ledger, as the fields drop in order
     _cycle: OwnedRwLockWriteGuard<()>,
 }
 
-/// how a [`LedgerWriter`] holds the ledger served
-enum Held {
-    /// read, with the readers
-    Read(OwnedRwLockReadGuard<Ledger>),
-    /// written, from a swap on
-    Written(OwnedRwLockWriteGuard<Ledger>),
-    /// not at all, for a moment within a method of the writer, between the read lock and the write lock
-    Released,
-}
-
 impl Deref for LedgerWriter {
     type Target = Ledger;
 
     fn deref(&self) -> &Ledger {
-        match &self.served {
-            Held::Read(ledger) => ledger,
-            Held::Written(ledger) => ledger,
-            Held::Released => unreachable!("a writer holds the ledger outside its own methods"),
-        }
+        self.served.as_ref().expect("a writer holds the ledger outside its own methods")
     }
 }
 
@@ -154,7 +140,7 @@ impl LedgerWriter {
     /// `ledger` held by a writer, once the writers before it are done
     pub(crate) async fn new(ledger: Arc<RwLock<Ledger>>, reload_sender: Arc<ReloadSender>) -> LedgerWriter {
         let cycle = write_cycle(&ledger).write_owned().await;
-        let served = Held::Read(ledger.clone().read_owned().await);
+        let served = Some(ledger.clone().read_owned().await);
         LedgerWriter {
             served,
             ledger,
@@ -165,9 +151,9 @@ impl LedgerWriter {
 
     /// The reload every reload of the served ledger runs, the one the listener runs and the one a write runs alike:
     /// the ledger is loaded again with no lock held ([`load_again`]), while the readers read the ledger served, and
-    /// replaces it at once, under the write lock, which the writer keeps ([`LedgerWriter`]). A load that fails, or
-    /// panics, replaces nothing: the ledger served stays the previous one. What the reload came to is kept for
-    /// `/api/info`, the readers are told, and the midnight reload is scheduled again for the ledger now served
+    /// replaces it at once, under the write lock for the swap only ([`LedgerWriter`]). A load that fails, or panics,
+    /// replaces nothing: the ledger served stays the previous one. What the reload came to is kept for `/api/info`, the
+    /// readers are told, and the midnight reload is scheduled again for the ledger now served
     pub(crate) async fn reload(&mut self) -> Result<(), ReloadFailure> {
         info!("start reloading...");
         let start_time = Instant::now();
@@ -175,54 +161,41 @@ impl LedgerWriter {
         self.reload_sender.retired().await;
         let outcome = match load_again(self.reloader()).await {
             Ok((reloaded, fingerprint)) => {
-                let replaced = self.swap(reloaded).await;
-                self.reload_sender.swapped(fingerprint);
+                let replaced = self.swap(reloaded, fingerprint).await;
                 self.reload_sender.retire(replaced);
                 info!("ledger is reloaded successfully in {:?}", start_time.elapsed());
                 Ok(())
             }
             Err(failure) => Err(failure),
         };
+        // told under the read lock only: the cycle keeps the events in the order of the reloads
         let reload_sender = self.reload_sender.clone();
         reload_sender.reloaded(&outcome, self).await;
         outcome
     }
 
-    /// serve `reloaded` in place of the ledger served, which is answered, holding the write lock from now on
-    async fn swap(&mut self, reloaded: Ledger) -> Ledger {
-        let mut served = match std::mem::replace(&mut self.served, Held::Released) {
-            Held::Written(served) => served,
-            held => {
-                // the read lock let go first: the write lock waits for every reader
-                drop(held);
-                self.ledger.clone().write_owned().await
-            }
-        };
+    /// serve `reloaded`, whose fingerprint is `fingerprint`, in place of the ledger served, which is answered: under
+    /// the write lock, with what the reload sender records of it, then read again
+    async fn swap(&mut self, reloaded: Ledger, fingerprint: u64) -> Ledger {
+        let mut served = self.write_lock().await;
         let replaced = std::mem::replace(&mut *served, reloaded);
-        self.served = Held::Written(served);
+        self.reload_sender.swapped(fingerprint);
+        self.served = Some(served.downgrade());
         replaced
-    }
-
-    /// hold the ledger read again after a swap, so the readers read on
-    pub(crate) fn downgrade(&mut self) {
-        if let Held::Written(served) = std::mem::replace(&mut self.served, Held::Released) {
-            self.served = Held::Read(served.downgrade());
-        } else {
-            unreachable!("only a written ledger is downgraded")
-        }
     }
 
     /// mark the ledger served [stale](Ledger::stale), under the write lock for that moment only
     async fn mark_stale(&mut self) {
-        match &mut self.served {
-            Held::Written(served) => served.stale = true,
-            Held::Read(_) | Held::Released => {
-                self.served = Held::Released;
-                let mut served = self.ledger.clone().write_owned().await;
-                served.stale = true;
-                self.served = Held::Read(served.downgrade());
-            }
-        }
+        let mut served = self.write_lock().await;
+        served.stale = true;
+        self.served = Some(served.downgrade());
+    }
+
+    /// the ledger served, written: the read lock let go first, as the write lock waits for every reader. The caller
+    /// holds the read lock again before it returns
+    async fn write_lock(&mut self) -> OwnedRwLockWriteGuard<Ledger> {
+        self.served = None;
+        self.ledger.clone().write_owned().await
     }
 }
 
@@ -238,8 +211,8 @@ pub async fn wrote<T>(ledger: &mut LedgerWriter, result: ServerResult<T>) -> Ser
 
 /// [`wrote`], for a write whose answer must hold for the next request: once the files are written, the served ledger
 /// is reloaded before the writer answers, as every reload of it runs ([`LedgerWriter::reload`]), still held by the
-/// writer, which holds it written from the swap on. A request sent after the answer reads the ledger with the write,
-/// and the ids it gives. Next to the value is whether that reload succeeded: a reload that failed is kept for
+/// writer, so no other writer replaces it before the writer answered from it. A request sent after the answer reads
+/// the ledger with the write, and the ids it gives. Next to the value is whether that reload succeeded: a reload that failed is kept for
 /// `/api/info` and told to the readers, the ledger served is the one loaded before, behind the files, and is
 /// [stale](Ledger::stale), so the next write reloads it first. A write that failed is [`wrote`]'s.
 pub async fn wrote_and_reloaded<T>(ledger: &mut LedgerWriter, result: ServerResult<T>) -> ServerResult<(T, bool)> {

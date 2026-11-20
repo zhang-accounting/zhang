@@ -589,3 +589,24 @@ async fn an_edit_during_a_reload_to_a_file_it_newly_includes_is_served() {
     }
     assert_eq!(payees, vec!["Cafe", "Outside"], "the edit is served");
 }
+
+/// An SSE client that never reads, as a suspended phone: the reloads tell it what its buffer holds and go on, and
+/// neither the writers nor the readers wait for it
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_sse_client_that_does_not_read_holds_up_nothing() {
+    let served = Served::with_main(OPENS);
+    let _stalled = served.broadcaster.new_client().await;
+    let work = async {
+        // more reloads than its buffer holds events
+        for _ in 0..15 {
+            served.reload_sender.reload_and_wait().await.unwrap();
+        }
+        let created = served.create(None, coffee("Cafe", "5")).await;
+        assert_eq!(created.status, StatusCode::OK, "{}", created.body);
+        served.read_now().await
+    };
+    let payees = tokio::time::timeout(Duration::from_secs(60), work)
+        .await
+        .expect("the reloads, the write and the reads do not wait for the client");
+    assert_eq!(payees, vec!["Cafe"]);
+}
