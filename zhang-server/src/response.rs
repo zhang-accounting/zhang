@@ -190,8 +190,10 @@ pub struct JournalTransactionPostingEntity {
     pub inferred_unit: Amount,
     pub account_before: Amount,
     pub account_after: Amount,
-    /// metadata of the posting, in the order it is written (the values of a repeated key together, after the first),
-    /// for a transaction read from a file; sorted by key otherwise
+    /// metadata of the posting: in the order it is written (the values of a repeated key together, after the first)
+    /// when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
+    /// when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
+    /// written
     pub metas: Vec<MetaEntity>,
     /// the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
     /// the entry of a balance check and for a transaction a plugin made
