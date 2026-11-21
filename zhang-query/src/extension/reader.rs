@@ -22,7 +22,7 @@ use zhang_shared::plugin_abi::analysis as abi;
 
 use super::abi::Values;
 use super::snapshot::{publish, Cause, FactRow, Label, Partition, RecordRow, Snapshot, TableData};
-use super::{ColumnDecl, DatePart, LabelDecl, Provider, TableDecl, TableKind};
+use super::{ColumnDecl, DatePart, Fill, LabelDecl, Provider, TableDecl, TableKind};
 use crate::params::Params;
 use crate::value::{parse_date, DataType, Value};
 
@@ -192,6 +192,18 @@ impl<'de> Visitor<'de> for Cell {
                 }
                 Ok(Value::Metas(pairs))
             }
+            // the shorter form of an amount, `["12.50", "CNY"]`
+            DataType::Amount => {
+                let number = items.next_element_seed(Number)?;
+                let currency = items.next_element::<String>()?;
+                if items.next_element::<IgnoredAny>()?.is_some() {
+                    return stop();
+                }
+                match (number, currency) {
+                    (Some(number), Some(currency)) => Ok(Value::Amount(Amount::new(number, currency))),
+                    _ => stop(),
+                }
+            }
             _ => stop(),
         }
     }
@@ -329,7 +341,8 @@ impl<'de> Visitor<'de> for RowMeta {
     }
 }
 
-/// The rows of a record table, each an object of its cells and maybe its `$meta`.
+/// The rows of a record table, each an object of its cells and maybe its `$meta`, or the list of its cells and maybe its
+/// metadata.
 struct Rows<'d, 'v> {
     decl: &'d TableDecl,
     values: &'v mut Values,
@@ -374,7 +387,7 @@ impl<'de> DeserializeSeed<'de> for Row<'_, '_> {
     type Value = RecordRow;
 
     fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<RecordRow, D::Error> {
-        deserializer.deserialize_map(self)
+        deserializer.deserialize_any(self)
     }
 }
 
@@ -408,6 +421,26 @@ impl<'de> Visitor<'de> for Row<'_, '_> {
             return stop();
         }
         Ok(RecordRow { cells, meta })
+    }
+
+    // a row listed: its cells in the order of the columns, maybe followed by its metadata
+    fn visit_seq<A: SeqAccess<'de>>(self, mut listed: A) -> Result<RecordRow, A::Error> {
+        let mut cells = Vec::with_capacity(self.columns.len());
+        for column in self.columns {
+            let Some(value) = listed.next_element_seed(Cell(column.ty))? else {
+                return stop();
+            };
+            count(self.values, &value)?;
+            cells.push(value);
+        }
+        let meta = listed.next_element_seed(RowMeta)?;
+        if listed.next_element::<IgnoredAny>()?.is_some() {
+            return stop();
+        }
+        Ok(RecordRow {
+            cells: cells.into_boxed_slice(),
+            meta,
+        })
     }
 }
 
@@ -737,10 +770,11 @@ impl<'de> Visitor<'de> for Facts<'_, '_> {
     }
 
     fn visit_seq<A: SeqAccess<'de>>(self, mut rows: A) -> Result<Vec<FactRow>, A::Error> {
-        let mut facts = Vec::with_capacity(rows.size_hint().unwrap_or(0));
+        let mut facts: Vec<FactRow> = Vec::with_capacity(rows.size_hint().unwrap_or(0));
         while let Some(fact) = rows.next_element_seed(Fact {
             columns: self.columns,
             kinds: self.kinds,
+            previous: facts.last(),
             values: &mut *self.values,
         })? {
             facts.push(fact);
@@ -763,10 +797,12 @@ enum FactColumn {
     Cell,
 }
 
-/// A fact: the period, a cell for each other column but the key's and the derived ones, and maybe its `$meta`.
+/// A fact: the period, a cell for each other column but the key's and the derived ones, and maybe its `$meta`. A fact
+/// after the first (`previous`) may leave out the cells filled with `carry`, and its `$meta`: it has the previous one's.
 struct Fact<'d, 'v> {
     columns: &'d [ColumnDecl],
     kinds: &'d [FactColumn],
+    previous: Option<&'d FactRow>,
     values: &'v mut Values,
 }
 
@@ -812,6 +848,19 @@ impl<'de> Visitor<'de> for Fact<'_, '_> {
             }
         }
         let Some(period) = period else { return stop() };
+        // the cells left out, carried from the fact before
+        if let Some(previous) = self.previous {
+            for (at, kind) in kinds.iter().enumerate() {
+                if read & (1 << at) == 0 && matches!(kind, FactColumn::Cell) && columns[at].fill == Some(Fill::Carry) {
+                    cells[at] = previous.cells[at].clone();
+                    count(self.values, &cells[at])?;
+                    read |= 1 << at;
+                }
+            }
+            if meta.is_none() {
+                meta = previous.meta.clone();
+            }
+        }
         for (at, kind) in kinds.iter().enumerate() {
             match kind {
                 FactColumn::Period => cells[at] = Value::Date(period),
