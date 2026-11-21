@@ -48,7 +48,8 @@
 
 pub use zhang_shared::plugin_abi::analysis::{
     Cause, ColumnManifest, Conversion, ConvertedAmount, Diagnostic, DiagnosticDecl, Fill, Input, LabelManifest, LabelOutput, Manifest, Output, PartitionOutput,
-    PeriodManifest, Phase, PublishedOrder, Record, RecordOrder, SeriesOutput, TableKind, TableManifest, Target, ANALYSIS_ABI, MAX_CONVERSIONS, ROW_META,
+    PeriodManifest, Phase, PublishedOrder, QueryManifest, QueryParamManifest, Record, RecordOrder, SeriesOutput, TableKind, TableManifest, Target,
+    ANALYSIS_ABI, MAX_CONVERSIONS, ROW_META,
 };
 
 use crate::error::host_result;

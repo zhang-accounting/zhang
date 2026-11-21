@@ -35,10 +35,11 @@ impl LedgerCatalog {
 }
 
 /// The catalog of a ledger whose analyzers declare `analyzers`: the core tables, those of the native providers, and
-/// those of the analyzers, in order. An analyzer whose manifest does not hold, or whose tables and columns cannot all
-/// be had (a name taken by the core, a native provider or an earlier analyzer, or a limit reached), has none of them
-/// and is skipped. The tables and columns of `zhang:budget` keep their legacy names and replace the native
-/// provider's: the catalog serves them from its snapshot. Without analyzers it is [`Catalog::standard`].
+/// those of the analyzers, in order. An analyzer whose manifest does not hold, or whose tables, columns and named
+/// queries cannot all be had (a name taken by the core, a native provider or an earlier analyzer, a limit reached, or
+/// a query that does not compile), has none of them and is skipped. The tables, columns and queries of `zhang:budget`
+/// keep their legacy names and replace the native provider's: the catalog serves them from its snapshot. Without
+/// analyzers it is [`Catalog::standard`].
 pub fn ledger_catalog(analyzers: &[AnalyzerTables<'_>]) -> LedgerCatalog {
     if analyzers.is_empty() {
         return LedgerCatalog {
@@ -83,12 +84,18 @@ pub fn ledger_catalog(analyzers: &[AnalyzerTables<'_>]) -> LedgerCatalog {
                 .iter()
                 .any(|(_, provider, legacy)| *legacy && provider.manifest.labels.iter().any(|it| it.name == name))
         };
+        let queried_instead = |name: &str| {
+            accepted
+                .iter()
+                .any(|(_, provider, legacy)| *legacy && provider.manifest.queries.iter().any(|it| it.name == name))
+        };
         let mut providers = natives
             .iter()
             .map(|native| {
                 let mut native = native.clone();
                 native.manifest.tables.retain(|table| !replaced(&table.name));
                 native.manifest.labels.retain(|label| !relabelled(&label.name));
+                native.manifest.queries.retain(|query| !queried_instead(&query.name));
                 native
             })
             .collect::<Vec<_>>();

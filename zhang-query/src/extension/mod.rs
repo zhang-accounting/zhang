@@ -22,6 +22,10 @@
 //!   the row. The predicate is BQL over the row with parameters, compiled once per catalog; the snapshot holds the
 //!   labels and the parameters each binds ([`labels`]).
 //!
+//! A provider may also declare **named queries** ([`NamedQuery`]): BQL over the catalog with typed parameters, which the
+//! server lists and runs with its own built-in queries, `zhang:budget`'s `budgets.*` among them. They are part of the
+//! catalog, checked when it is built: each compiles against it with exactly the parameters it declares.
+//!
 //! The native providers are compiled into zhang ([`NATIVE`]): `zhang:budget` serves `#budgets`, `#budget_events`,
 //! `#budget_definitions` and the `budgets` column of `postings` with the native budget code ([`budget`]). A native
 //! snapshot is built from the ledger on first use and kept with it, like the query cache. The other providers are
@@ -56,18 +60,69 @@ use zhang_core::ledger::Ledger;
 pub(crate) use self::labels::{LabelColumn, Labels};
 pub(crate) use self::series::{FillRead, SeriesRow, SeriesSpec};
 pub(crate) use self::snapshot::{native_snapshots, Cause, FactRow, Label, NativeSnapshot, Partition, RecordRow, TableData};
-use crate::catalog::TableRef;
+use crate::catalog::{Catalog, TableRef};
+use crate::params::JSON_TYPES;
 use crate::table::{self, Borrow, ColumnDef, Get, Names, Rows, Table};
 use crate::value::DataType;
+use crate::{ParamRef, ParamTypes, Query};
 
-/// What a provider declares: its tables and its label columns. It is static, so the catalog is known before any
-/// snapshot is built.
+/// What a provider declares: its tables, its label columns and its named queries. It is static, so the catalog is known
+/// before any snapshot is built.
 #[derive(Debug, Clone, Hash)]
 pub(crate) struct Manifest {
     /// the provider, such as `zhang:budget`: the `provided_by` of its tables and columns
     pub provider: String,
     pub tables: Vec<TableDecl>,
     pub labels: Vec<LabelDecl>,
+    pub queries: Vec<NamedQuery>,
+}
+
+/// A named query: BQL with typed parameters, which the server serves as a built-in query (`GET /api/query/builtins`,
+/// `POST /api/query/builtins/{name}`). zhang's own are the server's; a provider of a catalog declares more
+/// ([`Catalog::named_queries`](crate::Catalog::named_queries)).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NamedQuery {
+    /// unique, dotted and lower case, such as `budgets.month`
+    pub name: String,
+    /// one sentence on what the query returns
+    pub description: String,
+    /// the query, with its parameters written `:name`
+    pub bql: String,
+    /// every parameter the query uses, with its type, in the order it declares them
+    pub params: Vec<(String, DataType)>,
+}
+
+impl NamedQuery {
+    /// The declared types of the parameters, to compile the query with.
+    pub fn param_types(&self) -> ParamTypes {
+        self.params.iter().fold(ParamTypes::new(), |types, (name, ty)| types.bind(name.as_str(), *ty))
+    }
+
+    /// Whether `name` is the name of a named query: dotted lower-case words, `[a-z][a-z0-9_]*` each, at least two.
+    pub fn is_name(name: &str) -> bool {
+        let mut words = 0;
+        let valid = name.split('.').all(|word| {
+            words += 1;
+            check_name(word).is_ok()
+        });
+        valid && words >= 2
+    }
+
+    /// Check the query against `catalog`: it compiles, with its declared parameters, and uses each of them, by name.
+    pub(crate) fn check(&self, catalog: &Catalog) -> Result<(), String> {
+        let query = Query::compile_in(catalog, &self.bql, &self.param_types()).map_err(|err| format!("query {}: {}", self.name, err))?;
+        let mut used = vec![];
+        for (param, _) in query.params() {
+            match param {
+                ParamRef::Named(name) => used.push(name),
+                ParamRef::Positional(_) => return Err(format!("query {}: it uses {}; name the parameters of a named query", self.name, param)),
+            }
+        }
+        if let Some((unused, _)) = self.params.iter().find(|(name, _)| !used.contains(name)) {
+            return Err(format!("query {}: it declares the parameter :{}, which it does not use", self.name, unused));
+        }
+        Ok(())
+    }
 }
 
 /// A table of a provider.
@@ -291,12 +346,14 @@ pub(crate) enum ExtensionKind {
     Series(SeriesSpec),
 }
 
-/// The extension part of a catalog: the tables, the columns `postings` gains, the providers that have them, the
-/// digest, and the providers skipped.
+/// The extension part of a catalog: the tables, the columns `postings` gains, the named queries, the providers that have
+/// them, the digest, and the providers skipped.
 pub(crate) struct Extensions {
     pub tables: Vec<TableRef>,
     /// the label columns, with what they read
     pub labels: Vec<(ColumnDef, Arc<LabelColumn>)>,
+    /// the named queries, each with its provider, by provider then as each declares them
+    pub queries: Vec<(Arc<str>, NamedQuery)>,
     /// the providers whose tables and columns the catalog has, in order
     pub providers: Vec<Provider>,
     pub digest: CatalogDigest,
@@ -314,26 +371,36 @@ pub struct Skipped {
     pub message: String,
 }
 
-/// Check the manifests of `providers` (§3.3 of the RFC) and build their tables and label columns, in order. A provider
-/// whose manifest does not hold, or whose tables or columns cannot all be had, has none of them and is skipped, with a
-/// message naming it and what is wrong; the others keep theirs.
+/// Check the manifests of `providers` (§3.3 of the RFC) and build their tables and label columns, in order, and gather
+/// their named queries. A provider whose manifest does not hold, or whose tables, columns or queries cannot all be had,
+/// has none of them and is skipped, with a message naming it and what is wrong; the others keep theirs. Whether each
+/// named query compiles against the catalog is checked once the catalog is built ([`Catalog::build`]).
 pub(crate) fn build(providers: &[Provider]) -> Extensions {
     let mut names = table::tables().iter().map(|table| table.name.to_string()).collect::<HashSet<_>>();
     let mut label_names = table::POSTINGS.columns.iter().map(|column| column.name.to_lowercase()).collect::<HashSet<_>>();
+    let mut query_names = HashSet::new();
     let mut extensions = Extensions {
         tables: vec![],
         labels: vec![],
+        queries: vec![],
         providers: vec![],
         digest: CatalogDigest(0),
         skipped: vec![],
     };
     for (index, provider) in providers.iter().enumerate() {
-        match provider_tables(provider, &names, &label_names, extensions.labels.len()) {
+        let checked =
+            provider_tables(provider, &names, &label_names, extensions.labels.len()).and_then(|parts| provider_queries(provider, &query_names).map(|()| parts));
+        match checked {
             Ok((tables, labels)) => {
                 names.extend(provider.manifest.tables.iter().map(|decl| decl.name.clone()));
                 label_names.extend(provider.manifest.labels.iter().map(|decl| decl.name.to_lowercase()));
+                query_names.extend(provider.manifest.queries.iter().map(|query| query.name.clone()));
                 extensions.tables.extend(tables);
                 extensions.labels.extend(labels);
+                let name: Arc<str> = Arc::from(provider.manifest.provider.as_str());
+                extensions
+                    .queries
+                    .extend(provider.manifest.queries.iter().map(|query| (name.clone(), query.clone())));
                 extensions.providers.push(provider.clone());
             }
             Err(message) => extensions.skipped.push(Skipped {
@@ -390,6 +457,35 @@ fn provider_tables(
         columns.push((def, Arc::new(column)));
     }
     Ok((tables, columns))
+}
+
+/// Check the named queries of `provider` but whether they compile, when the catalog has the named queries `taken`
+/// already: their names, which no other query of the catalog has, and their parameters, which a JSON value can give.
+fn provider_queries(provider: &Provider, taken: &HashSet<String>) -> Result<(), String> {
+    let mut own = HashSet::new();
+    for query in &provider.manifest.queries {
+        let what = format!("query {}", query.name);
+        if !NamedQuery::is_name(&query.name) {
+            return Err(format!(
+                "{}: a query's name is dotted lower-case words, each a lower-case letter, then lower-case letters, digits and '_'",
+                what
+            ));
+        }
+        if taken.contains(&query.name) || !own.insert(query.name.as_str()) {
+            return Err(format!("{} is already a named query", what));
+        }
+        let mut params = HashSet::new();
+        for (name, ty) in &query.params {
+            check_name(name).map_err(|it| format!("{}: parameter :{}: {}", what, name, it))?;
+            if !params.insert(name.as_str()) {
+                return Err(format!("{}: it declares the parameter :{} twice", what, name));
+            }
+            if !JSON_TYPES.contains(ty) {
+                return Err(format!("{}: parameter :{} is a {}, which a JSON value cannot give", what, name, ty));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Whether `name` is a name a provider can give a table or a column: `[a-z][a-z0-9_]*`.

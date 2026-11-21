@@ -964,22 +964,25 @@ pub struct BuiltinQueryParamEntity {
     pub param_type: QueryColumnType,
 }
 
-impl From<&crate::builtin::BuiltinQuery> for BuiltinQueryEntity {
-    fn from(value: &crate::builtin::BuiltinQuery) -> Self {
+impl From<&crate::builtin::Registered> for BuiltinQueryEntity {
+    fn from(value: &crate::builtin::Registered) -> Self {
+        let query = &value.query;
         BuiltinQueryEntity {
-            name: value.name.to_owned(),
-            description: value.description.to_owned(),
-            bql: value.bql.to_owned(),
-            params: value
+            name: query.name.clone(),
+            description: query.description.clone(),
+            bql: query.bql.clone(),
+            params: query
                 .params
                 .iter()
                 .map(|(name, ty)| BuiltinQueryParamEntity {
-                    name: (*name).to_owned(),
+                    name: name.clone(),
                     param_type: (*ty).into(),
                 })
                 .collect(),
-            // every registered query compiles (the tests check it), so the columns are always known
-            columns: crate::builtin::compiled(value.name)
+            // every registered query compiles against its catalog (the tests check zhang's, the catalog its providers'),
+            // so the columns are always known
+            columns: value
+                .compiled()
                 .map(|query| query.columns())
                 .unwrap_or_default()
                 .into_iter()

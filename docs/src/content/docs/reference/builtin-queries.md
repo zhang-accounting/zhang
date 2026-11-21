@@ -75,6 +75,8 @@ These endpoints sit behind the same [authentication](/deployment/authentication/
 }
 ```
 
+It lists the built-in queries of the ledger served: Zhang's own, and those the providers of the ledger's tables declare. The budget pages' queries, `budgets.*`, are those of the official plugin `zhang:budget`, which provides the budget tables too ([RFC #698](/developers/rfc-698-budget-plugin/)); they are listed, and answer, as they always have. An [analyzer](/developers/writing-plugins/#the-manifest) may declare named queries of its own, which are named after its namespace, such as `shop.item`, and are listed before the commodities' queries. Every endpoint below runs any of them alike.
+
 ### Parameter values
 
 Every endpoint below takes a query's `params`: every parameter of the query, by name, and no other, as a JSON value of its type:
@@ -672,7 +674,7 @@ The error list shows where each error is as its file and the lines of its direct
 
 ### Budgets and commodities
 
-The budget pages read [`#budgets`](/reference/query-language/#budgets), [`#budget_definitions`](/reference/query-language/#budget-definitions) and [`#budget_events`](/reference/query-language/#budget-events). A month is given as its first day, such as `2024-06-01`; another day of a month is answered with HTTP 400, naming the first day of its month. Without a month, the pages ask for the current month in the ledger's timezone.
+The budget pages read [`#budgets`](/reference/query-language/#budgets), [`#budget_definitions`](/reference/query-language/#budget-definitions) and [`#budget_events`](/reference/query-language/#budget-events). The `budgets.*` queries and these tables are those of the official plugin `zhang:budget`, which every ledger has. A month is given as its first day, such as `2024-06-01`; another day of a month is answered with HTTP 400, naming the first day of its month. Without a month, the pages ask for the current month in the ledger's timezone.
 
 #### `budgets.month`
 

@@ -75,7 +75,8 @@ use zhang_core::ledger::Ledger;
 
 pub use crate::catalog::Catalog;
 pub use crate::error::{QueryError, QueryErrorKind};
-pub use crate::extension::CatalogDigest;
+pub use crate::extension::abi::BUILTIN_QUERY_NAMESPACES;
+pub use crate::extension::{CatalogDigest, NamedQuery};
 pub use crate::params::{Bindings, ParamRef, ParamTypes, Params};
 pub use crate::parser::{MAX_DEPTH, MAX_NAME_PARTS, MAX_QUERY_LENGTH};
 pub use crate::prices::PriceMap;
