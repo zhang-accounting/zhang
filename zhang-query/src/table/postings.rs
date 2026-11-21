@@ -170,7 +170,7 @@ impl<'a> Dataset<'a> {
                     id: cached_entry.id,
                     datetime: cached_entry.datetime,
                     parsed: MaybeOwned::Borrowed(parsed),
-                    heads: Cow::Borrowed(&cached_entry.heads),
+                    heads: Cow::Borrowed(postings.heads_of(cached_entry)),
                     date: cached_entry.date,
                     seq: cached_entry.entry,
                     errors: cached_entry.entry.and_then(|seq| entry_errors[seq as usize].as_ref()),
@@ -255,12 +255,11 @@ impl<'a> Dataset<'a> {
 }
 
 /// The rows of a stored transaction, the entry `entry` of the table, from the booked postings of
-/// its directive, grouped by the posting they were written as (`groups`, [`zhang_ast::written_groups`]):
-/// one row per booked leg, as beanquery lists a sale across several lots, with the lot the leg
-/// names and its per-unit price. The rows of a posting as written share its index, which is the
-/// row of the posting as written.
-pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &mut Accounts) -> Vec<CachedRow> {
-    let mut rows = Vec::with_capacity(groups.len());
+/// its directive, grouped by the posting they were written as (`groups`, [`zhang_ast::written_groups`]),
+/// added to `rows`: one row per booked leg, as beanquery lists a sale across several lots, with the
+/// lot the leg names and its per-unit price. The rows of a posting as written share its index, which
+/// is the row of the posting as written.
+pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &mut Accounts, rows: &mut Vec<CachedRow>) {
     for (posting_index, group) in groups.iter().enumerate() {
         let legs = group.legs;
         for leg in legs {
@@ -277,7 +276,6 @@ pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &
             });
         }
     }
-    rows
 }
 
 /// The units of the posting `leg` was written as, which a total price (`@@`) or a total cost
