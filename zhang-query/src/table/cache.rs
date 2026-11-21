@@ -325,12 +325,14 @@ struct Part {
 
 impl Part {
     /// The rows of `transactions`, in their order.
-    fn build(ledger: &Ledger, transactions: &[(&EntryInfo, Uuid, &Transaction)]) -> Part {
+    fn build<'l>(ledger: &Ledger, transactions: impl Iterator<Item = (&'l EntryInfo, Uuid, &'l Transaction)> + Clone) -> Part {
         let timezone = ledger.options.timezone;
         // a leg is at most one row, and a posting as written at least one leg
-        let legs = transactions.iter().map(|(_, _, parsed)| parsed.postings.len()).sum();
+        let (count, legs) = transactions
+            .clone()
+            .fold((0, 0), |(count, legs), (_, _, parsed)| (count + 1, legs + parsed.postings.len()));
         let mut part = Part {
-            entries: Vec::with_capacity(transactions.len()),
+            entries: Vec::with_capacity(count),
             rows: Vec::with_capacity(legs),
             heads: Vec::with_capacity(legs),
             accounts: Accounts::default(),
@@ -360,7 +362,7 @@ impl Part {
                 }
             };
             part.entries.push(CachedEntry {
-                id: *id,
+                id,
                 date: datetime.date_naive(),
                 datetime,
                 parsed: info.directive,
@@ -383,79 +385,88 @@ impl Postings {
         Postings::build_in(ledger, entries, parts)
     }
 
-    /// [`Postings::build`] in `parts` parts.
+    /// [`Postings::build`] in `parts` parts. One part is built straight from the entries, as a smaller ledger always
+    /// is: nothing is listed or renumbered for it.
     fn build_in(ledger: &Ledger, entries: &Entries, parts: usize) -> Postings {
         // the transactions the load accepted, in the order zhang processed them
-        let transactions = entries
-            .rows
-            .iter()
-            .filter_map(|info| match (info.txn, &ledger.directives[info.directive as usize].data) {
-                (Some(id), Directive::Transaction(parsed)) => Some((info, id, parsed)),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        let built = match parts {
-            0 | 1 => vec![Part::build(ledger, &transactions)],
-            _ if transactions.len() < parts => vec![Part::build(ledger, &transactions)],
-            parts => {
-                let chunks = transactions.chunks(transactions.len().div_ceil(parts)).collect::<Vec<_>>();
-                std::thread::scope(|scope| {
-                    // the first part is built on this thread; a part whose thread cannot start is built here too
-                    let (first, others) = chunks.split_first().expect("a part");
-                    let started = others
-                        .iter()
-                        .map(|chunk| {
-                            let chunk: &[_] = chunk;
-                            std::thread::Builder::new()
-                                .spawn_scoped(scope, move || Part::build(ledger, chunk))
-                                .map_err(|_| chunk)
-                        })
-                        .collect::<Vec<_>>();
-                    let mut built = vec![Part::build(ledger, first)];
-                    for part in started {
-                        built.push(match part {
-                            Ok(thread) => thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
-                            Err(chunk) => Part::build(ledger, chunk),
-                        });
-                    }
-                    built
+        let transactions = || {
+            entries
+                .rows
+                .iter()
+                .filter_map(|info| match (info.txn, &ledger.directives[info.directive as usize].data) {
+                    (Some(id), Directive::Transaction(parsed)) => Some((info, id, parsed)),
+                    _ => None,
                 })
-            }
         };
+        if parts <= 1 {
+            return Postings::of(Part::build(ledger, transactions()));
+        }
+        let transactions = transactions().collect::<Vec<_>>();
+        if transactions.len() < parts {
+            return Postings::of(Part::build(ledger, transactions.iter().copied()));
+        }
+        let chunks = transactions.chunks(transactions.len().div_ceil(parts)).collect::<Vec<_>>();
+        let built = std::thread::scope(|scope| {
+            // the first part is built on this thread; a part whose thread cannot start is built here too
+            let (first, others) = chunks.split_first().expect("a part");
+            let started = others
+                .iter()
+                .map(|chunk| {
+                    let chunk: &[_] = chunk;
+                    std::thread::Builder::new()
+                        .spawn_scoped(scope, move || Part::build(ledger, chunk.iter().copied()))
+                        .map_err(|_| chunk)
+                })
+                .collect::<Vec<_>>();
+            let mut built = vec![Part::build(ledger, first.iter().copied())];
+            for part in started {
+                built.push(match part {
+                    Ok(thread) => thread.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)),
+                    Err(chunk) => Part::build(ledger, chunk.iter().copied()),
+                });
+            }
+            built
+        });
 
         // the parts put together: their transactions, heads and accounts numbered on from the parts before them
-        let mut cached = Vec::with_capacity(transactions.len());
-        let mut rows = Vec::with_capacity(built.iter().map(|part| part.rows.len()).sum());
-        let mut heads = Vec::with_capacity(built.iter().map(|part| part.heads.len()).sum());
-        let mut accounts = Accounts::default();
+        let mut whole = Part {
+            entries: Vec::with_capacity(transactions.len()),
+            rows: Vec::with_capacity(built.iter().map(|part| part.rows.len()).sum()),
+            heads: Vec::with_capacity(built.iter().map(|part| part.heads.len()).sum()),
+            accounts: Accounts::default(),
+        };
         for part in built {
-            let numbers = part.accounts.names.iter().map(|name| accounts.index(name)).collect::<Vec<_>>();
-            let (entry, head) = (cached.len() as u32, heads.len() as u32);
-            cached.extend(part.entries.into_iter().map(|cached| CachedEntry {
+            let numbers = part.accounts.names.iter().map(|name| whole.accounts.index(name)).collect::<Vec<_>>();
+            let (entry, head) = (whole.entries.len() as u32, whole.heads.len() as u32);
+            whole.entries.extend(part.entries.into_iter().map(|cached| CachedEntry {
                 heads: cached.heads.start + head..cached.heads.end + head,
                 ..cached
             }));
-            heads.extend(part.heads);
-            rows.extend(part.rows.into_iter().map(|row| CachedRow {
+            whole.heads.extend(part.heads);
+            whole.rows.extend(part.rows.into_iter().map(|row| CachedRow {
                 entry: row.entry + entry,
                 account: numbers[row.account as usize],
                 ..row
             }));
         }
+        Postings::of(whole)
+    }
 
-        let mut sizes = vec![0; accounts.names.len()];
-        for row in &rows {
+    /// The postings of the whole ledger, `part`, with the rows of every account.
+    fn of(part: Part) -> Postings {
+        let mut sizes = vec![0; part.accounts.names.len()];
+        for row in &part.rows {
             sizes[row.account as usize] += 1;
         }
         let mut account_rows = sizes.into_iter().map(Vec::with_capacity).collect::<Vec<_>>();
-        for (idx, row) in rows.iter().enumerate() {
+        for (idx, row) in part.rows.iter().enumerate() {
             account_rows[row.account as usize].push(idx as u32);
         }
         Postings {
-            entries: cached,
-            rows,
-            heads,
-            accounts,
+            entries: part.entries,
+            rows: part.rows,
+            heads: part.heads,
+            accounts: part.accounts,
             account_rows,
         }
     }
