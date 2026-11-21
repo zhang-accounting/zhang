@@ -24,6 +24,17 @@ use crate::plugin::{log_safe, PluginType};
 use crate::plugin_policy::{PluginPolicy, Size, MAX_MEMORY_ENV};
 use crate::{ZhangError, ZhangResult};
 
+/// What a plugin declares when it registers: its name, version, types, the writes it declares and an analyzer's
+/// manifest. Kept with a default plugin's runtime ([`PluginRuntime::registration`]).
+#[derive(Debug, Clone)]
+pub(crate) struct Registration {
+    name: String,
+    version: String,
+    plugin_types: Vec<PluginType>,
+    writes: Vec<WriteKind>,
+    analyzer: Option<Result<abi::Manifest, String>>,
+}
+
 #[derive(Default)]
 pub struct PluginStore {
     pub routers: Vec<RegisteredPlugin>,
@@ -70,6 +81,7 @@ impl PluginStore {
         options: &[OptionDomain], policy: Arc<PluginPolicy>, shared: bool,
     ) -> ZhangResult<Option<String>> {
         let plugin_name = _plugin.module.as_str().to_string();
+        let started = std::time::Instant::now();
 
         // the runtime compiles the module for the settings it is asked for and builds every instance
         // of the plugin, this registering one included, from the compiled code. Registering uses the
@@ -89,48 +101,74 @@ impl PluginStore {
             false => Arc::new(PluginRuntime::new(module_bytes)),
         };
 
-        // registering, the file functions deny every path and the router functions answer that they
-        // are unavailable
-        let host = PluginHost::registering(_plugin.module.as_str(), span.clone(), clock.clone(), timezone);
-        let mut plugin = runtime
-            .instantiate(manifest, host.clone())
-            .map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
-        // a script's identity exports run its chunk, so this is where a script that does not parse, or
-        // returns no module table, fails to load
-        let failed = |export: &str, error: extism::Error| match script.is_some() {
-            true => script_error(&plugin_name, export, timeout, &policy, error),
-            false => call_error(&plugin_name, export, timeout, &policy, error),
+        // what a default plugin declares is read once for its runtime, which is kept for its module and its settings
+        // (`super::cache`): its identity, types, writes and an analyzer's manifest are a function of them, so a reload
+        // does not run them again. A Lua script runs its whole chunk for every one of these calls
+        let registration = match shared.then(|| runtime.registration()).flatten() {
+            Some(registration) => registration,
+            None => {
+                // registering, the file functions deny every path and the router functions answer that they
+                // are unavailable
+                let host = PluginHost::registering(_plugin.module.as_str(), span.clone(), clock.clone(), timezone);
+                let mut plugin = runtime
+                    .instantiate(manifest, host.clone())
+                    .map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+                // a script's identity exports run its chunk, so this is where a script that does not parse, or
+                // returns no module table, fails to load
+                let failed = |export: &str, error: extism::Error| match script.is_some() {
+                    true => script_error(&plugin_name, export, timeout, &policy, error),
+                    false => call_error(&plugin_name, export, timeout, &policy, error),
+                };
+                let name = plugin.call::<(), WasmJson<String>>(export::NAME, ()).map_err(|e| failed(export::NAME, e))?.0;
+                let version = plugin
+                    .call::<(), WasmJson<String>>(export::VERSION, ())
+                    .map_err(|e| failed(export::VERSION, e))?
+                    .0;
+                let declared_types = plugin
+                    .call::<(), WasmJson<Vec<serde_json::Value>>>(export::SUPPORTED_TYPE, ())
+                    .map_err(|e| failed(export::SUPPORTED_TYPE, e))?
+                    .0;
+                let plugin_types = known_plugin_types(&name, declared_types)?;
+                // a script with no type serves nothing: `types = {Router = true}` or `{}` yields none, and a plugin that
+                // never runs is a mistake, not a choice (a wasm module keeps today's behaviour, its unknown types are warned)
+                if script.is_some() && plugin_types.is_empty() {
+                    return Err(ZhangError::CustomError(format!(
+                        "plugin script {plugin_name} declares no plugin type; write `types = {{\"Router\"}}` in its module table"
+                    )));
+                }
+                let writes = declared_capabilities(&mut plugin, &name, timeout, &policy)?;
+                // an analyzer's manifest, read once: what does not hold is reported when the ledger is analysed, and the
+                // ledger still loads
+                let analyzer = plugin_types
+                    .contains(&PluginType::Analyzer)
+                    .then(|| declared_manifest(&mut plugin, &name, timeout, &policy));
+                let ignored_errors = host.take_errors().len();
+                if ignored_errors > 0 {
+                    warn!(
+                        "plugin {} reported {ignored_errors} error(s) while registering; only its processor and mapper can report errors",
+                        log_safe(&name)
+                    );
+                }
+                let registration = Registration {
+                    name,
+                    version,
+                    plugin_types,
+                    writes,
+                    analyzer,
+                };
+                if shared {
+                    runtime.remember_registration(registration.clone());
+                }
+                registration
+            }
         };
-        let name = plugin.call::<(), WasmJson<String>>(export::NAME, ()).map_err(|e| failed(export::NAME, e))?.0;
-        let version = plugin
-            .call::<(), WasmJson<String>>(export::VERSION, ())
-            .map_err(|e| failed(export::VERSION, e))?
-            .0;
-        let declared_types = plugin
-            .call::<(), WasmJson<Vec<serde_json::Value>>>(export::SUPPORTED_TYPE, ())
-            .map_err(|e| failed(export::SUPPORTED_TYPE, e))?
-            .0;
-        let plugin_types = known_plugin_types(&name, declared_types)?;
-        // a script with no type serves nothing: `types = {Router = true}` or `{}` yields none, and a plugin that
-        // never runs is a mistake, not a choice (a wasm module keeps today's behaviour, its unknown types are warned)
-        if script.is_some() && plugin_types.is_empty() {
-            return Err(ZhangError::CustomError(format!(
-                "plugin script {plugin_name} declares no plugin type; write `types = {{\"Router\"}}` in its module table"
-            )));
-        }
-        let writes = declared_capabilities(&mut plugin, &name, timeout, &policy)?;
-        // an analyzer's manifest, read once: what does not hold is reported when the ledger is analysed, and the
-        // ledger still loads
-        let analyzer = plugin_types
-            .contains(&PluginType::Analyzer)
-            .then(|| declared_manifest(&mut plugin, &name, timeout, &policy));
-        let ignored_errors = host.take_errors().len();
-        if ignored_errors > 0 {
-            warn!(
-                "plugin {} reported {ignored_errors} error(s) while registering; only its processor and mapper can report errors",
-                log_safe(&name)
-            );
-        }
+        let Registration {
+            name,
+            version,
+            plugin_types,
+            writes,
+            analyzer,
+        } = registration;
 
         let registered_plugin = RegisteredPlugin {
             name,
@@ -153,6 +191,7 @@ impl PluginStore {
             }
             false => None,
         };
+        info!("plugin {} registered in {:?}", log_safe(&plugin_name), started.elapsed());
         self.ordered.push((registered_plugin, plugin_types));
 
         Ok(conflict)
