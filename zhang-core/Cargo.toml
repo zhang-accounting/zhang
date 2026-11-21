@@ -22,7 +22,8 @@ log = { workspace = true }
 itertools = { workspace = true }
 bigdecimal = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+# raw_value: a router host answers a query as JSON text (`RouterHost::query_json`)
+serde_json = { workspace = true, features = ["raw_value"] }
 strum = { workspace = true }
 chrono-tz = { workspace = true }
 indexmap = { workspace = true }

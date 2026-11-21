@@ -15,6 +15,7 @@ use std::sync::{Arc, LazyLock};
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
+use serde_json::value::{to_raw_value, RawValue};
 use serde_json::Value;
 use zhang_core::analysis::{AnalysisCatalog, AnalysisHost, AnalyzerTables, LentLedger, LoadOptions};
 use zhang_core::ledger::Ledger;
@@ -102,6 +103,13 @@ impl AnalysisQueries {
     /// `bql` with parameters of `types` compiled against the ledger's catalog, run with `params` and the limits of
     /// `POST /api/query`, and answered as that endpoint answers
     fn run(&self, bql: &str, types: &ParamTypes, params: &Params) -> Result<Value, QueryFailure> {
+        self.run_as(bql, types, params, |result| serde_json::to_value(result))
+    }
+
+    /// [`AnalysisQueries::run`], its answer written by `encode`: as JSON values, or straight to JSON text
+    fn run_as<T>(
+        &self, bql: &str, types: &ParamTypes, params: &Params, encode: impl FnOnce(&QueryResultEntity) -> serde_json::Result<T>,
+    ) -> Result<T, QueryFailure> {
         let count = self.queries.fetch_add(1, Ordering::Relaxed) + 1;
         if count > MAX_QUERIES {
             return Err(unlocated(format!("the analysis ran more than {MAX_QUERIES} queries")));
@@ -112,7 +120,7 @@ impl AnalysisQueries {
                 .execute_with_options(ledger, params, &execute_options(max_result_values()))
                 .map_err(failure)
         })??;
-        serde_json::to_value(QueryResultEntity::from(result)).map_err(|e| unlocated(format!("the result cannot be encoded: {e}")))
+        encode(&QueryResultEntity::from(result)).map_err(|e| unlocated(format!("the result cannot be encoded: {e}")))
     }
 
     /// `read` with the ledger, while the analysis runs
@@ -131,6 +139,16 @@ impl RouterHost for AnalysisQueries {
     fn query_with_params(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Value, QueryFailure> {
         let (types, values) = bind_json(params.iter().map(|(name, param)| (name.as_str(), param.ty.as_str(), &param.value))).map_err(unlocated)?;
         self.run(bql, &types, &values)
+    }
+
+    // an analysis's queries are answered straight to JSON text, without a tree of JSON values first
+    fn query_json(&self, bql: &str) -> Result<Box<RawValue>, QueryFailure> {
+        self.run_as(bql, &ParamTypes::default(), &Params::new(), to_raw_value)
+    }
+
+    fn query_with_params_json(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Box<RawValue>, QueryFailure> {
+        let (types, values) = bind_json(params.iter().map(|(name, param)| (name.as_str(), param.ty.as_str(), &param.value))).map_err(unlocated)?;
+        self.run_as(bql, &types, &values, to_raw_value)
     }
 
     fn schema(&self) -> Result<Value, QueryFailure> {

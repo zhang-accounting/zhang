@@ -76,6 +76,7 @@ use std::time::Duration;
 use extism::{CurrentPlugin, UserData, Val};
 use log::{debug, warn};
 use serde::Serialize;
+use serde_json::value::{to_raw_value, RawValue};
 use serde_json::Value;
 use zhang_shared::plugin_abi::analysis::MAX_CONVERSIONS;
 pub use zhang_shared::plugin_abi::analysis::{Conversion, ConvertedAmount, CONVERT as CONVERT_FUNCTION};
@@ -127,6 +128,18 @@ pub trait RouterHost: Send + Sync {
 
     /// the tables, columns and functions a query can use: the `data` of `GET /api/query/schema`
     fn schema(&self) -> Result<Value, QueryFailure>;
+
+    /// [`RouterHost::query`] written as JSON, what `zhang_query` answers with: a host that can write its answer
+    /// straight to text, without a tree of JSON values first, says so here. The plugin reads the same JSON values
+    fn query_json(&self, bql: &str) -> Result<Box<RawValue>, QueryFailure> {
+        self.query(bql).map(|value| to_raw_value(&value).expect("a JSON value is written"))
+    }
+
+    /// [`RouterHost::query_with_params`] written as JSON, as [`RouterHost::query_json`] writes [`RouterHost::query`]
+    fn query_with_params_json(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Box<RawValue>, QueryFailure> {
+        self.query_with_params(bql, params)
+            .map(|value| to_raw_value(&value).expect("a JSON value is written"))
+    }
 
     /// Run the built-in query `name` with `params` bound, as `POST /api/query/builtins/{name}` runs it and with the
     /// limits of [`RouterHost::query`]; the value is the same shape. An unknown name, or a parameter that is missing,
@@ -228,10 +241,10 @@ pub(super) fn zhang_query(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &
 
 /// what `zhang_query` answers, given the host of the router call (none outside one) and the query
 /// text the plugin passed, or why it could not be read
-fn query_answer(host: Option<&dyn RouterHost>, bql: Result<&str, &str>) -> Result<Value, HostError> {
+fn query_answer(host: Option<&dyn RouterHost>, bql: Result<&str, &str>) -> Result<Box<RawValue>, HostError> {
     let host = host.ok_or_else(|| unavailable(QUERY_FUNCTION))?;
     let bql = bql.map_err(|message| HostError::new(HostErrorKind::InvalidInput, message))?;
-    host.query(bql).map_err(query_error)
+    host.query_json(bql).map_err(query_error)
 }
 
 /// a failed query as the plugin sees it: the kind `query`, with the position when it has one
@@ -271,7 +284,7 @@ pub(super) fn zhang_query_params(plugin: &mut CurrentPlugin, inputs: &[Val], out
 
 /// what `zhang_query_params` answers, given the host of the router call (none outside one) and
 /// the JSON input the plugin passed, or why it could not be read
-fn query_params_answer(host: Option<&dyn RouterHost>, input: Result<&str, &str>) -> Result<Value, HostError> {
+fn query_params_answer(host: Option<&dyn RouterHost>, input: Result<&str, &str>) -> Result<Box<RawValue>, HostError> {
     let host = host.ok_or_else(|| unavailable(QUERY_PARAMS_FUNCTION))?;
     let input = input.map_err(|message| HostError::new(HostErrorKind::InvalidInput, message))?;
     let query: QueryWithParams = serde_json::from_str(input).map_err(|e| {
@@ -280,7 +293,7 @@ fn query_params_answer(host: Option<&dyn RouterHost>, input: Result<&str, &str>)
             format!("the input is not a JSON object {{\"bql\": \"...\", \"params\": {{\"name\": {{\"type\": \"...\", \"value\": ...}}}}}}: {e}"),
         )
     })?;
-    host.query_with_params(&query.bql, &query.params).map_err(query_error)
+    host.query_with_params_json(&query.bql, &query.params).map_err(query_error)
 }
 
 /// `zhang_query_builtin(input) -> result`
