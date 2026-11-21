@@ -5,13 +5,19 @@ sidebar:
   order: 5
 ---
 
-:::note[Status: every decision recorded on 2026-11-20]
-Nothing on this page is implemented. It answers the questions RFC
-[#698](https://github.com/zhang-accounting/zhang/issues/698) leaves to P1, against `main` at `9c156c7b`. File
-references are `path:line` at that commit.
+:::note[Status on 2026-11-21]
+- **Merged:** P0, the contract and the baseline (#835, #836, the known-issue fixes #842, the baseline after
+  #840/#841 #851); P1.1 (#839); P1.2 (#837); P1.3 (#843 to #845); P1.4 (#848 to #850, and its follow-ups #855); the
+  prerequisites I1 (#840, #841, #846) and I2 (#838); the fingerprint fix #847.
+- **In progress:** P1.5 (default plugins and named queries) and P1.6 (Lua analyzers).
+- **Next:** the G1 gate, measured end to end (decision 16), then P3 to P5.
+- **Release:** the owner decided that the whole migration ships in v0.3.0. Until then the `Analyzer` plugin type is
+  experimental (§2).
 
-The owner recorded every decision of [§11](#11-decisions) on 2026-11-20. The page applies them and the findings of an
-independent critique of its first version.
+The page answers the questions RFC [#698](https://github.com/zhang-accounting/zhang/issues/698) leaves to P1,
+against `main` at `9c156c7b`, where its `path:line` references point. The owner recorded every decision of
+[§11](#11-decisions) on 2026-11-20; the page applies them and the findings of an independent critique of its first
+version, and notes what the merged steps built where it differs ("as built").
 :::
 
 ## Summary
