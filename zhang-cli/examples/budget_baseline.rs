@@ -23,7 +23,10 @@
 //! ledger is its own. A run prints its figures on stderr and a `BASELINE {...}` JSON line on stdout; with
 //! `ZHANG_BUDGET_BASELINE_OUT=<dir>` the JSON is also written to `<dir>/<ledger>.json`, and with
 //! `ZHANG_BUDGET_BASELINE_KEEP=<dir>` the ledger, as generated, to `<dir>/<ledger>/`. `ZHANG_BUDGET_BASELINE_ONLY=writes`
-//! measures the load and the writes only, to repeat them cheaply. A debug build refuses to run.
+//! measures the load and the writes only, to repeat them cheaply, and `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the
+//! resident memory again after that long idle at the end, to see how much the allocator gives back to the system. The
+//! bench uses the allocator of the binary (`src/allocator.rs`): mimalloc, or the system's with
+//! `--no-default-features`. A debug build refuses to run.
 
 use std::path::PathBuf;
 use std::process::{Command, ExitCode, Stdio};
@@ -48,6 +51,8 @@ use zhang_server::{create_server_app, start_fs_event_listener, start_reload_list
 use zhang_testkit::budget_ledger::{Spec, MAIN};
 use zhang_testkit::http::{json_request, router_of, serve_config, Settings};
 
+#[path = "../src/allocator.rs"]
+mod allocator;
 #[path = "../src/opendal.rs"]
 mod opendal;
 
@@ -605,6 +610,7 @@ fn baseline(spec: Spec) -> Value {
             "bytes": size,
             "sha256": digest,
             "data_source": if local { "LocalFileSystemDataSource" } else { "OpendalDataSource (Fs)" },
+            "allocator": allocator::NAME,
             "generate_ms": ms(generate),
             "load_ms": ms(first_load),
             "reload": if only_writes { Value::Null } else { summary(&back_to_back) },
@@ -653,6 +659,16 @@ fn baseline(spec: Spec) -> Value {
         }
         memory["peak_final"] = json!(status_mib("VmHWM"));
         memory["rss_final"] = json!(status_mib("VmRSS"));
+        // how much of it the allocator gives back to the system once the server is idle
+        let idle = std::env::var("ZHANG_BUDGET_BASELINE_IDLE")
+            .ok()
+            .and_then(|it| it.parse::<u64>().ok())
+            .unwrap_or(0);
+        if idle > 0 {
+            tokio::time::sleep(Duration::from_secs(idle)).await;
+            memory["rss_after_idle"] = json!(status_mib("VmRSS"));
+            memory["idle_s"] = json!(idle);
+        }
         report["memory_mib"] = memory;
         report
     });
