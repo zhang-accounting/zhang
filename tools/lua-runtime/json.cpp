@@ -13,7 +13,8 @@
 //   same key as a string in one table are an error, not a key written twice. An integer is written exactly; a float
 //   with 15 significant digits when they read back as the same float, else 16, else 17 (".0" when it looks like an
 //   integer, as Lua prints it), NaN and the infinities as null. A string must be UTF-8 text; control characters and
-//   the code points dkjson escaped are written as \u escapes.
+//   the code points dkjson escaped are written as \u escapes. A decimal value of zhang.decimal (a table whose
+//   metatable's __jsontype is "decimal") is the string of its `value` field, the number in plain notation.
 // - limits: 1000 levels of nesting both ways. Both directions loop over an explicit stack instead of recursing, so a
 //   deep document grows neither the C nor the wasm stack; every byte they allocate is a Lua object, under the call's
 //   memory budget, so a refused allocation is Lua's own memory error.
@@ -346,11 +347,12 @@ void push_key(lua_State *L, const Key &key) {
 
 // What the metatable of the table at `index` says: whether it carries the object marker (the shared metatable of
 // json.object() and of decoded objects, its look-alike, or any metatable whose __jsontype is "object", as dkjson read
-// it), and whether the table is weak (a string __mode, as the collector reads it). Every read is raw, so no Lua code
-// runs. The shared metatables are sealed out of a script's reach and never weak; a look-alike is checked like any
-// other metatable, since rawset can still give it a __mode.
-void inspect_metatable(lua_State *L, int index, bool *marked, bool *weak) {
-  *marked = *weak = false;
+// it), whether it is a decimal value of zhang.decimal (__jsontype "decimal", written as its text), and whether the
+// table is weak (a string __mode, as the collector reads it). Every read is raw, so no Lua code runs. The shared
+// metatables are sealed out of a script's reach and never weak; a look-alike is checked like any other metatable,
+// since rawset can still give it a __mode.
+void inspect_metatable(lua_State *L, int index, bool *marked, bool *decimal, bool *weak) {
+  *marked = *decimal = *weak = false;
   if (!lua_getmetatable(L, index)) return;
   if (lua_rawequal(L, -1, OBJECT_META)) {
     *marked = true;
@@ -360,6 +362,7 @@ void inspect_metatable(lua_State *L, int index, bool *marked, bool *weak) {
     size_t length;
     const char *kind = lua_type(L, -1) == LUA_TSTRING ? lua_tolstring(L, -1, &length) : NULL;
     *marked = lua_rawequal(L, -2, OBJECT_LOOKALIKE) || (kind && length == 6 && memcmp(kind, "object", 6) == 0);
+    *decimal = kind && length == 7 && memcmp(kind, "decimal", 7) == 0;
     lua_pop(L, 1);
     lua_pushliteral(L, "__mode");
     lua_rawget(L, -2);
@@ -439,7 +442,8 @@ struct Encoder {
 
   Key *key_at(lua_Integer at) { return (Key *)keys.data + at; }
 
-  // start writing the table at `index` (its frame is pushed), or write null for json.null (nothing is pushed)
+  // start writing the table at `index` (its frame is pushed), or write null for json.null and the text of a decimal
+  // value (nothing is pushed)
   bool open(int index) {
     if (lua_rawequal(L, index, NULL_VALUE)) {
       out.append("null", 4);
@@ -451,8 +455,19 @@ struct Encoder {
     }
     if (depth == MAX_DEPTH) fail(L, "cannot encode a value nested deeper than %d levels", MAX_DEPTH);
     luaL_checkstack(L, 6, "nesting too deep");
-    bool marked, weak;
-    inspect_metatable(L, index, &marked, &weak);
+    bool marked, decimal, weak;
+    inspect_metatable(L, index, &marked, &decimal, &weak);
+    if (decimal) {
+      // zhang.decimal's value (runtime.cpp): its `value` field is the number in plain notation, written as a string
+      lua_pushliteral(L, "value");
+      lua_rawget(L, index);
+      if (lua_type(L, -1) != LUA_TSTRING) fail(L, "a decimal value whose text was replaced: make decimals with zhang.decimal");
+      size_t length;
+      const char *text = lua_tolstring(L, -1, &length);
+      write_string(L, out, text, length);
+      lua_pop(L, 1);
+      return false;
+    }
     int pushed = index == 1 ? 0 : 1;
     if (weak) {
       index = strong_copy(L, index);

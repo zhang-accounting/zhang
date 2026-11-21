@@ -2329,6 +2329,9 @@ mod lua {
 
     use super::*;
 
+    /// `zhang.decimal` against the host's decimals, and its rules (`wasm_plugins/lua/decimal.rs`)
+    mod decimal;
+
     fn get(path: &str) -> PluginRequest {
         PluginRequest::new("GET", path, vec![], vec![], vec![])
     }
@@ -2636,7 +2639,7 @@ mod lua {
             .to_string();
         assert!(
             error.contains(
-                "Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, and the host would take back an amount turned into a JSON number"
+                "Lua processors and mappers are not supported yet (#698 P1): zhang.decimal adds, subtracts and compares but does not multiply or divide, and the host would take back an amount turned into a JSON number"
             ),
             "{error}"
         );
