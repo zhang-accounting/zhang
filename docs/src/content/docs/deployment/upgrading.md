@@ -10,7 +10,7 @@ Zhang keeps no data of its own besides your ledger files, so upgrading means rep
 ## Before you upgrade
 
 - Back up the ledger folder, or commit it if it is a Git repository. Include `.zhang/passkeys.json` if you use [passkeys](/deployment/authentication/#where-passkeys-are-stored).
-- Read the [release notes](https://github.com/zhang-accounting/zhang/releases) of the versions between yours and the new one. Your version is shown next to "Zhang" in the navigation of the web UI and on the **Settings** page.
+- Read the [release notes](https://github.com/zhang-accounting/zhang/releases) or the [changelog](https://github.com/zhang-accounting/zhang/blob/main/CHANGELOG.md) of the versions between yours and the new one, and the guide for your upgrade: [from 0.2 to 0.3](/deployment/upgrading-to-0-3/). Your version is shown next to "Zhang" in the navigation of the web UI and on the **Settings** page.
 
 ## Docker
 
@@ -52,15 +52,4 @@ While the web UI is open in a browser, the server checks GitHub for a newer rele
 
 ## After upgrading
 
-Open the web UI, check the version on the **Settings** page, and look at the error list on the **Overview** page. A newer release can report problems that an older one accepted without a word. When you upgrade from 0.2.0 to a later release, expect in particular:
-
-- Postings to an account that is not open yet, or already closed, are reported as [`AccountDoesNotExist`](/reference/error-codes/#accountdoesnotexist) or [`AccountClosed`](/reference/error-codes/#accountclosed). A typo in an account name shows up this way.
-- An account opened with commodities, such as `open Assets:Bank USD`, accepts only those: a posting or balance assertion in another commodity is reported as [`CommodityNotAllowed`](/reference/error-codes/#commoditynotallowed), as Beancount does. Add the commodity to the `open`, or leave the list out.
-- A failing [balance assertion](/reference/directives/balance/) is still reported as [`AccountBalanceCheckError`](/reference/error-codes/#accountbalancecheckerror), but it no longer moves the account to the asserted amount: balances, reports and pads follow the postings.
-- Transactions must balance per commodity, at the commodity's precision. Transactions that mix commodities or prices without balancing are reported as [`UnbalancedTransaction`](/reference/error-codes/#unbalancedtransaction).
-- An account that uses an unsupported booking method (`NONE`, `AVERAGE`, `AVERAGE_ONLY`) or an invalid one loads with an error and the default method, instead of stopping the load. See [booking methods](/reference/directives/account/).
-- The browser's password popup is replaced by a login page, and passkeys are available. Scripts can keep sending the password as an HTTP Basic header, see [Authentication](/deployment/authentication/).
-- **Plugins run read-only, without network and for at most 30 seconds a call, unless the server allows more.** A plugin whose directive grants `allowed_hosts` (an exchange-rate plugin, say) loses its network until you allow its hosts with `ZHANG_PLUGIN_ALLOWED_HOSTS`, and a `timeout` above 30 seconds is lowered unless `ZHANG_PLUGIN_MAX_TIMEOUT` allows it; the error list shows a [`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced) error on each such directive, naming the setting. A plugin also no longer follows redirects nor reaches private or loopback addresses. See [What the server allows](/guides/plugins/#what-the-server-allows).
-- [Router plugin](/guides/router-plugins/) pages are sandboxed: their scripts can no longer use your session, and a page that loads scripts, styles, images or JSON from Zhang needs them inlined. A plugin receives only an allowlist of request headers and sends only an allowlist of response headers, a request may run for 30 seconds at most, and every plugin instance may use 256 MiB of memory unless `ZHANG_PLUGIN_MAX_MEMORY` allows more.
-
-[Error Codes](/reference/error-codes/) explains how to fix each error.
+Open the web UI, check the version on the **Settings** page, and look at the error list on the **Overview** page. A newer release can report problems that an older one accepted without a word: [Upgrading from 0.2 to 0.3](/deployment/upgrading-to-0-3/) lists those 0.3 reports. [Error Codes](/reference/error-codes/) explains how to fix each error.
