@@ -47,6 +47,8 @@ services:
 
 The image sets `RUST_LOG=info`, so `docker logs zhang` shows what Zhang does, including the reason when the ledger cannot be loaded. It runs Zhang as `root`: files it creates in `/data` belong to `root` on the host (see [file permissions](/deployment/data-sources/local/#file-permissions)).
 
+[Plugins](/guides/plugins/#compiled-code) keep their compiled code in `/root/.cache/zhang/wasmtime` inside the container. A re-created container starts without it and compiles its plugins again, which takes a moment per plugin. To keep the code across re-created containers, mount a volume there, such as `-v zhang-cache:/root/.cache/zhang`; with a read-only root file system (`--read-only`), plugins run without the cache unless such a volume is mounted. The volume holds native code the server runs, so whatever can write to it can run code in Zhang's container: use it for Zhang's cache only.
+
 ## Release binaries
 
 Each [release](https://github.com/zhang-accounting/zhang/releases) has binaries named `zhang-<version>-<target>`, with the web UI built in:
@@ -102,7 +104,7 @@ zhang serve [OPTIONS] <PATH>
 | `--source <SOURCE>` | `ZHANG_DATA_SOURCE` | `fs` | Where the ledger is stored: `fs` ([local file system](/deployment/data-sources/local/)), `s3` ([S3](/deployment/data-sources/s3/)), `web-dav` ([WebDAV](/deployment/data-sources/webdav/)) or `github` ([GitHub](/deployment/data-sources/github/)). |
 | `--no-report` | | off | Stops the anonymous usage report: once an hour, Zhang sends its version and build date to `https://zhang-cloud.kilerd.me/client_report`. |
 
-A command-line option takes precedence over its environment variable. An `--auth` or `ZHANG_AUTH` value without a colon is ignored, and an unknown `ZHANG_DATA_SOURCE` value falls back to `fs`. A `ZHANG_PLUGINS` or `ZHANG_PLUGIN_*` value that cannot be read stops `zhang serve` with an error naming it, so a limit is never silently left out. `zhang serve` logs what plugins may do when it starts.
+A command-line option takes precedence over its environment variable. An `--auth` or `ZHANG_AUTH` value without a colon is ignored, and an unknown `ZHANG_DATA_SOURCE` value falls back to `fs`. A `ZHANG_PLUGINS` or `ZHANG_PLUGIN_*` value that cannot be read stops `zhang serve` with an error naming it, so a limit is never silently left out; a `ZHANG_PLUGIN_CACHE_DIR` that cannot be used only turns the cache off, with a warning. `zhang serve` logs what plugins may do when it starts.
 
 Other environment variables:
 
@@ -114,6 +116,7 @@ Other environment variables:
 | `ZHANG_PLUGIN_ALLOWED_HOSTS` | The hosts [plugins](/guides/plugins/#what-the-server-allows) may reach at most, separated by commas, such as `api.frankfurter.dev`; `*` allows any host. Default: none, plugins have no network. |
 | `ZHANG_PLUGIN_MAX_TIMEOUT` | The longest one call into a plugin may run, such as `90s` or `2m`. Default `30s`. |
 | `ZHANG_PLUGIN_MAX_MEMORY` | The most memory one instance of a [plugin](/guides/plugins/) may use, such as `512MiB`. Default `256MiB`. |
+| `ZHANG_PLUGIN_CACHE_DIR` | Where [plugins](/guides/plugins/#compiled-code) keep their compiled code between starts, about 128 MiB at most. Default: `$XDG_CACHE_HOME/zhang/wasmtime`, else `~/.cache/zhang/wasmtime`. Set it to nothing to turn the cache off. Only the user running Zhang should be able to write to it: it holds code the server runs. |
 | `ZHANG_PLUGIN_MAX_BODY`, `ZHANG_PLUGIN_MAX_CONCURRENCY` | The largest request body a [router plugin](/guides/router-plugins/#limits) receives (default `4MiB`), and how many requests one router plugin handles at once (default `4`). |
 | `ZHANG_LOG` | The log filter, such as `info`, `debug` or `zhang_core=trace` ([env_logger syntax](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)). When it is not set, `RUST_LOG` is used; without either, the level is `info`. The Docker image sets `RUST_LOG=info`. |
 

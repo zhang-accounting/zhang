@@ -112,6 +112,12 @@ ZHANG_PLUGIN_ALLOWED_HOSTS=api.frankfurter.dev zhang serve /path/to/ledger
 A plugin with both `allowed_paths` and `allowed_hosts` can send what it reads off your machine. A plugin already receives your whole ledger, so grant both only to a plugin you would trust with both.
 :::
 
+### Compiled code
+
+Zhang compiles a plugin to native code before it first runs it, a few hundred milliseconds for a [Lua plugin](/guides/lua-plugins/), and keeps the code in a cache directory, so the next start or reload reads it back instead of compiling again. The directory is `ZHANG_PLUGIN_CACHE_DIR`, by default `$XDG_CACHE_HOME/zhang/wasmtime`, else `~/.cache/zhang/wasmtime`. The cache keeps about 128 MiB at most: past that, the least recently used code is deleted, at most once an hour. Set `ZHANG_PLUGIN_CACHE_DIR` to nothing (`ZHANG_PLUGIN_CACHE_DIR=`) to turn the cache off. When the directory cannot be created or written to, for example on a read-only file system, plugins still load, compiled again at every start, and `zhang serve` logs a warning when it starts.
+
+The directory holds native code the server runs, so whoever can write to it can run code as the server: use a directory only the user running Zhang can write to; one Zhang creates is readable and writable by that user only. Use it for nothing else: files in it that are not part of the cache are deleted.
+
 ## Decide which plugins to trust
 
 Every plugin receives your **whole ledger**: every entry and every option. It can change what Zhang shows you, by changing entries before Zhang checks and displays them.

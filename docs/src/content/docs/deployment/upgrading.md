@@ -5,7 +5,7 @@ sidebar:
   order: 6
 ---
 
-Zhang keeps no data of its own besides your ledger files, so upgrading means replacing the program and restarting it. The files are not converted.
+Zhang keeps no data of its own besides your ledger files, and a [cache of compiled plugin code](/guides/plugins/#compiled-code) it rebuilds when needed, so upgrading means replacing the program and restarting it. The files are not converted.
 
 ## Before you upgrade
 
@@ -70,5 +70,11 @@ Open the web UI, check the version on the **Settings** page, and look at the err
   error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error. The query function
   `account_budgets()` still answers, as it reads only the `budget` metadata of the accounts' `open` directives. Budgets
   need `ZHANG_PLUGINS` `read`, the default, or `write`.
+- **Plugins keep their compiled code in a cache of Zhang's own**, `~/.cache/zhang/wasmtime` unless
+  [`ZHANG_PLUGIN_CACHE_DIR`](/guides/plugins/#compiled-code) sets another directory, about 128 MiB at most. The cache
+  in wasmtime's default directory (`~/.cache/wasmtime` on Linux) is no longer used, and you can delete it unless
+  another program uses wasmtime; `EXTISM_CACHE_CONFIG` and wasmtime's configuration file are no longer read. A
+  directory Zhang cannot write to, such as on a read-only file system, no longer stops every plugin from loading:
+  Zhang runs them without the cache and logs a warning when it starts.
 
 [Error Codes](/reference/error-codes/) explains how to fix each error.
