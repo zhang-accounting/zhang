@@ -5,38 +5,389 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.0] - Unreleased
+
+<!--
+Release prep. Before tagging:
+- refresh: `git-cliff --unreleased --tag v0.3.0` lists the raw commits since v0.2.0; fold the new ones in below
+  (the budget migration, #698, goes to "Budget as an official plugin");
+- replace "Unreleased" above with the release date, and `main` in the [0.3.0] link at the end with `v0.3.0`;
+- the workspace version in Cargo.toml must equal the tag.
+-->
+
+The first release since 0.2.0 gathers more than 350 changes. Zhang now checks a ledger the way beancount does, has its
+own BQL query engine, serves Lua and WebAssembly router plugins that may write within limits the server sets, bundles
+an MCP server, and lets the mobile app sign in. **Ledgers that loaded cleanly on 0.2 can report new errors, plugins
+lose network access by default, and several API endpoints are gone: read [Breaking changes](#breaking-changes) and
+[Upgrading from 0.2](#upgrading-from-02) before you upgrade.** The documentation has the same guide:
+<https://zhang-accounting.kilerd.me/deployment/upgrading-to-0-3/>.
 
 ### Breaking changes
+
+#### Ledger checks and booking
+
+- A failing `balance` assertion is still reported as `AccountBalanceCheckError`, but it no longer moves the account to
+  the asserted amount: balances, reports and pads follow the postings, and a `C`-flagged transaction is an ordinary
+  transaction (#485, #508)
+- A balance assertion, and the pad that serves it, covers the account and all its sub-accounts, as in beancount
+  (#485, #508)
+- In a beancount ledger a `balance` is checked at the start of its date, whatever its `time` metadata; where that
+  changes the result, a `BalanceTimeIgnored` notice says so (#508)
+- A posting, `pad` or `balance … with pad` on an account that is not open yet reports `AccountDoesNotExist`, and one
+  after its `close` reports `AccountClosed`. A date-only `close` takes effect at the end of its day, and an `open`
+  after a `close` reopens the account (#456, #689)
+- Transactions are booked as a whole, then balanced per commodity at the commodity's precision: imbalances across
+  commodities or prices report `UnbalancedTransaction` (#451)
+- Lots are matched as in beancount: an undated cost spec reduces lots of any date, FIFO and LIFO pick by acquisition
+  date, a label selects its lots (`{, "a"}`), `{{T}}` is spread over the absolute units, covering a short keeps the
+  cost of the remaining lot, a `{}` augmentation infers its cost, and a `{}` reduction that no lot covers rejects the
+  transaction (`NoEnoughCommodityLot`, `TransactionCannotInferTradeAmount`) (#451, #605, #637, #653, #655)
+- `STRICT` booking is enforced (`AmbiguousLotMatch`). `NONE`, `AVERAGE` and `AVERAGE_ONLY` report
+  `UnsupportedBookingMethod`, an invalid method reports `ParseInvalidMeta`, and the account loads with the default
+  method instead of stopping the load (#448)
+- A posting can carry its own flag (`! Assets:Cash -10 USD`), so in a `.zhang` file a line that starts with `*` is no
+  longer a comment (#623)
+- New errors an existing ledger may show: `CommodityNotAllowed` for a commodity an `open` does not list (#683),
+  `IncludeNotFound` (#682), `BudgetClosed` and `BudgetCommodityMismatch` (#684), `UnusedPad` and `PadWithCost` (#508),
+  `DefineDuplicatedBudget` (#842)
+
+#### Plugins
 
 - The server, not the ledger, has the last word on what plugins may do (`zhang serve --plugins off|read|write` /
   `ZHANG_PLUGINS`, `ZHANG_PLUGIN_ALLOWED_HOSTS`, `ZHANG_PLUGIN_MAX_TIMEOUT`). By default plugins run read-only, with
   no network and for at most 30 seconds a call: a plugin whose directive grants `allowed_hosts` has no network until
   `ZHANG_PLUGIN_ALLOWED_HOSTS` allows its hosts, and a longer `timeout` is lowered. Each such directive gets a
-  `PluginCapabilityReduced` error naming the setting; with plugins off, each gets `PluginsDisabled`.
-- A plugin's HTTP requests no longer follow redirects and never go to a loopback, private, link-local, CGNAT or other
-  non-public address, whatever `allowed_hosts` allows.
+  `PluginCapabilityReduced` error naming the setting; with plugins off, each gets `PluginsDisabled`. (#830)
+- A plugin's HTTP requests no longer follow redirects, no longer use the environment's HTTP proxy, and never go to a
+  loopback, private, link-local, CGNAT or other non-public address, whatever `allowed_hosts` allows. (#830)
+- Processors and mappers see booked postings (interpolated amounts filled in, costs resolved per lot); a `plugin`
+  directive with `stage: "raw"` keeps the transactions as written. Plugins run in the order they are declared and
+  see the `option` and `plugin` directives too (#427, #638)
+- A plugin module outside the ledger's directory (an absolute path elsewhere, `../`, a symlink out) stops the load
+  (#776), and a module must be `.wasm`, `.wat`, `.lua` or have no extension (#802)
 
-### Added
+#### HTTP API
 
-- `POST /api/transactions` takes an `Idempotency-Key` header: the transaction is written with the key as its `idempotency-key` metadata, and a create sent again with the key writes nothing and answers the transaction that has it, with `Idempotency-Replayed: true`, after a reload or a restart of the server too
+- `POST /api/transactions` and `PUT /api/transactions/{id}` answer `{"data": {"id", "version"}}`, read from the
+  reloaded ledger, instead of `"Ok"` and `null` (#818)
+- Metadata keeps the order it was written or sent in: the journal's and the written files' `metas` are no longer
+  sorted by key (#821)
+- Error ids are unique per error: an error at a transaction no longer has the transaction's id, it names the
+  transaction in its `txn_id` meta (#833)
+- Removed endpoints, replaced by the built-in queries (`POST /api/query/builtins/{name}`, see "Retired endpoints" in
+  the built-in queries reference): `GET /api/store` (#606), `GET /api/budgets`, `GET /api/budgets/{name}`,
+  `GET /api/budgets/{name}/interval/{year}/{month}` (#754), `GET /api/documents`,
+  `GET /api/accounts/{account}/documents`, `GET /api/accounts/{account}/balances` (#756), `GET /api/errors` (#757),
+  `GET /api/statistic/summary`, `GET /api/statistic/{type}` (#758), `GET /api/for-new-transaction` (#760); and
+  `POST /api/sql` (#433), replaced by BQL through `POST /api/query`
+- An unauthenticated `/api` request gets a JSON 401 without `WWW-Authenticate`, so a client must send its credentials
+  up front instead of waiting for a challenge (#466)
+- One paging rule for `/api/journals` and `/api/accounts/{account}/journals`: `page` starts at 1, `size` is 1 to
+  1000 (default 100), anything else is a 400 (#713)
+- An account's journal covers its sub-accounts, with a running balance of the subtree (#513); a balance assertion row
+  has one shape in both journals, and its `account_after` is the checked balance (#718)
+- Every error body is `{"message"}` (query errors add `line` and `column`), and an unknown `/api` path is a JSON 404
+  instead of the web UI's page (#715, #755)
 
-### Security
+#### Removed
 
-- Sandbox every router plugin response (`Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups allow-downloads`, `X-Content-Type-Options: nosniff`) and send only an allowlist of its headers (`content-type`, `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow`, and a `location` on Zhang's own origin), with a `cache-control` that is always `private`. A plugin's page could run scripts with the owner's session and set cookies on Zhang's origin.
-- Forward only an allowlist of request headers to router plugins, so proxy identity headers (`cf-access-jwt-assertion`, `x-auth-request-*`, `tailscale-user-*`, `x-forwarded-*`) no longer reach them.
-- Limit router plugin requests: a body of 4 MiB (`ZHANG_PLUGIN_MAX_BODY`, 413), 4 requests at once per plugin (`ZHANG_PLUGIN_MAX_CONCURRENCY`; up to 16 more wait up to 5 seconds, then 503 with `Retry-After`) and 30 seconds per request.
-- Limit the memory of every plugin instance to 256 MiB (`ZHANG_PLUGIN_MAX_MEMORY`).
-- Escape control characters in the plugin text Zhang logs, so a plugin cannot forge log lines.
+- The DuckDB SQL Explore page and `POST /api/sql`; the BQL Query page at the same `/explore` path replaces them
+  (#433, #511)
+- `zhang parse` (it did nothing) and `zhang export` (it panicked); `zhang serve` and `zhang update` remain (#742)
+- The Python binding, which was never built nor published (#742)
+- `greet()` and `ParseResult.store()` of the `zhang-wasm` package; `ParseResult.lots()` lists the lots (#603, #737,
+  #751)
+
+#### Packaging
+
+- Docker images are published for version tags only (`latest` and `<version>`): `kilerd/zhang:snapshot` and
+  `kilerd/zhang:<commit>` are no longer updated (#453)
+
+### Upgrading from 0.2
+
+1. Back up the ledger folder, `.zhang/passkeys.json` included once you use passkeys.
+2. Plugins: if one needs the network, allow its hosts with `ZHANG_PLUGIN_ALLOWED_HOSTS`; if one needs more than 30
+   seconds a call, raise `ZHANG_PLUGIN_MAX_TIMEOUT`; to let plugins write, start the server with `--plugins write`
+   (`ZHANG_PLUGINS=write`). Move plugin modules into the ledger's folder and give them a `.wasm` or `.wat` name. Add
+   `stage: "raw"` to a processor or mapper that expects transactions as written, and check the order of the `plugin`
+   directives.
+3. Docker: switch `kilerd/zhang:snapshot` to `latest` or `0.3.0`.
+4. Start 0.3.0 and open the error list on the Overview page: work through the new errors listed above
+   ([error codes](https://zhang-accounting.kilerd.me/reference/error-codes/) explains each). In `.zhang` files,
+   rewrite comment lines that start with `*` with `;`.
+5. Scripts and API clients: read `data.id` and `data.version` from a create or an update; move the removed endpoints
+   to the built-in queries and SQL to BQL; send `page` ≥ 1; send credentials with every request; link an error to
+   its transaction through `metas.txn_id`; don't expect `metas` sorted by key.
+6. Set `ZHANG_SESSION_SECRET` to keep sign-ins across restarts, and `ZHANG_APP_RETURN_SCHEMES` if the app signs in
+   with a scheme other than `zhang-app`.
+
+### Budget as an official plugin
+
+<!-- RFC #698: the budget moves out of the core into a plugin on the analyzer and extension-table API. Append the
+remaining parts (P1.5, P1.6, the G1 gate, P3.1–P3.3, P4, P5) here when they land, and move whatever they make
+user-visible (a bundled `zhang:budget`, budget API changes) into the sections above. -->
+
+The groundwork has landed; the budget tables, pages and queries still come from the core:
+
+- The budget behaviour is frozen as a contract suite and benchmarked (#835, #836, #851), and the contract's known
+  issues are fixed: a timed budget directive round-trips through a `.bean` file, budget names are exported quoted, a
+  second `budget` of a name reports `DefineDuplicatedBudget`, and the budget queries' `month` must be the first day of
+  a month (#842)
+- The budget tables are served as extension tables of a native provider, and the query schema names their provider
+  (`provided_by: "zhang:budget"`) (#843, #844, #845)
+- The `Analyzer` plugin type and its SDK support; the SDK's `examples/budget` computes zhang's budgets as an analyzer
+  and passes the contract (#848, #849, #850)
+
+### Plugins
+
+- Router plugins: a plugin is served at `/api/plugins/{name}` and every path below it, for any method, behind
+  sign-in. It gets the request as JSON and answers `{status, headers, body, body_encoding}`; the Settings page links
+  to each router (#468)
+- Lua router plugins: `plugin "report.lua"` runs the script in an embedded Lua 5.4, with a `zhang` table (queries,
+  built-in queries, schema, ledger info, clock, config, errors, writes) and a `json` codec. Scripts have no `io`, `os`,
+  `require` nor network, and can only be routers (#802, #838)
+- Plugin writes: a router plugin may append `transaction` and `open` entries through `zhang_write_preview` and
+  `zhang_write_commit` when the plugin declares `writes`, its directive grants `allowed_writes`, and the server runs
+  with `--plugins write`; at most 50 directives and 64 KiB a commit, through a preview token that a change of the
+  ledger voids (#803, #826, #847)
+- Two router plugins of one name: the first declared serves the route, and the other gets a `PluginError` naming both
+  modules (#803)
+- Host functions `zhang_query_params` and `zhang_query_schema` (#798), `zhang_query_builtin` (a built-in query by
+  name, #804) and `zhang_convert` (exact conversions with the ledger's prices, #849)
+- `allowed_paths` gives processors and mappers read-only access to ledger files (`zhang_read_file`,
+  `zhang_list_dir`), and a local ledger reloads when such a file changes (#461, #477)
+- `zhang_now` gives every plugin of a load the same clock in the ledger's timezone and `zhang.seed` a stable seed per
+  directive; a ledger whose plugin read the clock reloads at local midnight (#461, #469)
+- `zhang_emit_error` lets a plugin report `PluginError` entries into the error list (#463)
+- A `timeout` meta (`"90"`, `"500ms"`, `"2m"`) bounds every call into a plugin, within the server's ceiling (#465,
+  #830)
+- Plugin arguments and multi-valued meta reach the plugin as config (`zhang.abi`, `zhang.plugin`), with the effective
+  grants `zhang.allowed_hosts`, `zhang.timeout_ms` and `zhang.allowed_writes` (#462, #803, #830)
+- Unknown plugin types are ignored with a warning, `option "features.plugins"` works as an alias, a missing module
+  stops the load with `plugin module not found: <path>`, and a plugin makes no HTTP request while it registers (#460,
+  #682, #833)
+- `GET /api/plugins` adds the effective `capabilities.allowed_hosts`, the `route`, `writes_requested` and
+  `writes_granted` (#468, #803, #830)
+
+#### Security and limits
+
+- Sandbox every router plugin response (`Content-Security-Policy: sandbox allow-scripts allow-forms allow-popups
+  allow-downloads`, `X-Content-Type-Options: nosniff`) and send only an allowlist of its headers (`content-type`,
+  `cache-control`, `etag`, `last-modified`, `content-disposition`, `content-language`, `vary`, `allow`, and a
+  `location` on Zhang's own origin), with a `cache-control` that is always `private`. A plugin's page could run
+  scripts with the owner's session and set cookies on Zhang's origin. (#827)
+- Forward only an allowlist of request headers to router plugins, so proxy identity headers (`cf-access-jwt-assertion`,
+  `x-auth-request-*`, `tailscale-user-*`, `x-forwarded-*`) no longer reach them. (#827)
+- Limit router plugin requests: a body of 4 MiB (`ZHANG_PLUGIN_MAX_BODY`, 413), 4 requests at once per plugin
+  (`ZHANG_PLUGIN_MAX_CONCURRENCY`; up to 16 more wait up to 5 seconds, then 503 with `Retry-After`) and the plugin's
+  `timeout` per request, at most `ZHANG_PLUGIN_MAX_TIMEOUT` (30 seconds by default; 504 past it). (#827, #830)
+- Limit the memory of every plugin instance to 256 MiB (`ZHANG_PLUGIN_MAX_MEMORY`). An invalid `ZHANG_PLUGIN_*` value
+  stops `zhang serve` with an error naming it. (#827)
+- Escape control characters in the plugin text Zhang logs, so a plugin cannot forge log lines. (#827)
 - Vendor extism 1.30.0 with a bounds check on every read of plugin memory: a plugin could forge the length of a
   memory block and crash the server (SIGSEGV/SIGBUS) through extism's own host functions or the output and error of
   any call. The patched extism also counts the memory a plugin starts with toward `ZHANG_PLUGIN_MAX_MEMORY`, which it
-  left out, so a plugin could use about twice the limit.
+  left out, so a plugin could use about twice the limit. (#830)
 - Resolve a plugin's HTTP request once, refuse non-public addresses and connect to the checked address, so DNS
-  rebinding and redirects cannot reach the machine, the private network or the cloud metadata service.
-- Update wasmtime from 43 to 49.0.7 by vendoring extism 1.41.0 (zhang's extism patches carried over): on aarch64 a
-  plugin with a `br_table` of more than ~256k targets could make Cranelift branch to the wrong code and escape the
-  sandbox (GHSA-mghf-wjfp-p5xm). Plugins now get WASI from `wasmtime-wasi` instead of the removed `wasi-common`.
+  rebinding and redirects cannot reach the machine, the private network or the cloud metadata service. (#830)
+- Editing a transaction a plugin generated, or uploading a document to it, is a 400 instead of a panic or a write
+  into the main file (#664)
+
+### MCP server (`zhang:mcp`)
+
+- `plugin "zhang:mcp"` turns on the bundled MCP server at `POST /api/plugins/zhang-mcp/mcp` (MCP 2025-03-26 to
+  2025-11-25 and the stateless 2026-07-28 revision), with 12 read tools: ledger_info, schema, query, accounts,
+  balances, net_worth, spending, journal, transactions, payees, errors and prices (#804, #805)
+- The write tools `preview_transaction`, `add_transaction` and `open_account` are listed only when the plugin's
+  directive grants `allowed_writes` and the server runs with `--plugins write`; their entries are tagged `#mcp`
+  (#804)
+- Settings: `allowed_origins` (loopback only by default), `max_rows`, `write_tag` and `timeout` (#804)
+- A `zhang:<name>` module loads a plugin built into the binary; each release also attaches `zhang-mcp-<version>.lua`
+  for running your own copy (#805)
+
+### Plugin SDK
+
+- New Rust crate `zhang-plugin-sdk` (a git dependency, not on crates.io): the `plugin!` macro and the `config`,
+  `custom`, `clock`, `fs`, `errors` and `router` modules, with the guard and summary examples and the Writing Plugins
+  guide (#480)
+- `prices::PriceMap` with zhang-query's conversion rules (#483), `SparseRealization` for booked balances of chosen
+  accounts and the `balances` and `lots` examples (#638, #651), `router::query_with_params`, `router::schema` and
+  `router::query_builtin` (#798, #804)
+
+### Analyzers and extension tables (experimental)
+
+- New `Analyzer` plugin type (WebAssembly, exports `manifest` and `analyze`): it runs on every load after booking and
+  the checks, publishes diagnostics (`PluginError` with a `kind`) and tables that queries read as `#<ns>_<table>` and
+  `postings.<ns>_<column>`. An analyzer reads no files, has no network, runs at most 10,000 queries, and a failing one
+  leaves the ledger loaded with one `PluginAnalysisFailed` error (#848, #849)
+- The SDK writes analyzers (`plugin!` with `analyzer:` and `manifest:`, `analysis::convert`) (#850)
+- Every ledger has its own query catalog, and `GET /api/query/schema` describes the served ledger's tables, with
+  `provided_by` on the tables an extension provides (#839, #845, #848)
+
+### Query language
+
+- A native BQL engine (beanquery-compatible, exact decimals) replaces the SQL Explore page: `SELECT [DISTINCT] … FROM
+  … WHERE … GROUP BY … HAVING … PIVOT BY … ORDER BY … LIMIT … OFFSET`, `BALANCES` and `JOURNAL`, accounting periods
+  (`FROM … OPEN ON … CLOSE ON … CLEAR`) (#439, #450, #467, #484)
+- Tables: `#entries`, `#transactions`, `#prices`, `#balances`, `#notes`, `#events`, `#documents`, `#accounts`,
+  `#commodities`, and zhang's `#budgets`, `#budget_events`, `#budget_definitions` and `#errors` (#467, #484, #503,
+  #748)
+- Functions: beanquery's date functions, `open_meta`, `commodity_meta`, `open_date`, `close_date`, `meta_values`;
+  zhang's `icontains`, `any_icontains`, `intersects`, `under`, `set()`, `CASE WHEN … END`, `least`/`greatest`,
+  `account_status`, `now()` and `open_meta_values(account, key, date[, time])` (`account_budgets()` is a deprecated
+  alias) (#484, #490, #503, #504, #689, #759, #837)
+- The Query page runs on Run or Ctrl/Cmd+Enter, with examples, a schema and function reference, saved queries (the
+  `query` directive), CSV export and charts of the results; "Open query" buttons across the app open the query
+  behind a figure; the editor highlights the keywords the server's parser reads, and charts format numbers in the
+  app's language (#439, #450, #467, #490, #552, #732, #743, #762)
+- `POST /api/query` answers `{columns, rows}` (`total` with `count_total`); a query is bounded to 64 KiB, 10 seconds
+  and 1,000,000 result values (`ZHANG_QUERY_MAX_RESULT_VALUES`) (#439, #450)
+- `seq` numbers the entries in the order zhang processes the ledger (#502)
+- Fixes: an aggregate over no rows returns one row (#656), non-ASCII currencies sort consistently (#680), a document
+  of a split posting is listed once (#686), text is read as a date by `date()`'s rule (#705), `open.booking` shows
+  the method zhang books with (#708), the directive tables agree with the postings (#706, #709)
+
+### HTTP API
+
+- `DELETE /api/transactions/{id}` removes a transaction; it requires `If-Match: <version>` (428 without it, 412 when
+  the version is stale). Transactions carry a `version` in the journals, and `PUT` and its preview take an optional
+  `If-Match` (#818)
+- Every write answers once the ledger has been reloaded, so the next read sees it (#818)
+- `POST /api/transactions` takes an `Idempotency-Key` header: the transaction is written with the key as its
+  `idempotency-key` metadata, and a create sent again with the key writes nothing and answers the transaction that
+  has it, with `Idempotency-Replayed: true`, after a reload or a restart of the server too (#831)
+- Posting flags round-trip (`flag` in requests, `written.flag` in the journal) (#821), a request `datetime` may be a
+  date alone, which writes no time (`has_time: false`) (#821, #726), and an edit keeps a posting's cost, price and
+  comment (#671)
+- `POST /api/transactions/preview` and `POST /api/transactions/{id}/preview` answer the text and the checks of a
+  request without writing (#710)
+- Built-in queries over HTTP: `GET /api/query/builtins`, `POST /api/query/builtins/{name}`, a batch at
+  `POST /api/query/builtins` and the filled-in text at `POST /api/query/builtins/{name}/text`. The budget queries'
+  `month` must be the first day of a month (400 otherwise) (#490, #503, #753, #842)
+- The file editor's `GET /api/files/{path}` answers a `sha256`, and a save with `expected_sha256` over a file changed
+  since is a 409 (#667)
+- Numbers are written in plain notation (`0.0000001`, not `1E-7`) (#695); a write refuses numbers of more than 1000
+  digits and says why an amount expression has no value (#782, #820)
+- Fixes: base64 paths that contain a slash (#507), a commodity's latest price (#666), a remote ledger's documents when
+  their cache cannot be written (#678), a document's extension and MIME type (#690)
+
+### Authentication
+
+- A login page replaces the browser's Basic-auth popup, with passkey sign-in (`--passkey` / `ZHANG_PASSKEY`, stored
+  in `.zhang/passkeys.json`). Sessions last 30 days; `ZHANG_SESSION_SECRET` keeps them across restarts. The Basic
+  header still works for scripts, and failed sign-ins are rate-limited (429 with `Retry-After`) (#466)
+- App sign-in: a signed-in browser hands a single-use code (60 seconds) to the app, which exchanges it for a bearer
+  session (`POST /api/auth/app/code`, `POST /api/auth/app/exchange`, `Authorization: Bearer`) (#786)
+- The handoff takes PKCE (S256) and a `state`, and the login page asks for consent ("Sign in to the app as …?") before
+  it issues a code (#819)
+- `ZHANG_APP_RETURN_SCHEMES` ignores, with a warning, `http`, `https` and the other web schemes (#819)
+- The web UI's pages are sent with `X-Frame-Options: DENY` and `Content-Security-Policy: frame-ancestors 'none'`
+  (#819)
+
+### Ledger processing
+
+- `pad` is supported in both formats, across files, with `UnusedPad` and `PadWithCost` notices (#438, #508)
+- Metadata under a posting belongs to the posting (`metas` on journal postings and requests, `meta()`, `any_meta()`)
+  (#471)
+- A day's entries have one order for checks, booking and queries (#438, #717); valuations use the latest price on or
+  before the date (#459); `operating_currency` takes the precision options in any order (#644, #648)
+- Every beancount cost form parses (`{*}` reports `CostMergingNotSupported`), and lot costs are divided in
+  beancount's 28-digit context (#681, #687)
+- Cases that panicked are reported instead: an undefined account budget, daylight-saving gaps and overlaps, a division
+  by zero in an amount, a number out of range (#454, #455, #650, #716, #781)
+- Errors give their location as a line and a column (#669)
+- Every ledger file is decoded strictly as UTF-8, and a leading byte order mark is skipped and kept (#663, #688); the
+  ledger's format follows the main file's extension (`UnknownLedgerFormat` otherwise) (#697)
+
+### Beancount compatibility and export
+
+- Budgets in `.bean` files are written as `custom "budget" …` entries that bean-check accepts; the old form is still
+  read (#668)
+- Export quotes what beancount would not read bare: metadata values such as `budget: "Food"`, arithmetic, `#旅行` or
+  `1,5`, and metadata keys that are not bare words; strings escape only `"`, `\` and control characters (#457, #842)
+- Metadata values that beancount writes unquoted (accounts, amounts, grouped numbers) are read and round-trip (#659)
+- A directive dated with a time, budget directives included, is exported as its date plus `time` metadata and read
+  back at that time (#767, #842)
+- A beancount `document` path is relative to its file (`DocumentPathRelativeToRoot`, `DocumentNotFound`) (#508)
+- Writes refuse names that would not read back, by beancount's rules on a beancount ledger (#457)
+
+### Data sources and writes
+
+- Local saves are atomic: a temporary file is renamed over the file, a hard-linked file is written in place, and a
+  file Zhang may not write (read-only, say) is a 403 `the storage refused to write <file>` (#824)
+- An append writes each file once, the main file's `include` first, after reading every file; a failed write takes
+  the include out again (#825, #832)
+- New entries go to `data/{{year}}/{{month_str}}.{{ext}}` by default, so a beancount ledger gets `.bean` files
+  (`{{ext}}` placeholder) (#478, #571)
+- An include that matches nothing or points outside the ledger is reported as `IncludeNotFound` and the rest loads;
+  include patterns are anchored and `*` stays within one path part (#649, #665, #682, #691)
+- On a beancount ledger, a balance check writes a `balance` dated the next day, a reconcile also writes the padding
+  transaction, and `/api/info` reports the `format` (#508)
+- The server counts the content changes of the served ledger (a generation), which voids plugin write previews made
+  before a change (#826, #847)
+
+### Budgets
+
+- Postings after a budget's `budget-close` no longer count (`BudgetClosed`), and an amount no price converts reports
+  `BudgetCommodityMismatch` (#684)
+- `postings.budgets` lists the budgets a posting counts toward (#714); see also "Budget as an official plugin"
+
+### Server, reloads and CLI
+
+- A failed reload is shown, not only logged: `reload_failure` in `/api/info`, a `ReloadFailed` event, and a 409 from
+  `POST /api/reload`; a write to a stale ledger reloads it first and answers 409 if it cannot (#672, #719)
+- The watcher reloads a ledger served through a relative or symlinked root (#670), when a plugin module or a missing
+  include appears, and at midnight for a ledger that depends on the date (#461); it ignores reads and waits for 500 ms
+  of quiet (2 seconds at most), and reloads the whole ledger when its events overflow (#840, #846)
+- A slow event-stream client no longer stalls the server; one that would miss a reload is disconnected and fetches
+  again when it reconnects (#840, #846)
+- `zhang serve` and `zhang update` print `error: <reason>` and exit with 1 when they fail (#488, #660); the log
+  filter is `ZHANG_LOG`, then `RUST_LOG`, then `info` (#661); `zhang --version` prints the release version (#662)
+
+### Web UI
+
+- Rebuilt on React 19, Tailwind 4 and shadcn/Base UI: a sidebar with the accounts and their balances, a bottom tab
+  bar on phones, light and dark themes, an English/Chinese switch, an overview with the month's budgets (#449)
+- The transaction form edits a posting's cost, price and comment, and offers only the accounts open at its date
+  (#673, #693)
+- The error dialog opens the editor at the error's line (#675); every open page refreshes when the ledger changes or
+  the event stream reconnects (#745, #761)
+- Amounts and totals follow the server's figures and the commodity's precision (#704, #711, #721); a commodity's
+  price chart has one scale per quote currency (#764); Settings links to the GitHub repository (#657)
+- The bundle is split by page and by heavy library, so a first load fetches the shell and one page (#768)
+
+### Performance
+
+- A reload loads the ledger outside the write lock: requests keep being answered from the current ledger until the
+  new one is swapped in (#840), and a write costs one load instead of two (#841). In the budget benchmark at 100,000
+  transactions, a reader during a reload waited 2.4 ms instead of 2.4 s, and a write took 1.8 s instead of 2.2 s
+- The budget tables are computed once per loaded ledger: a warm `budgets.month` query takes 3.8 ms instead of 72.5 ms
+  at 100,000 transactions, while the first budget query after each load builds them (283 to 529 ms) (#844)
+- Plugins are compiled once per load instead of on every call (#801), and the Lua runtime's JSON codec is C instead
+  of dkjson: decoding 1 MB takes 10 ms instead of 111 ms, and the MCP `query` tool answers in a third of the time
+  (#838)
+- Loading no longer slows down quadratically with the number of postings and metadata entries (#565, #629, #639,
+  #641, #650)
+
+### Deployment and packaging
+
+- Release binaries of `main` are built once a day and on demand, as workflow artifacts (#785)
+- A free Render demo deploys from a read-only S3 bucket (`render.yaml`, `deploy/render/`), and the README and the
+  documentation link an online demo with a tour (#652, #654)
+- The documentation is reorganized (getting started, guides, deployment, reference, developers) and translated to
+  Chinese, with redirects from the old pages (#489)
+- The server and CLI crates share the workspace version, so a source build reports 0.3.0
+
+### Dependencies
+
+- extism 1.30.0 (wasmtime 43) and patched transitive crates and web packages clear the reported advisories (#561,
+  #562, #573, #578, #597); reqwest 0.13
+  (#625); self_update 1.3 (#609)
+- Building the web UI from source needs Node 22.22 or newer (Vite 8, TypeScript 6, ESLint 10, i18next 26, React Router
+  8) (#568, #576, #579, #583, #588)
+
+The other commits since 0.2.0 are refactors, tests, CI and dependency updates without a visible effect;
+`git log v0.2.0..v0.3.0` lists them.
 
 ## [0.2.0] - 2026-10-02
 
@@ -1538,6 +1889,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove filter condition
 - Remove useless in-memory options and configs store
 
+[0.3.0]: https://github.com/zhang-accounting/zhang/compare/v0.2.0...main
+[0.2.0]: https://github.com/zhang-accounting/zhang/compare/v0.1.10...v0.2.0
 [0.1.10]: https://github.com///compare/v0.1.9..v0.1.10
 [0.1.9]: https://github.com///compare/v0.1.8..v0.1.9
 [0.1.8]: https://github.com///compare/v0.1.8-beta.3..v0.1.8
