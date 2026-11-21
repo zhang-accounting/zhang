@@ -140,15 +140,31 @@ fn timed(ledger: &Ledger, queries: &[(&str, Params)], rounds: usize) -> (Duratio
         }
         if round > 0 {
             totals.push(started.elapsed());
+        } else if std::env::var_os("QUERY_BENCH_COLD").is_some() {
+            // the first round, in memory the process has not used yet, as an analysis right after a load runs
+            println!("  cold: {:.2} ms", ms(started.elapsed()));
         }
     }
     (median(&mut totals), rows)
 }
 
 /// The aggregations of a budget analysis (`budget.lua`) on a warm cache: the activity of every budget per month, one
-/// aggregation per budget, and the commodities held on the budgets' accounts.
+/// aggregation per budget or one per commodity grouped with unnest(), and the commodities held on the budgets'
+/// accounts. `QUERY_BENCH_ONLY=<text>` times only the measurements whose label has the text.
 #[inline(never)]
 fn budgets(spec: &Spec, ledger: &Ledger, rounds: usize) {
+    let only = std::env::var("QUERY_BENCH_ONLY").unwrap_or_default();
+    let measure = |label: &str, queries: &[(&str, Params)]| {
+        if label.contains(only.as_str()) {
+            let (took, rows) = timed(ledger, queries, rounds);
+            println!(
+                "{} {label}: {} queries, {rows} rows, {:.2} ms (median of {rounds})",
+                spec.name(),
+                queries.len(),
+                ms(took)
+            );
+        }
+    };
     let budgets = defined(ledger);
     let activity = "SELECT seq < :defined_seq AS kind, yearmonth(date) AS month, \
         sum(CASE WHEN currency = :commodity THEN number ELSE number(convert(position, :commodity, date)) END) AS activity \
@@ -164,17 +180,17 @@ fn budgets(spec: &Spec, ledger: &Ledger, rounds: usize) {
             (activity, params)
         })
         .collect::<Vec<_>>();
-    let (took, rows) = timed(ledger, &per_budget, rounds);
-    println!("{} budgets: {} aggregations, {rows} rows, {:.2} ms", spec.name(), budgets.len(), ms(took));
+    measure("budgets one by one", &per_budget);
 
     let accounts = Params::new().bind("accounts", Value::Set(budgets.iter().flat_map(|it| it.accounts.iter().cloned()).collect()));
     let held = "SELECT account, currency, cost_currency, min(date) AS since WHERE account IN :accounts GROUP BY account, currency, cost_currency";
-    let (took, rows) = timed(ledger, &[(held, accounts.clone())], rounds);
-    println!("{} held commodities: {rows} rows, {:.2} ms", spec.name(), ms(took));
+    measure("held commodities", &[(held, accounts.clone())]);
 
-    // the activity of every budget per month in one pass per commodity, grouped by the budgets of each posting
+    // the activity of every budget per month in one pass per commodity, grouped by the budgets of each posting, with
+    // the first seq and the postings no price converts, as budget.lua aggregates it
     let grouped = "SELECT unnest(open_meta_values(account, 'budget', date, time)) AS budget, yearmonth(date) AS month, \
         min(seq) AS first, \
+        count(CASE WHEN currency != :commodity AND currency(convert(position, :commodity, date)) != :commodity THEN 1 END) AS unconverted, \
         sum(CASE WHEN currency = :commodity THEN number ELSE number(convert(position, :commodity, date)) END) AS activity \
         WHERE account IN :accounts GROUP BY budget, month";
     let mut commodities = budgets.iter().map(|budget| budget.commodity.as_str()).collect::<Vec<_>>();
@@ -191,28 +207,17 @@ fn budgets(spec: &Spec, ledger: &Ledger, rounds: usize) {
             (grouped, Params::new().bind("accounts", Value::Set(accounts)).bind("commodity", *commodity))
         })
         .collect::<Vec<_>>();
-    let (took, rows) = timed(ledger, &per_commodity, rounds);
-    println!(
-        "{} budgets grouped by unnest(): {} aggregations, {rows} rows, {:.2} ms",
-        spec.name(),
-        per_commodity.len(),
-        ms(took)
-    );
+    measure("budgets grouped by unnest()", &per_commodity);
 
     // the rows alone: what assembling the rows of the budgets' accounts costs, as every query over them pays it
-    let scan = "SELECT count(*) WHERE account IN :accounts";
-    let (took, rows) = timed(ledger, &[(scan, accounts.clone())], rounds);
-    println!("{} the rows of every budget's accounts: {rows} rows, {:.2} ms", spec.name(), ms(took));
+    measure(
+        "rows of every budget's accounts",
+        &[("SELECT count(*) WHERE account IN :accounts", accounts.clone())],
+    );
 
-    // what one pass over the budgets' accounts costs, without any budget's own membership: a bound on what one
-    // aggregation for every budget could save
+    // what one pass over the budgets' accounts costs, without any budget's own membership
     let one_pass = "SELECT account, yearmonth(date) AS month, \
         sum(CASE WHEN currency = 'USD' THEN number ELSE number(convert(position, 'USD', date)) END) AS activity \
         WHERE account IN :accounts GROUP BY account, month";
-    let (took, rows) = timed(ledger, &[(one_pass, accounts)], rounds);
-    println!(
-        "{} one pass over every budget's accounts: {rows} rows, {:.2} ms (medians of {rounds})",
-        spec.name(),
-        ms(took)
-    );
+    measure("one pass over every budget's accounts", &[(one_pass, accounts)]);
 }
