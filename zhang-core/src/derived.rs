@@ -9,6 +9,9 @@ use std::sync::OnceLock;
 pub trait DerivedData: Any + Send + Sync {
     /// The ledger's errors changed: drop what was computed from them, keep the rest. A load places its errors last,
     /// after its analyzers ran, and their queries may have computed data from the errors before they were placed.
+    ///
+    /// Only what this drops is computed again. The query engine keeps the snapshots of its native providers here too,
+    /// and keeps one an analysis's query built: a native provider must therefore not read the ledger's errors.
     fn errors_changed(&mut self);
 }
 
