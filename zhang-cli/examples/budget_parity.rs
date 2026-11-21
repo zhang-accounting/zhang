@@ -34,9 +34,18 @@ fn main() -> ExitCode {
         Some("memory") => runtime.block_on(memory(args.get(1).map(String::as_str).unwrap_or("native"), number(2, 10_000) as usize)),
         Some("queries") => runtime.block_on(queries(number(1, 100_000) as usize)),
         Some("profile") => {
+            // BUDGET_PARITY_LOG=all logs everything at the info level: a script's `print` too, which extism logs
+            let all = std::env::var("BUDGET_PARITY_LOG").is_ok_and(|it| it == "all");
             env_logger::Builder::new()
-                .filter_level(log::LevelFilter::Off)
-                .filter_module("zhang_core::plugin", log::LevelFilter::Info)
+                .filter_level(if all { log::LevelFilter::Info } else { log::LevelFilter::Off })
+                .filter_module(
+                    "zhang_core::plugin",
+                    if std::env::var_os("BUDGET_PARITY_QUERIES").is_some() {
+                        log::LevelFilter::Debug
+                    } else {
+                        log::LevelFilter::Info
+                    },
+                )
                 .filter_module(
                     "zhang_server::analysis",
                     if std::env::var_os("BUDGET_PARITY_QUERIES").is_some() {
