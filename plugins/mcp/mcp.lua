@@ -18,7 +18,8 @@
 -- Sections: util, jsonrpc, config, transport, era, catalogue (args + schemas), queries, shape, read tools,
 -- write tools, info and the router entry.
 
-local NAME, VERSION = "zhang-mcp", "0.1.0"
+-- VERSION is the Zhang release the script ships with (`[workspace.package] version` in Cargo.toml): bump them together
+local NAME, VERSION = "zhang-mcp", "0.3.0"
 local M = { name = NAME, version = VERSION, types = { "Router" }, writes = { "transaction", "open" } }
 
 local fmt, concat, insert = string.format, table.concat, table.insert
