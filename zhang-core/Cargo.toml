@@ -27,6 +27,8 @@ strum = { workspace = true }
 chrono-tz = { workspace = true }
 indexmap = { workspace = true }
 http = { workspace = true }
+# a fast hash for the account names the account lifecycle looks up for every posting (`pipeline::active_accounts`)
+rustc-hash = "2"
 
 nom = "7"
 

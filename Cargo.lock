@@ -6568,6 +6568,7 @@ dependencies = [
  "minijinja",
  "nom",
  "once_cell",
+ "rustc-hash",
  "semver",
  "serde",
  "serde_json",
