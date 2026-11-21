@@ -41,7 +41,7 @@ When a result has exactly two columns and at least one row, and its second colum
 
 - A label looks like an account name when it is made of `:`-separated parts without spaces. At least one label must contain a `:`, and empty or `NULL` labels are ignored.
 - Positions and inventories are plotted by their units, without their costs. A chart shows one currency at a time. When the result holds several currencies, a **Currency** picker chooses the one to plot. It starts with the ledger's operating currency (the `operating_currency` option) if the result has it, and otherwise with the currency that appears in the most rows.
-- Rows with the same label are added together, and rows whose value is `NULL` are skipped. In a line chart, a date with no value in the chosen currency is plotted as zero.
+- Rows with the same label are added together, and rows whose value is `NULL` are skipped. In a line chart, a date where a series has no value in the chosen currency (a `NULL` cell, or a value in another currency only) is a gap in that series' line, not a zero.
 - In a treemap, accounts are nested by their parts, and a top level shared by every account, such as `Expenses`, is skipped. The area of a cell is the absolute value, and its colour shows whether the value is positive or negative.
 - Values are added exactly, and are only converted to floating point to be drawn.
 - The **Chart** switch hides or shows the chart. The browser remembers the setting.

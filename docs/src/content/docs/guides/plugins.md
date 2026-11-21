@@ -134,15 +134,15 @@ Only declare plugins you trust, ideally ones whose source you can read, and gran
 ## When a plugin goes wrong
 
 - A problem a plugin reports appears in the ledger's error list as a [`PluginError`](/reference/error-codes/#pluginerror), with the plugin's name and message, on the entry the plugin points at or on its `plugin` directive. The ledger still loads.
-- A plugin that fails, by returning an error, crashing, running past its timeout or out of memory, stops the whole ledger from loading, and so does a module that cannot be loaded, such as a path where no module is. When Zhang starts, it exits with the error. While it is running, it keeps serving the last version that loaded and only logs the error: the web UI shows no error. A timeout message says which call ran too long; raise the plugin's `timeout` if it needs more time. An out-of-memory message names the limit; raise `ZHANG_PLUGIN_MAX_MEMORY` if the plugin needs more, for example to process a very large ledger.
+- A plugin that fails, by returning an error, crashing, running past its timeout or out of memory, stops the whole ledger from loading, and so does a module that cannot be loaded, such as a path where no module is. When Zhang starts, it exits with the error. While it is running, it keeps serving the last version that loaded, and the web UI shows the error in a **Ledger reload failed** banner on every page until a reload succeeds. A timeout message says which call ran too long; raise the plugin's `timeout` if it needs more time. An out-of-memory message names the limit; raise `ZHANG_PLUGIN_MAX_MEMORY` if the plugin needs more, for example to process a very large ledger.
 
 ## Plugins, pads and balance assertions
 
-Zhang runs your plugins first, then checks that every account is open, then fills the pads, then checks the balance assertions. So:
+Zhang books every transaction first, then runs your plugins, then checks that every account is open, then fills the pads, then checks the balance assertions. A plugin declared `stage: "raw"` runs before the booking instead. So:
 
 - Transactions a plugin adds count in the amounts pads fill up to and in the balances assertions check. A posting a plugin adds to an account that is not open is reported like one you wrote.
 - A plugin sees your `balance` and `balance … with pad` directives, but not the padding transactions, which are added after it runs. It does not see `pad` directives: a `balance` a `pad` serves is shown to it as a `balance … with pad`. See [Writing plugins](/developers/writing-plugins/#the-stage-order-contract).
-- A plugin sees transactions as you wrote them: a missing amount is not filled in yet, and sales are not matched to lots.
+- A plugin sees booked transactions, as a Beancount plugin does: a missing amount is filled in, a cost is the per-unit cost of its lot, and a sale across several lots is one posting per lot. A plugin declared `stage: "raw"` sees the transactions as you wrote them, before booking: choose it for a plugin that fills in accounts or amounts.
 - An `option` or `plugin` directive a plugin adds has no effect.
 
 See [Balances and Padding](/guides/balances/) for how pads and assertions work.
