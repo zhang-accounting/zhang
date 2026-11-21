@@ -5,6 +5,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use chrono::NaiveDateTime;
 use itertools::Itertools;
+use rustc_hash::FxBuildHasher;
 use zhang_ast::error::ErrorKind;
 use zhang_ast::{Account, Date, Directive, Spanned};
 
@@ -12,8 +13,10 @@ use super::{ProcessStage, StageContext};
 use crate::domains::schemas::AccountStatus;
 use crate::ZhangResult;
 
-/// The metadata of an `open`, as [`AccountLifecycle`] keeps it: the values of each key, each once.
-type OpenMeta = HashMap<String, BTreeSet<String>>;
+/// The metadata of an `open`, as [`AccountLifecycle`] keeps it: the values of each key, each once. Its keys, like the
+/// accounts of [`AccountLifecycle`], are hashed with FxHash, not SipHash: they come from the ledger, and a query may
+/// look them up for every posting it reads (`open_meta_has()`).
+type OpenMeta = HashMap<String, BTreeSet<String>, FxBuildHasher>;
 
 /// The values of a key an `open` does not have.
 static NO_VALUES: BTreeSet<String> = BTreeSet::new();
@@ -84,7 +87,7 @@ pub enum AccountUse {
 #[derive(Debug, Clone, Default)]
 pub struct AccountLifecycle {
     /// the `open` and `close` directives of each account, in stream order, which is the order of their dates and times
-    changes: HashMap<String, Vec<Change>>,
+    changes: HashMap<String, Vec<Change>, FxBuildHasher>,
 }
 
 impl AccountLifecycle {
@@ -102,7 +105,7 @@ impl AccountLifecycle {
         let Some(at) = directive.datetime() else { return };
         let (account, change) = match directive {
             Directive::Open(open) => {
-                let mut meta = OpenMeta::new();
+                let mut meta = OpenMeta::default();
                 for (key, value) in open.meta.clone().pairs() {
                     meta.entry(key).or_default().insert(value);
                 }

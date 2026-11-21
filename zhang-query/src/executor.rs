@@ -8,9 +8,9 @@ use std::time::{Duration as StdDuration, Instant};
 
 use bigdecimal::{BigDecimal, Zero};
 use chrono::{Duration, NaiveTime};
-use indexmap::map::Entry;
 use indexmap::IndexMap;
 use regex::Regex;
+use rustc_hash::FxBuildHasher;
 use zhang_ast::amount::Amount;
 
 use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, ConstSet, LimitMode, Plan, RegexPattern, StrTest, StrTestKind, Window};
@@ -28,6 +28,13 @@ const DEADLINE_CHECK_INTERVAL: usize = 256;
 
 /// How many dynamic (per-row) regular expressions are kept compiled.
 const REGEX_CACHE_SIZE: usize = 32;
+
+/// The groups of an aggregate query, in the order their first rows came, by key. A key is hashed per row, with FxHash
+/// rather than a DoS-resistant hash: its values come from the ledger, and the order of the groups never depends on it.
+type Groups = IndexMap<Vec<Value>, Vec<Accumulator>, FxBuildHasher>;
+
+/// Keys hashed per row, as [`Groups`] hashes them.
+type KeySet = HashSet<Vec<Value>, FxBuildHasher>;
 
 /// Compiled regular expressions for patterns only known per row (e.g. `x ~ :pattern` or
 /// `x ~ narration`), most recently used first.
@@ -299,7 +306,21 @@ fn call_failed(function: &ScalarFunction, span: Span, message: String) -> Locate
     LocatedError::eval(format!("{}(): {}", function.name, message), Some(span))
 }
 
+/// How many arguments a call evaluates into an array on the stack rather than a list it allocates: most calls have
+/// one to three, and a call per row is common.
+const STACK_ARGS: usize = 3;
+
 fn eval_scalar(function: &ScalarFunction, args: &[CExpr], span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    if args.len() <= STACK_ARGS {
+        let mut values = [Value::Null, Value::Null, Value::Null];
+        for (value, arg) in values.iter_mut().zip(args) {
+            *value = arg.eval(env)?;
+            if value.is_null() {
+                return Ok(Value::Null);
+            }
+        }
+        return call(function, &values[..args.len()], span, env);
+    }
     let mut values = Vec::with_capacity(args.len());
     for arg in args {
         let value = arg.eval(env)?;
@@ -308,10 +329,15 @@ fn eval_scalar(function: &ScalarFunction, args: &[CExpr], span: Span, env: &Env<
         }
         values.push(value);
     }
+    call(function, &values, span, env)
+}
+
+/// Call `function` with the values of its arguments, none of them NULL.
+fn call(function: &ScalarFunction, values: &[Value], span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
     let value = match (function.eval, env.data) {
-        (Eval::Args(eval), _) => eval(&values),
-        (Eval::Execution(eval), Some(data)) => eval(&values, data),
-        (Eval::Row(eval), Some(data)) => eval(&values, data, env.row),
+        (Eval::Args(eval), _) => eval(values),
+        (Eval::Execution(eval), Some(data)) => eval(values, data),
+        (Eval::Row(eval), Some(data)) => eval(values, data, env.row),
         // without an execution, as when folding constants, which leaves these calls alone
         (Eval::Execution(_) | Eval::Row(_), None) => return Err(LocatedError::eval(format!("{}() is not available here", function.name), Some(span))),
     };
@@ -629,7 +655,7 @@ fn references(expr: &CExpr, aggregates: &mut BTreeSet<usize>, targets: &mut BTre
 /// so a query over a long history that keeps only its last groups costs what those keep. The
 /// groups it keeps are tested again when they are finished, to the same result.
 fn drop_before_replay(
-    plan: &Plan, keys: &[usize], deferred: &[usize], groups: &mut IndexMap<Vec<Value>, Vec<Accumulator>>, budget: &mut Budget, base: &Env<'_, '_>,
+    plan: &Plan, keys: &[usize], deferred: &[usize], groups: &mut Groups, budget: &mut Budget, base: &Env<'_, '_>,
 ) -> Result<(), LocatedError> {
     let Some(having) = &plan.having else {
         return Ok(());
@@ -1019,7 +1045,7 @@ impl<'x, 'a> Execution<'x, 'a> {
             rows: strategy.running.replays().then(Vec::new),
             count: 0,
         };
-        let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
+        let mut groups = Groups::default();
         let mut current: Option<Vec<Value>> = None;
         // the runs so far, and whether the current one is in the window
         let mut runs = 0u64;
@@ -1087,7 +1113,7 @@ impl<'x, 'a> Execution<'x, 'a> {
 /// What [`Execution::group_runs`] built.
 struct Runs {
     /// the groups of the window
-    groups: IndexMap<Vec<Value>, Vec<Accumulator>>,
+    groups: Groups,
     filtered: Filtered,
     /// the groups before OFFSET, only counted
     skipped: u64,
@@ -1180,7 +1206,7 @@ pub(crate) fn execute_within(
                 _ => Collector::All(vec![]),
             };
             // DISTINCT without ORDER BY tells rows apart while scanning
-            let mut seen = (plan.distinct && strategy.limit == LimitMode::StopScan).then(HashSet::new);
+            let mut seen = (plan.distinct && strategy.limit == LimitMode::StopScan).then(KeySet::default);
             // a scan that stops early, without DISTINCT, only counts the rows before OFFSET: they
             // are skipped without being built
             let skip = run
@@ -1333,9 +1359,12 @@ pub(crate) fn execute_within(
                     (runs.groups, run.count_total.then_some(runs.count))
                 }
                 None => {
-                    let mut groups: IndexMap<Vec<Value>, Vec<Accumulator>> = IndexMap::new();
+                    let mut groups = Groups::default();
                     // the keys of the groups past the first ones, only collected to count them
-                    let mut later_groups: HashSet<Vec<Value>> = HashSet::new();
+                    let mut later_groups = KeySet::default();
+                    // the key of the row, evaluated into one list that every row reuses: a group's own key is a copy,
+                    // made when its first row comes
+                    let mut key: Vec<Value> = Vec::with_capacity(keys.len());
                     for (counter, row) in data.iter().enumerate() {
                         Deadline::check(execution.deadline, counter)?;
                         if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
@@ -1358,24 +1387,28 @@ pub(crate) fn execute_within(
                             running: running.as_ref(),
                             ..base
                         };
-                        let key = keys.iter().map(|idx| plan.targets[*idx].expr.eval(&env)).collect::<Result<Vec<_>, _>>()?;
+                        key.clear();
+                        for idx in keys {
+                            key.push(plan.targets[*idx].expr.eval(&env)?);
+                        }
                         // LIMIT without ORDER BY keeps the first groups, so later ones are skipped
                         let full = first_groups.is_some_and(|limit| groups.len() >= limit);
-                        let accumulators = match groups.entry(key) {
-                            Entry::Occupied(entry) => entry.into_mut(),
-                            Entry::Vacant(entry) if full => {
-                                if run.count_total && !later_groups.contains(entry.key()) {
-                                    budget.charge(row_weight(entry.key()))?;
-                                    later_groups.insert(entry.into_key());
+                        let group = match groups.get_index_of(key.as_slice()) {
+                            Some(group) => group,
+                            None if full => {
+                                if run.count_total && !later_groups.contains(key.as_slice()) {
+                                    budget.charge(row_weight(&key))?;
+                                    later_groups.insert(key.clone());
                                 }
                                 continue;
                             }
-                            Entry::Vacant(entry) => {
+                            None => {
                                 let accumulators = new_accumulators(plan, deferred);
-                                budget.charge(row_weight(entry.key()) + accumulators.iter().map(Accumulator::weight).sum::<u64>())?;
-                                entry.insert(accumulators)
+                                budget.charge(row_weight(&key) + accumulators.iter().map(Accumulator::weight).sum::<u64>())?;
+                                groups.insert_full(key.clone(), accumulators).0
                             }
                         };
+                        let accumulators = &mut groups[group];
                         for (idx, (call, accumulator)) in plan.aggregates.iter().zip(accumulators.iter_mut()).enumerate() {
                             if deferred.contains(&idx) {
                                 accumulator.pick_row(call, ordinal);
@@ -1472,7 +1505,7 @@ pub(crate) fn execute_within(
         row.truncate(plan.visible);
     }
     if plan.distinct && strategy.limit != LimitMode::StopScan {
-        let mut seen = HashSet::with_capacity(rows.len());
+        let mut seen = KeySet::with_capacity_and_hasher(rows.len(), FxBuildHasher);
         rows.retain(|row| seen.insert(row.clone()));
     }
     let total = run.count_total.then(|| counted.unwrap_or(rows.len() as u64));
