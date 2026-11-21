@@ -71,7 +71,7 @@ const EMIT_ERROR_MAX_LEN: usize = 1024 * 1024;
 // read the bytes there. extism 1.8 reads them with `CurrentPlugin::memory_from_val` followed by
 // `memory_bytes`/`memory_str`. `memory_from_val` trusts the length the kernel's `length` export
 // reports, which is the block header's `used` field, and `memory_bytes` builds the slice with
-// `std::slice::from_raw_parts` without any bounds check (this is still true in extism 1.30.0, so a
+// `std::slice::from_raw_parts` without any bounds check (this is still true in extism 1.41.0, so a
 // version bump does not fix it upstream). A plugin can overwrite its own block header -- e.g.
 // `store_u8($p - 1, 0x7f)` sets `used` to about 2 GiB -- so the host then slices far past the mapped
 // memory and reading it kills the whole process with SIGBUS. A smaller forge leaks the plugin's own

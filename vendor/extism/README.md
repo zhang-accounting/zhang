@@ -236,13 +236,10 @@ To enable or disable caching for plugin compilation, you need to provide a confi
 
 For more information and values that can be used for configuring caching, take a look at [the docs](https://docs.wasmtime.dev/cli-cache.html).
 
-> *Note*: As of now extism uses wasmtime [`version = ">= 27.0.0, < 31.0.0"`](https://github.com/extism/extism/blob/v1.11.1/runtime/Cargo.toml#L12), but the `enabled` key requirement [was removed](https://github.com/bytecodealliance/wasmtime/pull/10859) from `wasmtime` and its documentation, this could explain the `failed to parse config file` error you might encounter without it.
-
 An example configuration for caching would be:
 
 ```toml
 [cache]
-enabled = true # This value is required
 directory = "/some/path"
 ```
 
@@ -254,7 +251,7 @@ You can :
 #### Using a configuration file
 
 The [wasmtime](https://github.com/bytecodealliance/wasmtime) crate, by default, will look for a configuration file in your systems' default configuration directory (for example on UNIX systems: `$HOME/.config/wasmtime/config.toml`),
-for more [information on this behaviour](`https://docs.rs/wasmtime/31.0.0/wasmtime/struct.Config.html#method.cache_config_load_default`).
+for more [information on this behaviour](https://docs.rs/wasmtime/latest/wasmtime/struct.Cache.html#method.from_file).
 
 #### Using an environment variable
 

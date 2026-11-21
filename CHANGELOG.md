@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left out, so a plugin could use about twice the limit.
 - Resolve a plugin's HTTP request once, refuse non-public addresses and connect to the checked address, so DNS
   rebinding and redirects cannot reach the machine, the private network or the cloud metadata service.
+- Update wasmtime from 43 to 49.0.7 by vendoring extism 1.41.0 (zhang's extism patches carried over): on aarch64 a
+  plugin with a `br_table` of more than ~256k targets could make Cranelift branch to the wrong code and escape the
+  sandbox (GHSA-mghf-wjfp-p5xm). Plugins now get WASI from `wasmtime-wasi` instead of the removed `wasi-common`.
 
 ## [0.2.0] - 2026-10-02
 
