@@ -476,20 +476,6 @@ fn cut(text: &str) -> String {
     format!("{}…", &text[..end])
 }
 
-/// `errors` without those at `removed` (ascending), and `marks`, positions in `errors` ([`merge`]), moved as they move:
-/// the native budget checks' errors, when `zhang:budget` reported them instead.
-pub fn without(errors: Vec<ErrorDomain>, marks: &[usize], removed: &[usize]) -> (Vec<ErrorDomain>, Vec<usize>) {
-    let marks = marks.iter().map(|mark| mark - removed.partition_point(|at| at < mark)).collect();
-    let mut removed = removed.iter().peekable();
-    let errors = errors
-        .into_iter()
-        .enumerate()
-        .filter(|(at, _)| removed.next_if(|it| **it == *at).is_none())
-        .map(|(_, error)| error)
-        .collect();
-    (errors, marks)
-}
-
 /// The error a failed analysis reports.
 pub fn failure_error(plugin: &str, failure: &AnalysisFailure, span: &SpanInfo) -> ErrorDomain {
     let metas = HashMap::from([
@@ -516,6 +502,16 @@ impl Reported {
     /// Whether the analyses reported nothing.
     pub fn is_empty(&self) -> bool {
         self.at_directives.is_empty() && self.after_fold.is_empty() && self.on_plugins.is_empty()
+    }
+
+    /// These, then `later`: at each directive, after the fold and on the analyzers.
+    pub fn then(mut self, later: Reported) -> Reported {
+        for (index, errors) in later.at_directives {
+            self.at_directives.entry(index).or_default().extend(errors);
+        }
+        self.after_fold.extend(later.after_fold);
+        self.on_plugins.extend(later.on_plugins);
+        self
     }
 
     /// Add `diagnostics`, of an analyzer whose own diagnostics go to `plugin_span` (none for a default plugin the ledger
@@ -578,7 +574,7 @@ mod test {
     use zhang_ast::SpanInfo;
     use zhang_shared::plugin_abi::analysis as abi;
 
-    use super::{diagnostics, input, merge, without, Place, Reported, MAX_DIAGNOSTICS};
+    use super::{diagnostics, input, merge, Place, Reported, MAX_DIAGNOSTICS};
     use crate::data_source::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
     use crate::domains::schemas::ErrorDomain;
@@ -718,12 +714,21 @@ mod test {
     }
 
     #[test]
-    fn errors_removed_move_the_marks_after_them() {
-        let errors = ["l0", "f0", "f2a", "f2b", "a0"].map(error).to_vec();
-        let (errors, marks) = without(errors, &[1, 2, 2, 4], &[1, 3]);
-        let names = errors.iter().map(|it| it.metas["n"].as_str()).collect::<Vec<_>>();
-        assert_eq!(names, ["l0", "f2a", "a0"]);
-        assert_eq!(marks, [1, 1, 1, 2]);
+    fn reports_follow_one_another_at_every_place() {
+        let mut first = Reported::default();
+        first.at_directives.insert(1, vec![error("n1")]);
+        first.after_fold.push(error("n-after"));
+        let mut later = Reported::default();
+        later.at_directives.insert(1, vec![error("d1")]);
+        later.at_directives.insert(2, vec![error("d2")]);
+        later.after_fold.push(error("d-after"));
+        later.on_plugins.push(error("failed"));
+        let both = first.then(later);
+        let names = |errors: &[ErrorDomain]| errors.iter().map(|it| it.metas["n"].clone()).collect::<Vec<_>>();
+        assert_eq!(names(&both.at_directives[&1]), ["n1", "d1"]);
+        assert_eq!(names(&both.at_directives[&2]), ["d2"]);
+        assert_eq!(names(&both.after_fold), ["n-after", "d-after"]);
+        assert_eq!(names(&both.on_plugins), ["failed"]);
     }
 
     #[cfg(feature = "plugin_runtime")]

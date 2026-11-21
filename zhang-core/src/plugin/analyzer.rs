@@ -8,9 +8,9 @@
 //! function of the ledger. What it reports through `zhang_emit_error` is logged and dropped: its diagnostics are those
 //! of its output.
 //!
-//! The analyses of one load run at most the operator's `ZHANG_PLUGIN_MAX_TIMEOUT` together: an analyzer whose turn
-//! comes once that time is spent does not run, and fails with the reason `timeout`. One that started runs to its own
-//! timeout, so a load spends at most twice that on its analyses.
+//! The analyses of one load run at most the operator's `ZHANG_PLUGIN_MAX_TIMEOUT` together: each runs at most its own
+//! timeout and at most the time the analyses before it left, and one whose turn comes once that time is spent does not
+//! run. Both fail with the reason `timeout`.
 
 use std::any::Any;
 use std::sync::Arc;
@@ -38,16 +38,26 @@ pub struct AnalyzerRun {
 
 impl RegisteredPlugin {
     /// Analyse `ledger` in a new instance of the plugin: call its `analyze` export with `input`, the JSON of an
-    /// [`abi::Input`], with the router functions reading the ledger through `host`.
-    pub fn execute_as_analyzer(&self, ledger: &Ledger, input: &[u8], host: Arc<dyn RouterHost>) -> AnalyzerRun {
+    /// [`abi::Input`], with the router functions reading the ledger through `host`, for at most its own timeout and at
+    /// most `time_left`, what the analyses of the load have left.
+    pub fn execute_as_analyzer(&self, ledger: &Ledger, input: &[u8], host: Arc<dyn RouterHost>, time_left: Duration) -> AnalyzerRun {
         let plugin_host =
             PluginHost::analysing(self.name.clone(), self.span().clone(), ledger.clock.clone(), ledger.options.timezone).with_router(host, ledger_info(ledger));
         let timeout = self.analysis_timeout();
+        let timed_out = match time_left < timeout {
+            true => format!(
+                "its analysis ran longer than the {time_left:?} the analyses before it left of the {:?} the analyses of a load may take together (ZHANG_PLUGIN_MAX_TIMEOUT)",
+                self.policy().max_timeout
+            ),
+            false => format!("its analysis ran longer than {timeout:?}; a `timeout` meta on its `plugin` directive raises the limit, up to the server's"),
+        };
         let output = (|| {
             let mut plugin = self
                 .runtime
                 .instantiate(self.manifest(&ledger.options.all()), plugin_host.clone())
                 .map_err(|e| AnalysisFailure::new("trap", format!("it cannot be loaded: {}", log_safe(&format!("{e:#}")))))?;
+            // the compiled plugin keeps the plugin's own timeout: this instance gets what is left, if that is less
+            plugin.limit_timeout(time_left);
             if !plugin.function_exists(abi::ANALYZE) {
                 return Err(AnalysisFailure::new(
                     "manifest",
@@ -59,10 +69,7 @@ impl RegisteredPlugin {
                 .map(<[u8]>::to_vec)
                 .map_err(|error| match error.to_string().as_str() {
                     // extism reports a call it stopped at the manifest's timeout as exactly "timeout"
-                    "timeout" => AnalysisFailure::new(
-                        "timeout",
-                        format!("its analysis ran longer than {timeout:?}; a `timeout` meta on its `plugin` directive raises the limit, up to the server's"),
-                    ),
+                    "timeout" => AnalysisFailure::new("timeout", timed_out.clone()),
                     // and one whose memory would grow past the manifest's limit as exactly "oom"
                     "oom" => AnalysisFailure::new(
                         "memory",
@@ -162,9 +169,9 @@ pub(crate) fn analyze(ledger: &mut Ledger) -> Reported {
     {
         let shared: &Ledger = ledger;
         for plugin in &runs {
-            let Outcome { snapshot, report, read_clock } = match started.elapsed() < budget {
-                true => run(shared, &*host, plugin),
-                false => Outcome::failed(
+            let Outcome { snapshot, report, read_clock } = match budget.checked_sub(started.elapsed()).filter(|left| !left.is_zero()) {
+                Some(time_left) => run(shared, &*host, plugin, time_left),
+                None => Outcome::failed(
                     AnalysisFailure::new(
                         "timeout",
                         format!("it did not run: the analyses of this load ran past {budget:?} together (ZHANG_PLUGIN_MAX_TIMEOUT)"),
@@ -224,8 +231,8 @@ impl Outcome {
     }
 }
 
-/// Run the analyzer `plugin` on `ledger`, and check what it answers.
-fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin) -> Outcome {
+/// Run the analyzer `plugin` on `ledger`, for at most `time_left`, and check what it answers.
+fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin, time_left: Duration) -> Outcome {
     let manifest = plugin.analyzer_manifest().expect("an analyzer of the catalog has a manifest");
     let input = analysis::input(ledger, manifest);
     if !analysis::reads_something(ledger, manifest, &input) {
@@ -244,7 +251,7 @@ fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPl
     let run = {
         // lent for the call only: once it returned, the host functions it may have kept read nothing
         let lend = Lend::new(ledger);
-        plugin.execute_as_analyzer(ledger, &input, host.queries(lend.handle()))
+        plugin.execute_as_analyzer(ledger, &input, host.queries(lend.handle()), time_left)
     };
     let outcome = match run.output.and_then(|output| check(ledger, host, plugin, manifest, &output)) {
         Ok((data, diagnostics)) => Outcome {

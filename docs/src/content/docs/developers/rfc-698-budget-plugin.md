@@ -5,13 +5,19 @@ sidebar:
   order: 5
 ---
 
-:::note[Status: every decision recorded on 2026-11-20]
-Nothing on this page is implemented. It answers the questions RFC
-[#698](https://github.com/zhang-accounting/zhang/issues/698) leaves to P1, against `main` at `9c156c7b`. File
-references are `path:line` at that commit.
+:::note[Status on 2026-11-21]
+- **Merged:** P0, the contract and the baseline (#835, #836, the known-issue fixes #842, the baseline after
+  #840/#841 #851); P1.1 (#839); P1.2 (#837); P1.3 (#843 to #845); P1.4 (#848 to #850, and its follow-ups #855); the
+  prerequisites I1 (#840, #841, #846) and I2 (#838); the fingerprint fix #847.
+- **In progress:** P1.5 (default plugins and named queries) and P1.6 (Lua analyzers).
+- **Next:** the G1 gate, measured end to end (decision 16), then P3 to P5.
+- **Release:** the owner decided that the whole migration ships in v0.3.0. Until then the `Analyzer` plugin type is
+  experimental (§2).
 
-The owner recorded every decision of [§11](#11-decisions) on 2026-11-20. The page applies them and the findings of an
-independent critique of its first version.
+The page answers the questions RFC [#698](https://github.com/zhang-accounting/zhang/issues/698) leaves to P1,
+against `main` at `9c156c7b`, where its `path:line` references point. The owner recorded every decision of
+[§11](#11-decisions) on 2026-11-20; the page applies them and the findings of an independent critique of its first
+version, and notes what the merged steps built where it differs ("as built").
 :::
 
 ## Summary
@@ -174,6 +180,13 @@ fixed rule.
 | K5 | A `month` parameter that is not a first day is accepted | `zhang-server/src/builtin.rs:105-114,364-381` | The named queries move with the fix |
 
 ## 2. The Analyzer extension point
+
+:::caution[Experimental until the migration is complete]
+As built in P1.4, the `Analyzer` plugin type is experimental, and
+[Writing Plugins](/developers/writing-plugins/#analyzers) says so. Its ABI (the manifest, the records, the output,
+`zhang_convert`, the SDK's `analysis` module) may change in any release before the budget migration completes: P1.6
+adds Lua analyzers and a new Lua `api_version`. A release may ship before #698 is done.
+:::
 
 ### 2.1 Where it runs
 
@@ -341,7 +354,7 @@ fill.
 
 | Failure | Effect |
 | --- | --- |
-| Trap, Lua error, timeout, out of memory, invalid or oversized output, an undeclared diagnostic kind, a value of the wrong type | **The ledger loads**, unlike a failing processor, which aborts the load. The snapshot is `failed`, and there is one diagnostic, `PluginAnalysisFailed`, a new generic kind with metas `plugin`, `reason` and `message`. It goes on the plugin's directive, or for a default plugin on the first directive it consumes. The tables answer the query error `table #budgets is unavailable: plugin zhang:budget failed (see the ledger errors)`. A query that reads one of its label columns fails alike (`column postings.budgets is unavailable: …`). Other plugins are unaffected. Until P5, when `zhang:budget` fails, the native budget checks, which still run on every load, stand in for its diagnostics (§2.6). |
+| Trap, Lua error, timeout, out of memory, invalid or oversized output, an undeclared diagnostic kind, a value of the wrong type | **The ledger loads**, unlike a failing processor, which aborts the load. The snapshot is `failed`, and there is one diagnostic, `PluginAnalysisFailed`, a new generic kind with metas `plugin`, `reason` and `message`. It goes on the plugin's directive, or for a default plugin on the first directive it consumes. The tables answer the query error `table #budgets is unavailable: plugin zhang:budget failed (see the ledger errors)`. A query that reads one of its label columns fails alike (`column postings.budgets is unavailable: …`). Other plugins are unaffected. Until P5, when `zhang:budget` fails, the native budget checks run after it and stand in for its diagnostics (§2.6). |
 | A query inside `analyze` fails | The plugin gets the error as a value, as routers do. Uncaught, the row above applies. |
 | An analyzer queries another's failed table | That query fails with the "unavailable" error. |
 
@@ -364,10 +377,13 @@ fill.
   account. A diagnostic has at most 32 metas; a meta's key and value, its kind and its message are each cut at
   4 KiB.
 
-**Native fallback until P5 (as built in P1.4).** The native budget checks run on every load, and their errors are
-kept aside. When the default `zhang:budget` declares the legacy budget kinds and publishes, its diagnostics replace
-them; when its analysis fails, the native errors stay, at their places and with their ids, next to the
-`PluginAnalysisFailed`. P5 deletes the native checks and this fallback with them.
+**Native fallback until P5 (as built in P1.4).** When the default `zhang:budget` declares the legacy budget kinds,
+the fold does not run the native budget checks: its diagnostics report those errors. When its analysis does not
+publish, the load runs the native checks after it, over the folded directives, and merges their errors where the fold
+reports its own: those of a budget directive or a transaction at it, those of the amounts no price converts after
+the fold. They are the only fold errors at those directives and after the fold's loop, so they keep the places and ids
+of a native fold, next to the `PluginAnalysisFailed`. A load whose analysis publishes runs no native budget code. P5
+deletes the native checks and this fallback with them.
 
 **Placement, which fixes the report order and with it the ids.** #835 pins `Ledger::errors` id-exact in *report
 order*, and ids are `of_error(place, kind, n)` with `n` counted in that order (`identify_errors`,
@@ -400,7 +416,7 @@ it:
 | Limit | Value (proposal) | Why |
 | --- | --- | --- |
 | Call time | The plugin's `timeout`, capped by `ZHANG_PLUGIN_MAX_TIMEOUT` (30 s) | After I1 a reload no longer stalls readers, but a write still waits for its reload: analysis time is write latency, gated in G1 and P4 |
-| Analyses of one load | `ZHANG_PLUGIN_MAX_TIMEOUT` together (as built in P1.4); an analyzer whose turn comes after it fails with `timeout` without running | A load's analyses cannot add more than one time limit to a write |
+| Analyses of one load | `ZHANG_PLUGIN_MAX_TIMEOUT` together (as built in P1.4): each runs at most what the analyses before it left, and one whose turn comes after it fails with `timeout` without running | A load's analyses cannot add more than one time limit to a write |
 | Memory | `ZHANG_PLUGIN_MAX_MEMORY` (256 MiB per instance); Lua's 64 MiB of values | Unchanged |
 | Each query | `POST /api/query` limits: 10 s and 1,000,000 values | Unchanged |
 | Queries per analysis | 10,000 | Keeps a looping script finite before the timeout |

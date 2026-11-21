@@ -85,7 +85,7 @@ plugin "plugins/receipts.wasm"
 | `Processor` | `processor` | 每次加载一次 | 整个指令流 → 新的指令流 |
 | `Mapper` | `mapper` | 每条指令一次，整个指令流共用一个插件实例 | 一条指令 → 替换它的指令（零条、它自己或多条） |
 | `Router` | `router` | 每个 HTTP 请求一次，每次都在新的实例中 | 请求 → 响应 |
-| `Analyzer` | `manifest`、`analyze` | 每次加载一次，在张记账的检查之后（[分析器](#分析器)） | 它读取的记录和查询 → 诊断和它的表的行 |
+| `Analyzer`（实验性） | `manifest`、`analyze` | 每次加载一次，在张记账的检查之后（[分析器](#分析器)） | 它读取的记录和查询 → 诊断和它的表的行 |
 
 同时是 processor 和 mapper 的插件会先运行 processor。张记账不认识的类型会被忽略并给出警告，所以为更新版本的张记账编写的插件仍然可以加载。
 
@@ -344,11 +344,15 @@ fn route(request: Request) -> Result<Response, Error> {
 
 ## 分析器
 
+:::caution[实验性]
+`Analyzer` 类型是实验性的。在 RFC #698 的预算迁移完成之前，它的 ABI 可能在任何发布版中改变：清单、记录、输出、`zhang_convert` 以及 SDK 的 `analysis` 模块。P1.6 会加入用 Lua 编写的分析器和新的 Lua `api_version`。在此之前可能会有发布版，为它编写的分析器在下一个发布版中可能需要修改才能加载。
+:::
+
 分析器在账本加载完成后读取账本，并发布它的发现：**诊断**，会加入账本的错误列表；以及**表**的行，查询读取它们就像读取张记账自己的表一样（`SELECT * FROM #shop_items`）。它不修改账本中的任何内容。这是用于派生数据的插件类型，例如预算：[RFC #698](/developers/rfc-698-budget-plugin/) 把预算迁移到官方插件 `zhang:budget` 中。
 
 - **何时运行**：每次加载时，因此每次写入时也会运行（写入会重新加载账本）：在记账和张记账自己的检查之后，在错误被编号之前。多个分析器按 `plugin` 指令的顺序依次运行。
 - **读取什么**：它所消费的指令种类的*记录*，以及 BQL。不读取指令流：查询在张记账中精确地完成聚合，只有答案跨越边界。
-- **可以做什么**：除此之外什么都不能做。无论指令授予了什么，它都不读取文件，也不访问网络；它的 `timeout`（不超过 `ZHANG_PLUGIN_MAX_TIMEOUT`）和服务器的内存上限照常生效。它最多可以运行 10,000 次查询。一次加载的所有分析共用 `ZHANG_PLUGIN_MAX_TIMEOUT`：轮到某个分析器时若已超过这个时间，它不会运行，并以原因 `timeout` 失败。
+- **可以做什么**：除此之外什么都不能做。无论指令授予了什么，它都不读取文件，也不访问网络；它的 `timeout`（不超过 `ZHANG_PLUGIN_MAX_TIMEOUT`）和服务器的内存上限照常生效。它最多可以运行 10,000 次查询。一次加载的所有分析共用 `ZHANG_PLUGIN_MAX_TIMEOUT`：每个分析最多运行之前的分析剩下的时间；轮到某个分析器时若已超过这个时间，它不会运行，并以原因 `timeout` 失败。
 - **失败时**（trap、超时、内存不足、输出不成立、清单不成立），账本仍会加载，这与失败的 processor 不同：插件的指令上会有一个 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误，查询它的表或标签列会回答它们不可用。其他分析器不受影响，下一次加载会重新尝试。
 
 ### 清单
@@ -612,4 +616,4 @@ fn route(request: Request) -> Result<Response, Error> {
 | `processor` 和 `mapper` 导出函数、扁平配置（选项和元数据）、`allowed_hosts` | 0.2.0 |
 | 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、`zhang.allowed_hosts`、`zhang.timeout_ms`、上面除写入函数之外的所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
 | `zhang_write_preview`、`zhang_write_commit`、`capabilities` 导出函数、`allowed_writes`、`zhang.allowed_writes` | 0.2.0 之后带有写入能力的发布版 |
-| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert` | 带有分析器的发布版（RFC #698） |
+| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert`，在 RFC #698 完成之前是实验性的 | 带有分析器的发布版（RFC #698） |

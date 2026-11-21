@@ -67,7 +67,8 @@ pub(crate) struct LedgerCache {
 
 /// The ledger's analyzers may query it while it loads, before its errors are placed: the load then drops the error
 /// kinds of the entries, and keeps everything else, the booked postings first, so the first query after a load does
-/// not book the ledger's rows again.
+/// not book the ledger's rows again. The native providers' snapshots are kept too, so a native provider must not read
+/// the ledger's errors.
 impl DerivedData for LedgerCache {
     fn errors_changed(&mut self) {
         self.entry_errors = OnceLock::new();

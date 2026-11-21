@@ -184,12 +184,12 @@ pub struct Ledger {
     /// more where the fold's errors end: where the analyzers' diagnostics go ([`crate::analysis::merge`])
     fold_marks: Vec<usize>,
 
-    /// during the load, when the analyzer `zhang:budget` reports the budget errors, the positions in
-    /// [`Ledger::errors`] of those the native budget checks reported: they stand in for its diagnostics when its
-    /// analysis fails, and go when it publishes ([`Ledger::analyze`]). `None` when the native checks report alone.
+    /// whether the fold runs the native budget checks, as zhang always did: not when the analyzer `zhang:budget`
+    /// reports the budget errors instead. When its analysis does not publish, they run after it, and their errors go
+    /// where the fold would have reported them (`Ledger::native_budget_checks`)
     // TODO(P5): the native budget checks go with the native budget code; the analyzer's failure then leaves no budget
     // error, only its PluginAnalysisFailed
-    native_budget_errors: Option<Vec<usize>>,
+    native_budget: bool,
 }
 
 pub struct LedgerProcessContext {
@@ -399,7 +399,7 @@ impl Ledger {
             plugin_policy: options.plugin_policy.clone(),
             load_options: options,
             fold_marks: vec![],
-            native_budget_errors: None,
+            native_budget: true,
         };
         let split = SplitDirectives::new(context.directives, context.dialect);
         (ledger, split)
@@ -480,15 +480,12 @@ impl Ledger {
     /// query cache their queries built computed from the errors goes, as they were not placed yet.
     fn analyze(mut self) -> Ledger {
         let marks = std::mem::take(&mut self.fold_marks);
-        let native_budget_errors = self.native_budget_errors.take();
         #[cfg(feature = "plugin_runtime")]
         {
-            let reported = crate::plugin::analyzer::analyze(&mut self);
-            let mut marks = marks;
-            // the native budget checks stand in for zhang:budget's diagnostics, unless it published them
-            if let Some(native) = native_budget_errors.filter(|it| !it.is_empty() && crate::plugin::analyzer::budget_published(&self)) {
-                let errors = std::mem::take(&mut self.errors);
-                (self.errors, marks) = crate::analysis::without(errors, &marks, &native);
+            let mut reported = crate::plugin::analyzer::analyze(&mut self);
+            // the native budget checks stand in for zhang:budget's diagnostics when it did not publish them
+            if !self.native_budget && !crate::plugin::analyzer::budget_published(&self) {
+                reported = self.native_budget_checks().then(reported);
             }
             if !reported.is_empty() {
                 let errors = std::mem::take(&mut self.errors);
@@ -496,7 +493,7 @@ impl Ledger {
             }
         }
         #[cfg(not(feature = "plugin_runtime"))]
-        let _ = (marks, native_budget_errors);
+        let _ = marks;
         // what the analyses' queries computed from the errors before they were placed goes; the booked rows stay
         self.derived.errors_changed();
         self
@@ -773,7 +770,7 @@ impl Ledger {
         }
         #[cfg(feature = "plugin_runtime")]
         {
-            self.native_budget_errors = self.plugins.reports_budget_errors().then(Vec::new);
+            self.native_budget = !self.plugins.reports_budget_errors();
         }
         Ok(())
     }
@@ -837,9 +834,9 @@ impl Ledger {
                         continue;
                     }
                     self.ids.insert(id, index);
-                    let from = self.errors.len();
-                    process::transaction::check_budgets(txn, self, span);
-                    self.note_native_budget_errors(from);
+                    if self.native_budget {
+                        process::transaction::check_budgets(txn, self, span);
+                    }
                     Detail::Transaction { id, errors: vec![] }
                 }
                 Directive::BalancePad(_) => {
@@ -856,28 +853,20 @@ impl Ledger {
                     process::price::check(price, self, span);
                     Detail::None
                 }
-                Directive::Budget(budget) => {
-                    let from = self.errors.len();
+                Directive::Budget(budget) if self.native_budget => {
                     process::budget::define(budget, self, span);
-                    self.note_native_budget_errors(from);
                     Detail::None
                 }
-                Directive::BudgetAdd(add) => {
-                    let from = self.errors.len();
+                Directive::BudgetAdd(add) if self.native_budget => {
                     process::budget::add(add, self, span);
-                    self.note_native_budget_errors(from);
                     Detail::None
                 }
-                Directive::BudgetTransfer(transfer) => {
-                    let from = self.errors.len();
+                Directive::BudgetTransfer(transfer) if self.native_budget => {
                     process::budget::transfer(transfer, self, span);
-                    self.note_native_budget_errors(from);
                     Detail::None
                 }
-                Directive::BudgetClose(close) => {
-                    let from = self.errors.len();
+                Directive::BudgetClose(close) if self.native_budget => {
                     process::budget::close(close, self, span);
-                    self.note_native_budget_errors(from);
                     Detail::None
                 }
                 // a `close` the account lifecycle reads from the processed stream (`Ledger::account_status`), a `pad`
@@ -892,21 +881,50 @@ impl Ledger {
         marks.push(self.errors.len());
         self.fold_marks = marks;
         // every price is known now
-        let from = self.errors.len();
         process::budget::report_unconverted_amounts(self, directives);
-        self.note_native_budget_errors(from);
         self.defined_budgets = None;
         self.commodity_dates = HashMap::new();
         self.defined_commodities = HashSet::new();
         Ok(outcomes)
     }
 
-    /// note the errors from `from` on as reported by the native budget checks, when the analyzer `zhang:budget` may
-    /// report them instead ([`Ledger::native_budget_errors`])
-    fn note_native_budget_errors(&mut self, from: usize) {
-        if let Some(noted) = &mut self.native_budget_errors {
-            noted.extend(from..self.errors.len());
+    /// The errors of the native budget checks of the folded ledger, as the fold reports them when it runs them: those
+    /// of each budget directive and accepted transaction at it, those of the amounts no price converts after the fold.
+    /// They are the only fold errors at those directives, and the only ones after the fold's loop, so merged where the
+    /// fold reports its errors ([`crate::analysis::merge`]) they have the places, the order and so the ids of a fold
+    /// that ran them. The load runs them when the analyzer `zhang:budget`, which reports these errors instead, did not
+    /// publish ([`Ledger::analyze`]); they read only the directives and the accounts' lifecycle, final by then.
+    // TODO(P5): goes with the native budget code
+    #[cfg(feature = "plugin_runtime")]
+    fn native_budget_checks(&mut self) -> crate::analysis::Reported {
+        let mut reported = crate::analysis::Reported::default();
+        let directives = std::mem::take(&mut self.directives);
+        let errors = std::mem::take(&mut self.errors);
+        self.defined_budgets = Some(HashMap::new());
+        self.reported_undefined_budgets.clear();
+        self.reported_closed_budgets.clear();
+        for (index, directive) in directives.iter().enumerate() {
+            let span = &directive.span;
+            match &directive.data {
+                Directive::Transaction(txn) if matches!(self.outcomes[index].detail, Detail::Transaction { .. }) => {
+                    process::transaction::check_budgets(txn, self, span)
+                }
+                Directive::Budget(budget) => process::budget::define(budget, self, span),
+                Directive::BudgetAdd(add) => process::budget::add(add, self, span),
+                Directive::BudgetTransfer(transfer) => process::budget::transfer(transfer, self, span),
+                Directive::BudgetClose(close) => process::budget::close(close, self, span),
+                _ => {}
+            }
+            if !self.errors.is_empty() {
+                reported.at_directives.insert(index, std::mem::take(&mut self.errors));
+            }
         }
+        process::budget::report_unconverted_amounts(self, &directives);
+        reported.after_fold = std::mem::take(&mut self.errors);
+        self.defined_budgets = None;
+        self.errors = errors;
+        self.directives = directives;
+        reported
     }
 
     /// the outcome of the `balance` assertion at `span`, the directive at `index`, numbered `seq`: the id of its check
