@@ -414,6 +414,36 @@ fn of_two_analyzers_naming_a_table_alike_the_first_has_it_and_the_later_is_repor
     assert_eq!(ledger.extensions.analyzers.len(), 1, "the later one does not run");
 }
 
+/// zhang's own built-in queries keep their names, and an analyzer naming a query in one of their namespaces, as one
+/// whose namespace zhang takes in a later version does, is told so on its directive rather than having its query
+/// hidden: the catalog refuses it, and the built-in queries of the ledger are zhang's own.
+#[test]
+fn an_analyzer_naming_a_query_like_one_of_zhangs_own_is_reported_on_its_directive() {
+    let mut manifest = shop_manifest();
+    manifest["namespace"] = json!("journals");
+    manifest["queries"] = json!([{"name": "errors", "description": "The shop's errors.", "bql": "SELECT item FROM #journals_items", "params": []}]);
+    let scratch = scratch(&[("shop.wat", &analyzer("shop", Some(manifest), Analyze::Output(json!({}))), "")]);
+    let ledger = load(&scratch);
+    assert_eq!(
+        failures(&ledger),
+        [(
+            "manifest".to_owned(),
+            "shop: query errors: it would be named journals.errors, in the namespace of zhang's built-in queries: declare another namespace".to_owned()
+        )]
+    );
+    let plugin_line = LEDGER.lines().count() + 1;
+    assert!(
+        errors(&ledger).contains(&format!(
+            "PluginAnalysisFailed @{plugin_line} message=shop: query errors: it would be named journals.errors, in the namespace of zhang's built-in queries: declare another namespace plugin=shop reason=manifest"
+        )),
+        "on the analyzer's directive: {:?}",
+        errors(&ledger)
+    );
+    let builtins = zhang_server::builtin::compiled_for(&ledger);
+    assert_eq!(builtins.named("journals.errors").unwrap().provided_by, None, "zhang's own");
+    assert!(builtins.queries().iter().all(|it| it.provided_by.as_deref() != Some("shop")));
+}
+
 #[test]
 fn an_analyzer_does_not_run_without_an_analysis_host() {
     let scratch = scratch(&[("shop.wat", &analyzer("shop", Some(shop_manifest()), Analyze::Output(shop_output())), "")]);
