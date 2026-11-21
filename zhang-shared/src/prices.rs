@@ -2,16 +2,17 @@
 //!
 //! A pair keeps the latest price on or before a date, or its latest price with no
 //! date. Same-day prices keep the last one. Opposite histories merge into the
-//! direction with more points (the first seen on a tie); the other direction is
-//! inverted on lookup, skipping zero prices. Decimal division and valuation
-//! products follow Python's 28 significant digits and half-even rounding.
+//! direction with more points (the first seen on a tie); the other direction reads
+//! their inverses, computed once when the map is built, skipping zero prices.
+//! Decimal division and valuation products follow Python's 28 significant digits
+//! and half-even rounding.
 //!
 //! The map reads price points. Callers adapt their inputs and keep their own
 //! conversion policies.
 
 use std::collections::HashMap;
 
-use bigdecimal::{BigDecimal, One, Zero};
+use bigdecimal::{BigDecimal, One};
 use chrono::NaiveDate;
 
 use crate::decimal::div;
@@ -22,6 +23,9 @@ type History = Vec<(NaiveDate, BigDecimal)>;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PriceMap {
     rates: HashMap<String, HashMap<String, History>>,
+    /// the inverse of every history of `rates`, by quote then base: each non-zero rate inverted once, here, rather
+    /// than at every lookup of the opposite pair (a division of 28 digits per posting a query converts)
+    inverted: HashMap<String, HashMap<String, History>>,
 }
 
 impl PriceMap {
@@ -68,7 +72,14 @@ impl PriceMap {
             }
             rates.entry(base).or_default().insert(quote, deduped);
         }
-        PriceMap { rates }
+        let mut inverted: HashMap<String, HashMap<String, History>> = HashMap::new();
+        for (base, quotes) in &rates {
+            for (quote, history) in quotes {
+                let inverse = history.iter().filter_map(|(date, rate)| Some((*date, invert(rate)?))).collect();
+                inverted.entry(quote.clone()).or_default().insert(base.clone(), inverse);
+            }
+        }
+        PriceMap { rates, inverted }
     }
 
     /// Whether the map has no prices.
@@ -83,10 +94,11 @@ impl PriceMap {
             return Some(BigDecimal::one());
         }
         if let Some(history) = self.rates.get(base).and_then(|quotes| quotes.get(quote)) {
-            return latest(history, date, false).cloned();
+            return latest(history, date).cloned();
         }
-        let history = self.rates.get(quote).and_then(|quotes| quotes.get(base))?;
-        latest(history, date, true).and_then(invert)
+        // the opposite pair's latest non-zero rate, inverted: the zero rates are not in the inverse history
+        let history = self.inverted.get(base).and_then(|bases| bases.get(quote))?;
+        latest(history, date).cloned()
     }
 
     /// The rates that convert `from` to `to` on `date` (the latest ones without a date), as beancount's
@@ -111,14 +123,10 @@ pub enum Conversion {
     Via(BigDecimal, BigDecimal),
 }
 
-/// the latest rate on or before `date`, skipping zero rates if `skip_zero`
-fn latest(history: &[(NaiveDate, BigDecimal)], date: Option<NaiveDate>, skip_zero: bool) -> Option<&BigDecimal> {
+/// the latest rate on or before `date`
+fn latest(history: &[(NaiveDate, BigDecimal)], date: Option<NaiveDate>) -> Option<&BigDecimal> {
     let end = date.map_or(history.len(), |date| history.partition_point(|(day, _)| *day <= date));
-    history[..end]
-        .iter()
-        .rev()
-        .find(|(_, rate)| !skip_zero || !rate.is_zero())
-        .map(|(_, rate)| rate)
+    history[..end].last().map(|(_, rate)| rate)
 }
 
 /// `1 / rate`; `None` for a zero rate. A round quotient (`1 / 0.1`) comes out of the division
@@ -143,7 +151,7 @@ mod tests {
     }
 
     /// A round inverse rate is written as a plain number, not in E notation, both when the
-    /// opposite pair is inverted on lookup and when it is merged into a pair quoted both ways.
+    /// opposite pair is read inverted and when it is merged into a pair quoted both ways.
     #[test]
     fn a_round_inverse_rate_has_no_negative_scale() {
         let only_inverse = PriceMap::from_points(vec![(date("2024-01-01"), "CNY", "USD", d("0.1"))]);
@@ -158,6 +166,24 @@ mod tests {
         // an inexact inverse keeps Python's 28 significant digits
         let inexact = PriceMap::from_points(vec![(date("2024-01-01"), "CNY", "USD", d("0.14"))]);
         assert_eq!(inexact.rate("USD", "CNY", None).unwrap().to_string(), "7.142857142857142857142857143");
+    }
+
+    /// The opposite pair reads the latest non-zero rate, inverted: a zero rate has no inverse, so the one before it
+    /// stands, and a pair whose only rates are zero has none. The pair itself keeps its zero rates.
+    #[test]
+    fn the_opposite_pair_skips_a_zero_rate() {
+        let prices = PriceMap::from_points(vec![
+            (date("2024-01-01"), "CNY", "USD", d("0")),
+            (date("2024-01-10"), "CNY", "USD", d("0.14")),
+            (date("2024-02-01"), "CNY", "USD", d("0")),
+        ]);
+        assert_eq!(prices.rate("USD", "CNY", Some(date("2024-01-05"))), None);
+        assert_eq!(prices.rate("USD", "CNY", Some(date("2024-01-10"))), Some(d("7.142857142857142857142857143")));
+        assert_eq!(prices.rate("USD", "CNY", Some(date("2024-02-15"))), Some(d("7.142857142857142857142857143")));
+        assert_eq!(prices.rate("USD", "CNY", None), Some(d("7.142857142857142857142857143")));
+        assert_eq!(prices.rate("CNY", "USD", Some(date("2024-02-15"))), Some(d("0")));
+        let only_zero = PriceMap::from_points(vec![(date("2024-01-01"), "CNY", "USD", d("0"))]);
+        assert_eq!(only_zero.rate("USD", "CNY", None), None);
     }
 
     /// A conversion takes the pair's rate, else goes through the cost currency, and needs a price on or before
