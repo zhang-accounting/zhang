@@ -98,6 +98,61 @@ fn plugins_off_stop_zhang_budget_and_the_ledger_says_so_once() {
     }
 }
 
+/// The errors of kind `PluginError` of `ledger`, all on `zhang:budget`: the line of the main file they are on, and their
+/// `message`.
+fn configures_nothing(ledger: &Ledger) -> Vec<(usize, String)> {
+    ledger
+        .errors
+        .iter()
+        .filter(|error| error.error_type == ErrorKind::PluginError)
+        .map(|error| {
+            assert_eq!(error.metas["plugin"], "zhang:budget");
+            (error.span.as_ref().and_then(|span| span.line).unwrap(), error.metas["message"].clone())
+        })
+        .collect()
+}
+
+/// `zhang:budget` is served natively and has no options: each argument and meta of the directive naming it configures
+/// nothing, and so does a second directive naming it, and each says so. With plugins off, each directive says only
+/// that the plugin is not loaded.
+#[test]
+fn what_configures_nothing_of_zhang_budget_says_so() {
+    let dir = tempfile::tempdir().unwrap();
+    let header = "plugin \"zhang:budget\" \"monthly\"\n  timeout: \"5s\"\n  allowed_hosts: \"a.example\"\n  allowed_hosts: \"b.example\"\nplugin \"zhang:budget\"\n  timeout: \"9s\"\n";
+    for level in [PluginLevel::Read, PluginLevel::Write] {
+        let ledger = load(dir.path(), &format!("{header}{LEDGER}"), level);
+        assert_eq!(
+            configures_nothing(&ledger),
+            [
+                (
+                    1,
+                    "the argument \"monthly\" configures nothing: zhang:budget has no options. Remove it".to_owned()
+                ),
+                (1, "the meta timeout configures nothing: zhang:budget has no options. Remove it".to_owned()),
+                (
+                    1,
+                    "the meta allowed_hosts configures nothing: zhang:budget has no options. Remove it".to_owned()
+                ),
+                (
+                    5,
+                    "this directive configures nothing: zhang:budget is configured by the directive at main.zhang:1. Remove this one".to_owned()
+                ),
+            ],
+            "{level}"
+        );
+        // the budgets are interpreted as without the directives
+        let budgets = ledger
+            .errors
+            .iter()
+            .filter(|it| it.error_type != ErrorKind::PluginError)
+            .map(|it| it.error_type.clone());
+        assert_eq!(budgets.collect::<Vec<_>>(), [ErrorKind::BudgetDoesNotExist], "{level}");
+    }
+    let ledger = load(dir.path(), &format!("{header}{LEDGER}"), PluginLevel::Off);
+    let kinds = ledger.errors.iter().map(|it| it.error_type.clone()).collect::<Vec<_>>();
+    assert_eq!(kinds, [ErrorKind::PluginsDisabled, ErrorKind::PluginsDisabled, ErrorKind::ExtensionUnavailable]);
+}
+
 #[test]
 fn a_ledger_without_budgets_has_nothing_to_say_with_plugins_off() {
     let dir = tempfile::tempdir().unwrap();
@@ -159,4 +214,32 @@ fn a_directive_naming_a_default_plugin_configures_it() {
     let ledger = load("1970-01-01 open Assets:Cash\n", PluginLevel::Read);
     assert_eq!(ledger.plugins.ordered.len(), 1);
     assert_eq!(ledger.plugins.ordered[0].0.span().line, None);
+    // a second directive naming it configures nothing, and says so naming the first; the first's metas configure it
+    let content = "plugin \"zhang:configured\"\n  timeout: \"5s\"\nplugin \"zhang:configured\"\n  timeout: \"9s\"\n1970-01-01 open Assets:Cash\n";
+    let ledger = load(content, PluginLevel::Read);
+    assert_eq!(ledger.plugins.ordered.len(), 1);
+    assert_eq!(
+        ledger.plugins.ordered[0].0.capabilities().timeout,
+        Duration::from_secs(5),
+        "the first directive's"
+    );
+    let errors = ledger
+        .errors
+        .iter()
+        .map(|error| {
+            (
+                error.error_type.clone(),
+                error.span.as_ref().and_then(|span| span.line),
+                error.metas.get("message").cloned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        errors,
+        [(
+            ErrorKind::PluginError,
+            Some(3),
+            Some("this directive configures nothing: zhang:configured is configured by the directive at main.zhang:1. Remove this one".to_owned())
+        )]
+    );
 }

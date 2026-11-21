@@ -493,6 +493,8 @@ option "operating_currency" "EUR"
 
 张记账自己也会报告这个错误：当一个 router 插件与之前声明的 router 插件同名时，报告在它的 `plugin` 指令上。先声明的那个提供 `/api/plugins/<name>`，这个不提供任何路由（`message` 指明两者）。删除两条指令中的一条即可。同时也是 processor 或 mapper、为了运行两次而声明两次的模块不会被报告。
 
+对于每个账本都有的插件，例如 [`zhang:budget`](/zh-cn/guides/plugins/#服务器允许的范围)，张记账也会在不起任何配置作用的地方报告这个错误：在第二条指明它的 `plugin` 指令上，因为第一条才配置它（`message` 指出那条指令的位置）；以及在 `plugin "zhang:budget"` 指令的每个参数和每个元数据键上，因为 `zhang:budget` 目前没有任何选项。插件照常运行，就像没有它们一样。删除 `message` 指出的内容即可。关闭插件时，这些指令报告的是 [`PluginsDisabled`](#pluginsdisabled)。
+
 例如，一个要求每笔交易都有收款方的插件，会在下面这笔交易上报告 `message: "payee is missing"`：
 
 ```zhang

@@ -133,29 +133,78 @@ pub(crate) fn register_all(ledger: &mut Ledger, directives: &[(Plugin, SpanInfo)
         let directive = directives.iter().find(|(plugin, _)| plugin.module.as_str() == default.module);
         register_default(default, directive, ledger)?;
     }
-    let names_default = |plugin: &Plugin| {
-        let module = plugin.module.as_str();
-        crate::extensions::DEFAULT_PROVIDERS.contains(&module) || defaults.iter().any(|default| default.module == module)
-    };
+    let registered = |module: &str| defaults.iter().any(|default| default.module == module);
+    // the first directive naming each default plugin: the one that configures it
+    let mut configuring = std::collections::HashMap::<&str, &SpanInfo>::new();
     for (plugin, span) in directives {
-        match names_default(plugin) {
-            true => configure_default(plugin, ledger, span),
-            false => register(plugin, ledger, span)?,
+        let module = plugin.module.as_str();
+        let official = crate::extensions::DEFAULT_PROVIDERS.contains(&module);
+        if official || registered(module) {
+            let first = *configuring.entry(module).or_insert(span);
+            let later = (!std::ptr::eq(first, span)).then_some(first);
+            // an official plugin the embedder registers no module for is served natively, and has no options
+            configure_default(plugin, ledger, span, later, official && !registered(module));
+        } else {
+            register(plugin, ledger, span)?;
         }
     }
     Ok(())
 }
 
-/// A `plugin` directive naming a default plugin, at `span`: it configures the plugin, which [`register_default`]
-/// registered with its metas, or an official one, which has nothing to configure. With plugins off it says, whatever
-/// the ledger's `features.plugin`, that the plugin is not loaded.
-fn configure_default(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) {
+/// A `plugin` directive naming a default plugin, at `span`. The first one configures the plugin, which
+/// [`register_default`] registered with its metas; a later one configures nothing, and says so naming the first,
+/// `configured_by`. An official plugin served natively (`native`), as `zhang:budget` is, has no options: each argument
+/// and meta of the first directive naming it configures nothing, and says so. Each says it with a
+/// [`PluginError`](zhang_ast::error::ErrorKind::PluginError), as a router plugin that serves nothing does, whose
+/// `message` says what to remove. With plugins off the directive says, whatever the ledger's `features.plugin`, that
+/// the plugin is not loaded, and nothing else.
+fn configure_default(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo, configured_by: Option<&SpanInfo>, native: bool) {
+    let module = plugin.module.as_str();
     if !ledger.plugin_policy.loads_plugins() {
         let metas = std::collections::HashMap::from([
-            ("plugin".to_owned(), plugin.module.as_str().to_owned()),
+            ("plugin".to_owned(), module.to_owned()),
             ("setting".to_owned(), crate::plugin_policy::LEVEL_ENV.to_owned()),
         ]);
         ledger.report(zhang_ast::error::ErrorKind::PluginsDisabled, span, metas);
+        return;
+    }
+    let configures_nothing = |ledger: &mut Ledger, message: String| {
+        let metas = std::collections::HashMap::from([("plugin".to_owned(), module.to_owned()), ("message".to_owned(), message)]);
+        ledger.report(zhang_ast::error::ErrorKind::PluginError, span, metas);
+    };
+    if let Some(first) = configured_by {
+        let message = format!(
+            "this directive configures nothing: {module} is configured by the directive {}. Remove this one",
+            located(ledger, first)
+        );
+        configures_nothing(ledger, message);
+        return;
+    }
+    if native {
+        for argument in &plugin.value {
+            let message = format!("the argument {:?} configures nothing: {module} has no options. Remove it", argument.as_str());
+            configures_nothing(ledger, message);
+        }
+        let mut keys = plugin.meta.clone().get_flatten().into_iter().map(|(key, _)| key).collect::<Vec<_>>();
+        keys.dedup();
+        for key in keys {
+            configures_nothing(ledger, format!("the meta {key} configures nothing: {module} has no options. Remove it"));
+        }
+    }
+}
+
+/// Where the directive at `span` is, for a message: `at <file>:<line>`, the file named within the ledger
+fn located(ledger: &Ledger, span: &SpanInfo) -> String {
+    let file = span.filename.as_deref().map(|file| {
+        ledger
+            .path_in_ledger(file)
+            .map_or_else(|| file.display().to_string(), |it| crate::data_source::slashed(&it))
+    });
+    match (file, span.line) {
+        (Some(file), Some(line)) => format!("at {file}:{line}"),
+        (Some(file), None) => format!("in {file}"),
+        (None, Some(line)) => format!("at line {line}"),
+        (None, None) => "before it".to_owned(),
     }
 }
 
