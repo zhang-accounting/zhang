@@ -122,9 +122,10 @@ pub(crate) static PROVIDER: NativeProvider = NativeProvider { manifest, table, l
 /// The predicate of the `budgets` column of `postings`, the one rule of membership ([`Budget::counts`]) in BQL: the
 /// row's account is one of the budget's (a fast test the index of the label column uses), its transaction was folded
 /// after the budget's definition, the `budget` metadata of its account's `open` in effect at its date and time names
-/// the budget, the budget is not closed by then, and a price converts it to the budget's commodity.
+/// the budget (`open_meta_has`, which reads the `open` and the row's time in place), the budget is not closed by then,
+/// and a price converts it to the budget's commodity.
 pub(crate) const PREDICATE: &str = "account IN :accounts AND seq > :defined_seq \
-    AND :label IN open_meta_values(account, 'budget', date, time) \
+    AND open_meta_has(account, 'budget', :label, date, time) \
     AND (:close_date IS NULL OR (:close_time IS NULL AND date <= :close_date) \
          OR (:close_time IS NOT NULL AND (date < :close_date OR (date = :close_date AND time <= :close_time)))) \
     AND currency(convert(position, :commodity, date)) = :commodity";
