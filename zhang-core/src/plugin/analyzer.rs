@@ -234,6 +234,7 @@ impl Outcome {
 /// Run the analyzer `plugin` on `ledger`, for at most `time_left`, and check what it answers.
 fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin, time_left: Duration) -> Outcome {
     let manifest = plugin.analyzer_manifest().expect("an analyzer of the catalog has a manifest");
+    let started = Instant::now();
     let input = analysis::input(ledger, manifest);
     if !analysis::reads_something(ledger, manifest, &input) {
         info!("analyzer {} has nothing to read in the ledger: its tables are empty", log_safe(&plugin.name));
@@ -243,17 +244,22 @@ fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPl
             read_clock: false,
         };
     }
-    let started = Instant::now();
     let input = match serde_json::to_vec(&input) {
         Ok(input) => input,
         Err(error) => return Outcome::failed(AnalysisFailure::new("trap", format!("its input cannot be written: {error}")), false),
     };
+    let encoded = Instant::now();
     let run = {
         // lent for the call only: once it returned, the host functions it may have kept read nothing
         let lend = Lend::new(ledger);
         plugin.execute_as_analyzer(ledger, &input, host.queries(lend.handle()), time_left)
     };
-    let outcome = match run.output.and_then(|output| check(ledger, host, plugin, manifest, &output)) {
+    let called = Instant::now();
+    let mut output_bytes = 0;
+    let outcome = match run.output.and_then(|output| {
+        output_bytes = output.len();
+        check(ledger, host, plugin, manifest, &output)
+    }) {
         Ok((data, diagnostics)) => Outcome {
             snapshot: Snapshot::ok(data),
             report: Ok(diagnostics),
@@ -262,9 +268,13 @@ fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPl
         Err(failure) => Outcome::failed(failure, run.read_clock),
     };
     info!(
-        "analyzer {} analysed the ledger in {:?}: {}",
+        "analyzer {} analysed the ledger in {:?} (input of {} bytes in {:?}, the call {:?}, output of {output_bytes} bytes checked and published in {:?}): {}",
         log_safe(&plugin.name),
         started.elapsed(),
+        input.len(),
+        encoded.duration_since(started),
+        called.duration_since(encoded),
+        called.elapsed(),
         match &outcome.report {
             Ok(diagnostics) => format!("{} diagnostics", diagnostics.len()),
             Err(failure) => format!("failed ({})", failure.reason),

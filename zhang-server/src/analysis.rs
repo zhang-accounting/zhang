@@ -10,8 +10,9 @@
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
@@ -48,6 +49,7 @@ impl AnalysisHost for ServerAnalysisHost {
         Arc::new(AnalysisQueries {
             ledger,
             queries: AtomicUsize::new(0),
+            spent: Spent::default(),
         })
     }
 
@@ -76,6 +78,49 @@ struct AnalysisQueries {
     ledger: LentLedger,
     /// the queries the analysis ran so far
     queries: AtomicUsize,
+    /// the time the analysis spent in these functions, logged when it ends
+    spent: Spent,
+}
+
+/// The time an analysis spent in the host functions, in nanoseconds: compiling, running and encoding its queries,
+/// and converting amounts. The rest of an analysis is the plugin's own (RFC #698 G1's split of its time).
+#[derive(Default)]
+struct Spent {
+    /// the execution of the first query, which builds the query engine's cache of the ledger
+    first: AtomicU64,
+    /// binding the parameters of the queries
+    bind: AtomicU64,
+    compile: AtomicU64,
+    execute: AtomicU64,
+    encode: AtomicU64,
+    convert: AtomicU64,
+    conversions: AtomicUsize,
+}
+
+impl Spent {
+    fn add(counter: &AtomicU64, since: Instant) -> Instant {
+        let now = Instant::now();
+        counter.fetch_add(now.duration_since(since).as_nanos() as u64, Ordering::Relaxed);
+        now
+    }
+}
+
+impl Drop for AnalysisQueries {
+    fn drop(&mut self) {
+        let ms = |counter: &AtomicU64| counter.load(Ordering::Relaxed) as f64 / 1e6;
+        let spent = &self.spent;
+        log::info!(
+            "analysis host: {} queries (bind {:.1} ms, compile {:.1} ms, execute {:.1} ms of which the first {:.1} ms, encode {:.1} ms), {} conversions in {:.1} ms",
+            self.queries.load(Ordering::Relaxed),
+            ms(&spent.bind),
+            ms(&spent.compile),
+            ms(&spent.execute),
+            ms(&spent.first),
+            ms(&spent.encode),
+            spent.conversions.load(Ordering::Relaxed),
+            ms(&spent.convert),
+        );
+    }
 }
 
 fn failure(error: zhang_query::QueryError) -> QueryFailure {
@@ -102,13 +147,29 @@ impl AnalysisQueries {
         if count > MAX_QUERIES {
             return Err(unlocated(format!("the analysis ran more than {MAX_QUERIES} queries")));
         }
+        let started = Instant::now();
         let result = self.read(|ledger| {
             let query = Query::compile_in(&Catalog::of_ledger(ledger), bql, types).map_err(failure)?;
-            query
+            let compiled = Spent::add(&self.spent.compile, started);
+            let result = query
                 .execute_with_options(ledger, params, &execute_options(max_result_values()))
-                .map_err(failure)
+                .map_err(failure);
+            let executed = Spent::add(&self.spent.execute, compiled);
+            if count == 1 {
+                // the first query of a load also builds the query engine's cache of the ledger
+                self.spent.first.store(executed.duration_since(compiled).as_nanos() as u64, Ordering::Relaxed);
+            }
+            log::debug!(
+                "analysis query {count} ran in {:?}: {}",
+                executed.duration_since(compiled),
+                bql.chars().take(100).collect::<String>()
+            );
+            result
         })??;
-        serde_json::to_value(QueryResultEntity::from(result)).map_err(|e| unlocated(format!("the result cannot be encoded: {e}")))
+        let encoding = Instant::now();
+        let encoded = serde_json::to_value(QueryResultEntity::from(result)).map_err(|e| unlocated(format!("the result cannot be encoded: {e}")));
+        Spent::add(&self.spent.encode, encoding);
+        encoded
     }
 
     /// `read` with the ledger, while the analysis runs
@@ -125,7 +186,9 @@ impl RouterHost for AnalysisQueries {
     }
 
     fn query_with_params(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Value, QueryFailure> {
+        let started = Instant::now();
         let (types, values) = bind_json(params.iter().map(|(name, param)| (name.as_str(), param.ty.as_str(), &param.value))).map_err(unlocated)?;
+        Spent::add(&self.spent.bind, started);
         self.run(bql, &types, &values)
     }
 
@@ -135,12 +198,16 @@ impl RouterHost for AnalysisQueries {
     }
 
     fn convert(&self, conversions: &[Conversion]) -> Result<Vec<Option<ConvertedAmount>>, HostError> {
-        self.ledger.with(|ledger| convert(ledger, conversions)).unwrap_or_else(|| {
+        let started = Instant::now();
+        self.spent.conversions.fetch_add(conversions.len(), Ordering::Relaxed);
+        let converted = self.ledger.with(|ledger| convert(ledger, conversions)).unwrap_or_else(|| {
             Err(HostError::new(
                 HostErrorKind::Unavailable,
                 "the analysis has ended: its ledger is no longer lent",
             ))
-        })
+        });
+        Spent::add(&self.spent.convert, started);
+        converted
     }
 }
 
