@@ -234,3 +234,71 @@ fn grouping_by_the_budgets_of_postings_sums_what_a_query_per_budget_sums() {
         failure("SELECT open_meta_values(account, 'budget', date, narration)")
     );
 }
+
+/// A ledger whose transactions have zero to three tags and zero to two links each, and amounts of several scales.
+fn tags_and_links_ledger() -> String {
+    let mut random = zhang_testkit::XorShift(873);
+    let mut text = String::from("1970-01-01 open Assets:Cash\n1970-01-01 open Expenses:Food\n1970-01-01 open Expenses:Travel\n\n");
+    for day in 0..240 {
+        let tags = ["food", "work", "trip", "kids", "gift"]
+            .into_iter()
+            .filter(|_| random.chance(30))
+            .map(|tag| format!(" #{tag}"))
+            .collect::<String>();
+        let links = ["a1", "b2", "c3"]
+            .into_iter()
+            .filter(|_| random.chance(25))
+            .map(|link| format!(" ^{link}"))
+            .collect::<String>();
+        let account = if random.chance(50) { "Expenses:Food" } else { "Expenses:Travel" };
+        let amount = format!("{}.{:0width$}", random.below(500), random.below(100), width = 1 + random.below(2));
+        text.push_str(&format!(
+            "2024-{:02}-{:02} * \"Shop\"{tags}{links}\n  {account}  {amount} USD\n  Assets:Cash\n\n",
+            1 + day / 28,
+            1 + day % 28
+        ));
+    }
+    text
+}
+
+/// The groups of `unnest(set)` against one query per element filtering on membership, which reads the set as a
+/// membership test and never unnests it: same elements, same postings, same sums (scales included). The elements are
+/// those the rows' sets hold, read from the rows themselves.
+fn assert_unnest_is_one_query_per_element(ledger: &zhang_core::ledger::Ledger, set: &str) -> usize {
+    let elements = run(ledger, &format!("SELECT {set}"))
+        .rows
+        .into_iter()
+        .flat_map(|row| match row.into_iter().next() {
+            Some(Value::Set(elements)) => elements,
+            _ => Default::default(),
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    let aggregates = "count(*), sum(number), sum(position), min(date), max(account)";
+    let grouped = run(
+        ledger,
+        &format!("SELECT unnest({set}) AS element, {aggregates} GROUP BY element ORDER BY element"),
+    );
+    let per_element = Query::compile_with_params(
+        &format!("SELECT :element AS element, {aggregates} WHERE :element IN {set}"),
+        &ParamTypes::new().bind("element", DataType::Str),
+    )
+    .unwrap();
+    let mut expected = vec![];
+    for element in &elements {
+        expected.extend(per_element.execute(ledger, &Params::new().bind("element", element.as_str())).unwrap().rows);
+    }
+    assert_eq!(text(&grouped.rows), text(&expected), "unnest({set})");
+    assert_eq!(grouped.rows, expected, "unnest({set})");
+    elements.len()
+}
+
+#[test]
+fn unnest_groups_what_one_query_per_element_selects() {
+    let fava = zhang_testkit::ledger::fava_demo_ledger();
+    assert!(assert_unnest_is_one_query_per_element(&fava, "tags") >= 4);
+    // the fava demo ledger has no links
+    assert_eq!(assert_unnest_is_one_query_per_element(&fava, "links"), 0);
+    let generated = zhang_testkit::ledger::load_text(&tags_and_links_ledger());
+    assert_eq!(assert_unnest_is_one_query_per_element(&generated, "tags"), 5);
+    assert_eq!(assert_unnest_is_one_query_per_element(&generated, "links"), 3);
+}
