@@ -204,7 +204,9 @@ pub struct ConvertedAmount {
 ///  "diagnostics": [{"kind": "UnknownItem"}, {"kind": "Unpriced", "phase": "after_fold"}],
 ///  "tables": [{"name": "items", "kind": "records", "columns": [{"name": "item", "type": "str"}], "order": ["item"]}],
 ///  "columns": [{"table": "postings", "name": "items", "type": "set", "kind": "labels",
-///               "predicate": "account IN :accounts", "params": {"accounts": "set"}}]}
+///               "predicate": "account IN :accounts", "params": {"accounts": "set"}}],
+///  "queries": [{"name": "item", "description": "One item.", "bql": "SELECT * FROM #shop_items WHERE item = :item",
+///               "params": [{"name": "item", "type": "str"}]}]}
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
@@ -233,6 +235,10 @@ pub struct Manifest {
     /// the columns the plugin adds to a core table: label columns of `postings`
     #[serde(default)]
     pub columns: Vec<LabelManifest>,
+    /// the named queries the plugin provides, which the server lists and runs with zhang's built-in queries
+    /// (`GET /api/query/builtins`, `POST /api/query/builtins/{name}`)
+    #[serde(default)]
+    pub queries: Vec<QueryManifest>,
 }
 
 /// A kind of diagnostic an analyzer may report, and where the host places it in the ledger's errors.
@@ -363,6 +369,33 @@ pub struct LabelManifest {
     pub params: BTreeMap<String, String>,
 }
 
+/// A named query an analyzer provides: BQL over the ledger's tables, its own included, with typed parameters. The host
+/// serves it as one of the built-in queries, under its name after the namespace: a query `item` of the namespace `shop`
+/// is `shop.item`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryManifest {
+    /// its name, after the namespace
+    pub name: String,
+    /// one sentence on what it returns
+    #[serde(default)]
+    pub description: String,
+    /// the query, with its parameters written `:name`
+    pub bql: String,
+    /// every parameter the query uses, in the order the server lists them
+    #[serde(default)]
+    pub params: Vec<QueryParamManifest>,
+}
+
+/// A parameter of a named query.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct QueryParamManifest {
+    /// `month` for `:month`
+    pub name: String,
+    /// `bool`, `int`, `decimal`, `str`, `date` or `set`
+    #[serde(rename = "type")]
+    pub ty: String,
+}
+
 /// What an analyzer's `analyze` export answers for one loaded ledger: the diagnostics it reports and the rows of its
 /// tables. The host checks all of it against the plugin's [`Manifest`] and publishes it whole, or nothing of it. A cell
 /// is JSON as the query API writes one: a string, an integer, a boolean, a date `YYYY-MM-DD`, an amount
@@ -471,7 +504,8 @@ mod test {
                  "period": {"column": "d", "unit": "month", "derive": {"y": "year"}}, "partition": [], "row_meta": "carry"},
                 {"name": "u", "kind": "records", "columns": [], "order": ["c"]}
             ],
-            "queries": [{"name": "later"}]
+            "queries": [{"name": "q", "bql": "SELECT 1", "later": true}],
+            "pages": [{"name": "later"}]
         }))
         .unwrap();
         assert_eq!(manifest.namespace, None);
@@ -483,6 +517,15 @@ mod test {
         assert_eq!(manifest.tables[1].columns[2].fill, Some(Fill::Previous { previous: "n".to_owned() }));
         assert_eq!(manifest.tables[1].period.as_ref().unwrap().derive["y"], "year");
         assert!(manifest.columns.is_empty());
+        assert_eq!(
+            manifest.queries,
+            [QueryManifest {
+                name: "q".to_owned(),
+                description: String::new(),
+                bql: "SELECT 1".to_owned(),
+                params: vec![],
+            }]
+        );
         // a kind of table this version does not know is no manifest
         assert!(serde_json::from_value::<Manifest>(json!({"tables": [{"name": "t", "kind": "cube", "columns": []}]})).is_err());
     }

@@ -22,7 +22,7 @@ use std::sync::{Arc, LazyLock};
 
 use zhang_core::ledger::Ledger;
 
-use crate::extension::{self, CatalogDigest, LabelColumn, Provider, Skipped};
+use crate::extension::{self, CatalogDigest, LabelColumn, NamedQuery, Provider, Skipped};
 use crate::table::{self, Borrow, ColumnDef, Dataset, Get, RowRef, Rows, Table, POSTINGS};
 use crate::value::{DataType, Value};
 
@@ -34,6 +34,8 @@ pub struct Catalog {
     tables: Vec<TableRef>,
     /// the providers of the extension tables, in order
     providers: Vec<Provider>,
+    /// the named queries of the providers, each with its provider, in order
+    queries: Vec<(Arc<str>, NamedQuery)>,
     /// the digest of the extensions the tables come from
     digest: CatalogDigest,
 }
@@ -78,9 +80,54 @@ impl Catalog {
 
     /// The core tables and those of `providers`, whose manifests are checked: the core's tables, then the providers'
     /// in order, then `#errors`, which the schema has always listed last. `postings` has the providers' label columns
-    /// after its own. A provider whose manifest does not hold, or whose tables and columns cannot all be had (a name is
-    /// taken, or a limit is reached), has none of them, and is among the providers skipped, with why.
+    /// after its own, and the catalog their named queries. A provider whose manifest does not hold, whose tables and
+    /// columns cannot all be had (a name is taken, or a limit is reached), or one of whose named queries does not compile
+    /// against the catalog with the parameters it declares, has none of them, and is among the providers skipped, with
+    /// why. The named queries of a native provider are checked by the tests, against the standard catalog.
     pub(crate) fn build(providers: &[Provider]) -> (Catalog, Vec<Skipped>) {
+        // the positions in `providers` of those the catalog is built from: a provider whose query does not compile
+        // against the catalog is left out, and the catalog built again without it, which the queries of the others
+        // then compile against
+        let mut kept = (0..providers.len()).collect::<Vec<_>>();
+        let mut refused = vec![];
+        loop {
+            let built = kept.iter().map(|at| providers[*at].clone()).collect::<Vec<_>>();
+            let (catalog, skipped) = Catalog::build_once(&built);
+            let failed = catalog
+                .providers
+                .iter()
+                .filter(|provider| matches!(provider.source, extension::Source::Published))
+                .filter_map(|provider| {
+                    let error = provider.manifest.queries.iter().find_map(|query| query.check(&catalog).err())?;
+                    Some((provider.manifest.provider.clone(), error))
+                })
+                .collect::<Vec<_>>();
+            if failed.is_empty() {
+                let mut skipped = skipped
+                    .into_iter()
+                    .map(|skipped| Skipped {
+                        index: kept[skipped.index],
+                        ..skipped
+                    })
+                    .chain(refused)
+                    .collect::<Vec<_>>();
+                skipped.sort_by_key(|skipped| skipped.index);
+                return (catalog, skipped);
+            }
+            for (provider, error) in failed {
+                let at = built.iter().position(|it| it.manifest.provider == provider).expect("a provider of the catalog");
+                refused.push(Skipped {
+                    index: kept[at],
+                    message: format!("{}: {}", provider, error),
+                    provider,
+                });
+            }
+            kept.retain(|at| !refused.iter().any(|refused| refused.index == *at));
+        }
+    }
+
+    /// [`Catalog::build`] but for the check of the providers' named queries.
+    fn build_once(providers: &[Provider]) -> (Catalog, Vec<Skipped>) {
         let extensions = extension::build(providers);
         let core = table::tables();
         let (data, trailing) = core.split_at(core.len() - table::TRAILING);
@@ -104,6 +151,7 @@ impl Catalog {
             .chain(trailing.iter().map(|table| TableRef::Static(table)));
         let mut catalog = Catalog::of(tables, extensions.digest);
         catalog.providers = extensions.providers;
+        catalog.queries = extensions.queries;
         (catalog, extensions.skipped)
     }
 
@@ -115,6 +163,7 @@ impl Catalog {
         Catalog {
             tables,
             providers: vec![],
+            queries: vec![],
             digest,
         }
     }
@@ -133,6 +182,12 @@ impl Catalog {
     /// Every table, `postings` first.
     pub fn tables(&self) -> &[TableRef] {
         &self.tables
+    }
+
+    /// The named queries of the catalog's providers, each with its provider, by provider and then as each declares them:
+    /// the server serves them with its own built-in queries.
+    pub fn named_queries(&self) -> impl Iterator<Item = (&str, &NamedQuery)> {
+        self.queries.iter().map(|(provider, query)| (&**provider, query))
     }
 
     /// The table a query without `FROM #name` reads.

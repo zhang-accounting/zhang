@@ -77,6 +77,7 @@ fn manifest() -> Manifest {
             predicate: "account IN :accounts AND number >= :min".to_owned(),
             params: vec![("accounts".to_owned(), DataType::Set), ("min".to_owned(), DataType::Decimal)],
         }],
+        queries: vec![],
     }
 }
 
@@ -520,6 +521,7 @@ fn a_catalog_has_at_most_16_label_columns_shared_by_its_providers() {
             provider: provider.to_owned(),
             tables: vec![],
             labels: (from..to).map(|it| label(format!("tag{it}"))).collect(),
+            queries: vec![],
         })
     };
     let catalog = Catalog::with_extensions(&[labels("test:one", 0, 16)]).unwrap();
@@ -534,4 +536,170 @@ fn a_catalog_has_at_most_16_label_columns_shared_by_its_providers() {
     assert_eq!(extensions.labels.last().unwrap().0.name, "tag25");
     // the native providers leave room: zhang:budget has one
     assert_eq!(native_providers().iter().map(|it| it.manifest.labels.len()).sum::<usize>(), 1);
+}
+
+/// A named query `name` of `bql` with `params`.
+fn named(name: &str, bql: &str, params: &[(&str, DataType)]) -> NamedQuery {
+    NamedQuery {
+        name: name.to_owned(),
+        description: format!("The {name}."),
+        bql: bql.to_owned(),
+        params: params.iter().map(|(name, ty)| ((*name).to_owned(), *ty)).collect(),
+    }
+}
+
+/// The test provider with two named queries: one of its table, one of its label column.
+fn with_queries() -> Manifest {
+    let mut manifest = manifest();
+    manifest.queries = vec![
+        named(
+            "shop.item",
+            "SELECT item, price FROM #shop_items WHERE item = :item",
+            &[("item", DataType::Str)],
+        ),
+        named("shop.tagged", "SELECT account, number WHERE :tag IN shop_tags", &[("tag", DataType::Str)]),
+    ];
+    manifest
+}
+
+/// Why a catalog of `providers` skips the first it skips, its named queries compiled against it; `None` when it skips
+/// none.
+fn catalog_skips(providers: &[Provider]) -> Option<String> {
+    Catalog::build(providers).1.into_iter().next().map(|skipped| skipped.message)
+}
+
+#[test]
+fn a_providers_named_queries_are_the_catalogs_each_compiling_against_it() {
+    let (catalog, skipped) = Catalog::build(&[published(with_queries())]);
+    assert_eq!(skipped, vec![]);
+    let names = catalog
+        .named_queries()
+        .map(|(provider, query)| (provider, query.name.as_str()))
+        .collect::<Vec<_>>();
+    assert_eq!(names, [("test:shop", "shop.item"), ("test:shop", "shop.tagged")]);
+    let ledger = ledger("1970-01-01 open Assets:Cash\n");
+    for (_, query) in catalog.named_queries() {
+        let compiled = Query::compile_in(&catalog, &query.bql, &query.param_types()).unwrap();
+        let params = Params::new().bind(query.params[0].0.as_str(), "apple");
+        // it reads the provider's data, which a ledger without the catalog does not have
+        assert!(compiled.execute(&ledger, &params).is_err(), "{}", query.name);
+    }
+    // they are part of the digest
+    assert_ne!(catalog.digest(), Catalog::with_extensions(&[published(manifest())]).unwrap().digest());
+    // a catalog without the provider has none
+    assert_eq!(Catalog::core().named_queries().count(), 0);
+
+    type Change = Box<dyn FnOnce(&mut Manifest)>;
+    let cases: Vec<(Change, &str)> = vec![
+        (
+            Box::new(|m| m.queries[0].name = "item".to_owned()),
+            "test:shop: query item: a query's name is dotted lower-case words",
+        ),
+        (
+            Box::new(|m| m.queries[0].name = "shop.Item".to_owned()),
+            "test:shop: query shop.Item: a query's name is dotted lower-case words",
+        ),
+        (
+            Box::new(|m| m.queries[1].name = "shop.item".to_owned()),
+            "test:shop: query shop.item is already a named query",
+        ),
+        (
+            Box::new(|m| m.queries[0].params.push(("item".to_owned(), DataType::Str))),
+            "test:shop: query shop.item: it declares the parameter :item twice",
+        ),
+        (
+            Box::new(|m| m.queries[0].params[0].1 = DataType::Amount),
+            "test:shop: query shop.item: parameter :item is a amount, which a JSON value cannot give",
+        ),
+        (
+            Box::new(|m| m.queries[0].params.push(("unused".to_owned(), DataType::Int))),
+            "test:shop: query shop.item: it declares the parameter :unused, which it does not use",
+        ),
+        (
+            Box::new(|m| m.queries[0].bql = "SELECT nope FROM #shop_items".to_owned()),
+            "test:shop: query shop.item: unknown column",
+        ),
+        (Box::new(|m| m.queries[0].params.clear()), "test:shop: query shop.item: "),
+    ];
+    for (change, message) in cases {
+        let mut manifest = with_queries();
+        change(&mut manifest);
+        let error = catalog_skips(&[published(manifest)]).expect("the manifest is refused");
+        assert!(error.starts_with(message), "{error}");
+    }
+}
+
+#[test]
+fn a_provider_whose_query_does_not_compile_has_nothing_and_the_others_keep_theirs() {
+    let mut broken = with_queries();
+    broken.queries[1].bql = "SELECT account WHERE :tag IN no_such_column".to_owned();
+    let other = Manifest {
+        provider: "test:other".to_owned(),
+        tables: vec![],
+        labels: vec![],
+        queries: vec![named("other.accounts", "SELECT account FROM #accounts", &[])],
+    };
+    let (catalog, skipped) = Catalog::build(&[published(broken), published(other)]);
+    assert_eq!(
+        skipped.iter().map(|it| (it.index, it.provider.as_str())).collect::<Vec<_>>(),
+        [(0, "test:shop")]
+    );
+    assert!(skipped[0].message.starts_with("test:shop: query shop.tagged: "), "{}", skipped[0].message);
+    assert!(catalog.find("shop_items").is_none(), "a skipped provider has no table");
+    let names = catalog.named_queries().map(|(_, query)| query.name.as_str()).collect::<Vec<_>>();
+    assert_eq!(names, ["other.accounts"]);
+    // a query of a later provider may read the tables of an earlier one
+    let mut reader = Manifest {
+        provider: "test:reader".to_owned(),
+        tables: vec![],
+        labels: vec![],
+        queries: vec![named("reader.items", "SELECT count(*) FROM #shop_items", &[])],
+    };
+    assert_eq!(catalog_skips(&[published(manifest()), published(reader.clone())]), None);
+    // and is skipped with it, when the earlier one is
+    reader.queries[0].bql = "SELECT count(*) FROM #shop_items WHERE item = 'x'".to_owned();
+    let mut broken = manifest();
+    broken.queries = vec![named("shop.nope", "SELECT nope", &[])];
+    let (_, skipped) = Catalog::build(&[published(broken), published(reader)]);
+    assert_eq!(skipped.iter().map(|it| it.index).collect::<Vec<_>>(), [0, 1]);
+}
+
+#[test]
+fn an_analyzers_queries_are_named_after_its_namespace_but_the_budget_pages() {
+    use zhang_shared::plugin_abi::analysis as wire;
+    let declared = |namespace: &str, name: &str, ty: &str| -> wire::Manifest {
+        serde_json::from_value(serde_json::json!({
+            "analysis_abi": 1,
+            "namespace": namespace,
+            "queries": [{"name": name, "description": "Items.", "bql": "SELECT account FROM #accounts WHERE account = :x",
+                         "params": [{"name": "x", "type": ty}]}]
+        }))
+        .unwrap()
+    };
+    let read = abi::manifest("shop-plugin", &declared("shop", "items", "str"), false).unwrap();
+    assert_eq!(
+        read.queries,
+        [named("shop.items", "SELECT account FROM #accounts WHERE account = :x", &[("x", DataType::Str)])].map(|it| NamedQuery {
+            description: "Items.".to_owned(),
+            ..it
+        })
+    );
+    let error = |namespace: &str, name: &str, ty: &str, legacy: bool| abi::manifest("p", &declared(namespace, name, ty), legacy).unwrap_err();
+    assert_eq!(
+        error("shop", "items", "amount", false),
+        "query items: parameter :x: its type is 'amount', which is not one of bool, int, decimal, str, date, set"
+    );
+    assert!(error("shop", "shop.items", "str", false).starts_with("query shop.items: a name is a lower-case letter"));
+    // a namespace of zhang's own queries is not one an analyzer's queries have
+    assert_eq!(
+        error("journals", "items", "str", false),
+        "query items: it would be named journals.items, in the namespace of zhang's built-in queries: declare another namespace"
+    );
+    // the budget pages' queries keep their names for zhang:budget, and no other analyzer has them
+    let legacy = abi::manifest(abi::BUDGET, &declared("zhang_budget", "budgets.month", "str"), true).unwrap();
+    assert_eq!(legacy.queries[0].name, "budgets.month");
+    assert!(error("budgets", "month", "str", false).contains("in the namespace of zhang's built-in queries"));
+    assert!(error("zhang_budget", "budgets.month", "str", false).starts_with("query budgets.month: a name is a lower-case letter"));
+    let other = abi::manifest(abi::BUDGET, &declared("zhang_budget", "spent", "str"), true).unwrap();
+    assert_eq!(other.queries[0].name, "zhang_budget.spent");
 }

@@ -2,11 +2,13 @@
 //! and snapshots take them (RFC #698 §3.2 to §3.4).
 //!
 //! **Names.** An analyzer's tables and columns are named after its namespace: a table `items` of the namespace `shop` is
-//! `#shop_items`, a label column `tags` is `postings.shop_tags`. The namespace is the manifest's, or the plugin's name
-//! with every character other than a lower-case letter, a digit or `_` written `_`. The names the budget system has
-//! always had (`#budgets`, `#budget_events`, `#budget_definitions` and `postings.budgets`) are kept for `zhang:budget`:
-//! the analyzer granted them names them as they are, and it serves them instead of the native provider, whose other
-//! tables stay; no other analyzer can have them, whatever its namespace.
+//! `#shop_items`, a label column `tags` is `postings.shop_tags`, a named query `item` is `shop.item`. The namespace is
+//! the manifest's, or the plugin's name with every character other than a lower-case letter, a digit or `_` written
+//! `_`. The names the budget system has always had (`#budgets`, `#budget_events`, `#budget_definitions`,
+//! `postings.budgets` and the `budgets.*` queries) are kept for `zhang:budget`: the analyzer granted them names them as
+//! they are, and it serves them instead of the native provider, whose other tables and queries stay; no other analyzer
+//! can have them, whatever its namespace. Nor can an analyzer name a query in the namespace of zhang's own built-in
+//! queries ([`BUILTIN_QUERY_NAMESPACES`]).
 //!
 //! **Outputs.** A cell is JSON as the query API writes one ([`cell`]), checked against its column's type; a row of a
 //! record table has a cell per column and maybe its metadata, a fact of a series a cell per column but the partition
@@ -27,7 +29,7 @@ use zhang_shared::plugin_abi::analysis as abi;
 /// The provider the legacy budget names are granted to (§3.4 of the RFC).
 pub(crate) use super::compat::BUDGET;
 use super::snapshot::{publish, Cause, FactRow, Label, Partition, RecordRow, Snapshot, TableData};
-use super::{ColumnDecl, DatePart, Fill, LabelDecl, Manifest, PeriodUnit, Provider, RecordOrder, SeriesDecl, TableDecl, TableKind};
+use super::{ColumnDecl, DatePart, Fill, LabelDecl, Manifest, NamedQuery, PeriodUnit, Provider, RecordOrder, SeriesDecl, TableDecl, TableKind};
 use crate::executor::weight;
 use crate::params::{from_json, JsonError, Params};
 use crate::value::{DataType, Value};
@@ -37,6 +39,13 @@ pub(crate) const LEGACY_TABLES: [&str; 3] = ["budgets", "budget_events", "budget
 
 /// The columns of `postings` the budget system has always had, kept for `zhang:budget`.
 pub(crate) const LEGACY_COLUMNS: [&str; 1] = ["budgets"];
+
+/// The named queries the budget pages have always run, kept for `zhang:budget`.
+pub(crate) const LEGACY_QUERIES: [&str; 5] = ["budgets.month", "budgets.budget", "budgets.budget_month", "budgets.events", "budgets.postings"];
+
+/// The namespaces of zhang's own built-in queries, `accounts.list` or `report.summary`, and of the budget pages'
+/// (`budgets.month`): an analyzer whose namespace is one of them declares no named query.
+pub const BUILTIN_QUERY_NAMESPACES: [&str; 7] = ["accounts", "budgets", "commodities", "journals", "ledger", "postings", "report"];
 
 /// The most values an analysis may publish, counted as a query's result counts them (`ExecuteOptions::max_result_values`).
 pub const MAX_OUTPUT_VALUES: u64 = 1_000_000;
@@ -124,11 +133,52 @@ pub(crate) fn manifest(provider: &str, declared: &abi::Manifest, legacy: bool) -
             })
         })
         .collect::<Result<Vec<_>, String>>()?;
+    let queries = declared
+        .queries
+        .iter()
+        .map(|query| {
+            let what = format!("query {}", query.name);
+            let name = query_name(&namespace, &query.name, legacy).map_err(|err| format!("{}: {}", what, err))?;
+            let params = query
+                .params
+                .iter()
+                .map(|param| {
+                    Ok((
+                        param.name.clone(),
+                        param_type(&param.ty).map_err(|err| format!("{}: parameter :{}: {}", what, param.name, err))?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok(NamedQuery {
+                name,
+                description: query.description.clone(),
+                bql: query.bql.clone(),
+                params,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     Ok(Manifest {
         provider: provider.to_owned(),
         tables,
         labels,
+        queries,
     })
+}
+
+/// The name of the named query `name` of an analyzer of the namespace `namespace` (`legacy` for `zhang:budget`):
+/// `<namespace>.<name>`, or a legacy query's name as it is.
+fn query_name(namespace: &str, name: &str, legacy: bool) -> Result<String, String> {
+    if legacy && LEGACY_QUERIES.contains(&name) {
+        return Ok(name.to_owned());
+    }
+    super::check_name(name)?;
+    if BUILTIN_QUERY_NAMESPACES.contains(&namespace) {
+        return Err(format!(
+            "it would be named {}.{}, in the namespace of zhang's built-in queries: declare another namespace",
+            namespace, name
+        ));
+    }
+    Ok(format!("{}.{}", namespace, name))
 }
 
 /// The declaration of the table `table`, named `name` in the catalog.

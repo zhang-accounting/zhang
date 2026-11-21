@@ -290,6 +290,7 @@ fn manifest() -> Manifest {
         provider: super::compat::BUDGET.to_owned(),
         tables: vec![budgets, events, definitions],
         labels: vec![postings_budgets],
+        queries: vec![],
     }
 }
 
@@ -918,12 +919,14 @@ mod tests {
 
 /// The manifest of the native provider as an analyzer declares it, which the example analyzer of `zhang-plugin-sdk`
 /// standing in for `zhang:budget` reads (`zhang-plugin-sdk/examples/budget/manifest.json`): the same tables, columns,
-/// descriptions and predicate, so that the catalog it gives a ledger is the native one, served from its snapshot.
+/// descriptions, predicate and named queries, so that the catalog it gives a ledger is the native one, served from its
+/// snapshot.
 #[cfg(test)]
 mod as_an_analyzer {
     use serde_json::{json, Value};
 
     use super::*;
+    use crate::extension::NamedQuery;
 
     fn fill(fill: &Option<Fill>) -> Value {
         match fill {
@@ -973,6 +976,15 @@ mod as_an_analyzer {
         value
     }
 
+    fn query(query: &NamedQuery) -> Value {
+        let params = query
+            .params
+            .iter()
+            .map(|(name, ty)| json!({"name": name, "type": ty.name()}))
+            .collect::<Vec<_>>();
+        json!({"name": query.name, "description": query.description, "bql": query.bql, "params": params})
+    }
+
     #[test]
     fn the_budget_analyzer_example_declares_the_native_tables() {
         let manifest = manifest();
@@ -998,6 +1010,7 @@ mod as_an_analyzer {
             ],
             "tables": manifest.tables.iter().map(table).collect::<Vec<_>>(),
             "columns": labels,
+            "queries": manifest.queries.iter().map(query).collect::<Vec<_>>(),
         });
         let text = format!("{}\n", serde_json::to_string_pretty(&declared).unwrap());
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../zhang-plugin-sdk/examples/budget/manifest.json");
