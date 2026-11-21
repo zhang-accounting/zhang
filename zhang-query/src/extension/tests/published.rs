@@ -192,14 +192,26 @@ fn a_snapshot_is_read_once_its_analyzer_published_it() {
     assert_eq!(rows(analysed, "SELECT count(*) FROM #more_stock"), texts(&[&["0"]]));
     assert_eq!(rows(analysed, "SELECT count(*) WHERE length(more_items) > 0"), texts(&[&["0"]]));
 
-    // failed: its tables answer that they are unavailable, its label columns read empty
+    // failed: its tables and its label columns answer that they are unavailable, every query reading them
     attach(&mut failed, &[("shop", shop(), false)]);
     failed.extensions.analyzer("shop").unwrap().snapshot.set(Published::failed("timeout")).unwrap();
     assert_eq!(
         run(&failed, "SELECT * FROM #shop_items").unwrap_err(),
         "table #shop_items is unavailable: plugin shop failed (see the ledger errors)"
     );
-    assert_eq!(rows(&failed, "SELECT count(*) WHERE length(shop_items) > 0"), texts(&[&["0"]]));
+    for sql in [
+        "SELECT count(*) WHERE length(shop_items) > 0",
+        "SELECT shop_items",
+        "SELECT count(*) WHERE 'apple' IN shop_items",
+    ] {
+        assert_eq!(
+            run(&failed, sql).unwrap_err(),
+            "column postings.shop_items is unavailable: plugin shop failed (see the ledger errors)",
+            "{sql}"
+        );
+    }
+    // a query that reads none of them runs
+    assert_eq!(rows(&failed, "SELECT count(*)"), texts(&[&["4"]]));
 }
 
 #[test]
@@ -216,7 +228,10 @@ fn a_snapshot_published_for_other_tables_is_never_read() {
         run(&other, "SELECT count(*) FROM #shop_items").unwrap_err(),
         "table #shop_items is unavailable: shop published other tables"
     );
-    assert_eq!(rows(&other, "SELECT count(*) WHERE length(shop_items) > 0"), texts(&[&["0"]]));
+    assert_eq!(
+        run(&other, "SELECT count(*) WHERE length(shop_items) > 0").unwrap_err(),
+        "column postings.shop_items is unavailable: shop published other tables"
+    );
     // and a provider the catalog does not have publishes nothing
     let err = analysis::publish(&other, "nope", &abi::Output::default()).unwrap_err();
     assert_eq!(err, "the catalog of the ledger has no tables of nope");

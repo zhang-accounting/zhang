@@ -581,8 +581,8 @@ impl<'a> Dataset<'a> {
     }
 
     /// The label column at `slot` of the table, resolved for this execution on its first read: the labels of its
-    /// provider's snapshot of the ledger, the predicate bound to each. A provider that has no snapshot to read, as it
-    /// was skipped or failed, gives no label.
+    /// provider's snapshot of the ledger, the predicate bound to each. A provider that was skipped gives no label; a
+    /// query does not read the column of one that failed ([`extension::snapshot::check_label_column`]).
     pub(crate) fn labels(&self, slot: u16) -> &Labels<'a> {
         self.labels[slot as usize].get_or_init(|| {
             let column = &self.projection.table().labels()[slot as usize];

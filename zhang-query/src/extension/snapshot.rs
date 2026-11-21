@@ -185,7 +185,8 @@ pub(crate) fn table_data<'l>(ledger: &'l Ledger, rows: &ExtensionRows, table: &s
 }
 
 /// The labels of the label column `column` of `ledger`, from the snapshot of its provider: none when its provider was
-/// skipped or failed (the ledger's errors say why), or when its snapshot cannot be read.
+/// skipped. A query does not read a column whose snapshot cannot be read ([`check_label_column`]); should it, the column
+/// has no label.
 pub(crate) fn label_data<'l>(ledger: &'l Ledger, column: &LabelColumn) -> &'l [Label] {
     match column.source {
         Source::Native(native) => native_snapshot(ledger, native)
@@ -199,17 +200,19 @@ pub(crate) fn label_data<'l>(ledger: &'l Ledger, column: &LabelColumn) -> &'l [L
     }
 }
 
-/// Whether the label column `column` of `ledger` can be read: not while its provider has not analysed the ledger yet,
-/// as for its tables. A column whose provider failed or was skipped reads empty.
+/// Whether the label column `column` of `ledger` can be read, as for its provider's tables (RFC #698 §2.5): not when
+/// its provider failed (`column postings.x is unavailable: plugin P failed (see the ledger errors)`), nor while it has
+/// not analysed the ledger yet. A column whose provider was skipped reads empty, as its tables do.
 pub(crate) fn check_label_column(ledger: &Ledger, column: &LabelColumn) -> Result<(), String> {
     match column.source {
         Source::Native(_) => Ok(()),
         Source::Published => match published(ledger, &column.provider, column.digest) {
+            Published::Data(_) | Published::Skipped => Ok(()),
             Published::NotYet(analysing) => Err(format!(
                 "column postings.{} is not available while {} analyses the ledger",
                 column.name, analysing
             )),
-            _ => Ok(()),
+            Published::Unavailable(why) => Err(format!("column postings.{} is unavailable: {}", column.name, why)),
         },
     }
 }

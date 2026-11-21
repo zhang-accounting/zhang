@@ -318,11 +318,9 @@ impl Query {
                     "the ledger's tables changed since the query was compiled; compile it again",
                 ));
             }
-            // while the ledger loads, an analyzer reads the label columns of those that analysed it before only
-            if ledger.extensions.analysing {
-                for column in self.projection.label_columns() {
-                    extension::snapshot::check_label_column(ledger, column).map_err(|message| QueryError::new(QueryErrorKind::Eval, message))?;
-                }
+            // a label column reads its provider's snapshot as a table does: not when it failed, nor before it published
+            for column in self.projection.label_columns() {
+                extension::snapshot::check_label_column(ledger, column).map_err(|message| QueryError::new(QueryErrorKind::Eval, message))?;
             }
         }
         self.check_params(params)?;
