@@ -61,6 +61,14 @@ Everything else, in particular:
 - each error's kind, metas, span (file, start, end, line) and id, and the order of the errors at one place;
 - every figure by value, every status, and every name and type of a column.
 
+### The budget script against the native budgets
+
+Until the bundled script `zhang:budget` (`plugins/budget/budget.lua`) is the only implementation of budgets (RFC #698 P3.3), the native code runs by default and a test switch chooses the implementation:
+
+- `zhang_server::analysis::BudgetImpl` (`native`, `plugin`, `both`) and `load_options_for` load a ledger with one or the other. A build with the `budget-switch` feature (`cargo run --release -p zhang --features budget-switch ...`) reads it from `ZHANG_BUDGET_IMPL` in every load the server makes, the budget baseline's included; a build without it, every release, loads natively.
+- `budget_contract_as_the_budget_script` runs every case of the contract with the script (`plugin`) against the same golden files, and lists each difference with the rule above that allows it; any other difference fails it.
+- `zhang_testkit::budget_parity` loads a ledger both ways (`both`) and compares the errors id-exact, the budget tables, the `budgets` of `#postings` and the budget pages' queries. `cargo run --release -p zhang --example budget_parity -- bench` runs it on the budget baseline's ledgers, `-- seeds 1 30` on seeded generated ledgers broken so that every budget error occurs.
+
 ## Conventions
 
 - Test names are sentences in `snake_case` that state the fact: `a_pad_books_the_difference_now`, `every_ledger_has_an_oracle`.

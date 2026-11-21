@@ -37,6 +37,8 @@
 //! | a generated household ledger of any size, with budgets or without, byte for byte the same for a spec (the budget baseline) | [`budget_ledger::Spec`] |
 
 pub mod budget_ledger;
+#[cfg(feature = "server")]
+pub mod budget_parity;
 pub mod dialect;
 pub mod fixtures;
 pub mod golden;
