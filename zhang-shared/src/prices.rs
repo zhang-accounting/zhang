@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use bigdecimal::{BigDecimal, One, Zero};
+use bigdecimal::{BigDecimal, One};
 use chrono::NaiveDate;
 
 use crate::decimal::div;
@@ -22,6 +22,9 @@ type History = Vec<(NaiveDate, BigDecimal)>;
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PriceMap {
     rates: HashMap<String, HashMap<String, History>>,
+    /// the inverse of every history of `rates`, by quote then base: each non-zero rate inverted once, here, rather
+    /// than at every lookup of the opposite pair (a division of 28 digits per posting a query converts)
+    inverted: HashMap<String, HashMap<String, History>>,
 }
 
 impl PriceMap {
@@ -68,7 +71,14 @@ impl PriceMap {
             }
             rates.entry(base).or_default().insert(quote, deduped);
         }
-        PriceMap { rates }
+        let mut inverted: HashMap<String, HashMap<String, History>> = HashMap::new();
+        for (base, quotes) in &rates {
+            for (quote, history) in quotes {
+                let inverse = history.iter().filter_map(|(date, rate)| Some((*date, invert(rate)?))).collect();
+                inverted.entry(quote.clone()).or_default().insert(base.clone(), inverse);
+            }
+        }
+        PriceMap { rates, inverted }
     }
 
     /// Whether the map has no prices.
@@ -83,10 +93,11 @@ impl PriceMap {
             return Some(BigDecimal::one());
         }
         if let Some(history) = self.rates.get(base).and_then(|quotes| quotes.get(quote)) {
-            return latest(history, date, false).cloned();
+            return latest(history, date).cloned();
         }
-        let history = self.rates.get(quote).and_then(|quotes| quotes.get(base))?;
-        latest(history, date, true).and_then(invert)
+        // the opposite pair's latest non-zero rate, inverted: the zero rates are not in the inverse history
+        let history = self.inverted.get(base).and_then(|bases| bases.get(quote))?;
+        latest(history, date).cloned()
     }
 
     /// The rates that convert `from` to `to` on `date` (the latest ones without a date), as beancount's
@@ -111,14 +122,10 @@ pub enum Conversion {
     Via(BigDecimal, BigDecimal),
 }
 
-/// the latest rate on or before `date`, skipping zero rates if `skip_zero`
-fn latest(history: &[(NaiveDate, BigDecimal)], date: Option<NaiveDate>, skip_zero: bool) -> Option<&BigDecimal> {
+/// the latest rate on or before `date`
+fn latest(history: &[(NaiveDate, BigDecimal)], date: Option<NaiveDate>) -> Option<&BigDecimal> {
     let end = date.map_or(history.len(), |date| history.partition_point(|(day, _)| *day <= date));
-    history[..end]
-        .iter()
-        .rev()
-        .find(|(_, rate)| !skip_zero || !rate.is_zero())
-        .map(|(_, rate)| rate)
+    history[..end].last().map(|(_, rate)| rate)
 }
 
 /// `1 / rate`; `None` for a zero rate. A round quotient (`1 / 0.1`) comes out of the division
