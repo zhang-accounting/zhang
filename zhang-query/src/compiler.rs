@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use chrono::NaiveDate;
 use regex::{Regex, RegexBuilder};
+use rustc_hash::FxBuildHasher;
 
 pub(crate) use crate::ast::ArithOp;
 use crate::ast::{self, BinaryOp, Count, CountValue, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
@@ -171,8 +172,9 @@ pub(crate) struct ConstSet {
     items: Vec<Value>,
     /// whether the items are the elements of a set (`IN :tags`) rather than a list
     from_set: bool,
-    strings: HashSet<String>,
-    others: HashSet<Value>,
+    /// hashed with FxHash, as a row looks its value up in them: the items are the query's, the needles the ledger's
+    strings: HashSet<String, FxBuildHasher>,
+    others: HashSet<Value, FxBuildHasher>,
     /// a NULL item: a needle that matches no other item is then NULL, not FALSE
     has_null: bool,
 }
@@ -183,8 +185,8 @@ impl ConstSet {
         let mut set = ConstSet {
             items: vec![],
             from_set: false,
-            strings: HashSet::new(),
-            others: HashSet::new(),
+            strings: HashSet::default(),
+            others: HashSet::default(),
             has_null: false,
         };
         for item in &items {
@@ -208,7 +210,7 @@ impl ConstSet {
             items: vec![],
             from_set: true,
             strings: elements.iter().cloned().collect(),
-            others: HashSet::new(),
+            others: HashSet::default(),
             has_null: false,
         }
     }
