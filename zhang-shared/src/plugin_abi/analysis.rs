@@ -146,6 +146,19 @@ pub const MAX_CONVERTED_DIGITS: u64 = 1000;
 pub struct Input {
     pub records: Vec<Record>,
     pub ledger: super::LedgerInfo,
+    /// the ledger's last transaction, of the latest date the one zhang processed last: where a series that follows
+    /// the ledger's transactions ends at least. Absent in a ledger without transactions
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_transaction: Option<EntryAt>,
+}
+
+/// An entry of the ledger and its date.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntryAt {
+    /// its row of `#entries`
+    pub seq: u32,
+    /// `YYYY-MM-DD`
+    pub date: String,
 }
 
 /// A directive of a kind an analyzer consumes, as a record: its place, its date and time, and its fields by name.
@@ -399,16 +412,18 @@ pub struct QueryParamManifest {
 /// What an analyzer's `analyze` export answers for one loaded ledger: the diagnostics it reports and the rows of its
 /// tables. The host checks all of it against the plugin's [`Manifest`] and publishes it whole, or nothing of it. A cell
 /// is JSON as the query API writes one: a string, an integer, a boolean, a date `YYYY-MM-DD`, an amount
-/// `{"number": "12.50", "currency": "CNY"}` with its number as text, a set as a list of strings, metadata as
-/// `{"key": ["value"]}`, or `null`. A decimal is text too: a JSON number in a `decimal` or `amount` cell is refused.
+/// `{"number": "12.50", "currency": "CNY"}` with its number as text (or, shorter, `["12.50", "CNY"]`), a set as a list
+/// of strings, metadata as `{"key": ["value"]}`, or `null`. A decimal is text too: a JSON number in a `decimal` or
+/// `amount` cell is refused.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Output {
     #[serde(default)]
     pub diagnostics: Vec<Diagnostic>,
-    /// the rows of every record table, by its name in the manifest: each row has a cell per column, by name, and may
-    /// have its metadata under `$meta`, which `meta()` reads
+    /// the rows of every record table, by its name in the manifest: each row is an object with a cell per column, by
+    /// name, and maybe its metadata under `$meta`, which `meta()` reads; or, shorter, a list of its cells in the order
+    /// of the table's columns, maybe followed by its metadata
     #[serde(default)]
-    pub tables: BTreeMap<String, Vec<Map<String, Value>>>,
+    pub tables: BTreeMap<String, Vec<Value>>,
     /// the facts of every series table, by its name in the manifest
     #[serde(default)]
     pub series: BTreeMap<String, SeriesOutput>,
