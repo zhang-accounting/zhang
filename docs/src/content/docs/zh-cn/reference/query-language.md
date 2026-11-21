@@ -197,7 +197,7 @@ WHERE discrepancy IS NOT NULL
 - **没有 `GROUP BY` 时**，聚合查询按所有非聚合的目标分组。`SELECT account, sum(position)` 等价于 `SELECT account, sum(position) GROUP BY account`。如果所有目标都是聚合函数，所有匹配的分录组成一个分组。
 - **有 `GROUP BY` 时**，每个在聚合函数之外读取了列或调用了[元数据函数](#元数据函数)的目标都必须是分组键。`SELECT account, payee, count(*) GROUP BY account` 会报错，因为 `payee` 没有被分组。两者都不使用的目标（例如常量）不需要分组。
 - 在聚合查询中，`ORDER BY` 里的非聚合表达式也必须是分组键。
-- `set` 类型（如 `tags`）和 `inventory` 类型的值不能作为分组键。
+- `set` 类型（如 `tags`）和 `inventory` 类型的值不能作为分组键。要按集合的元素分组，请按 [`unnest`](#按集合的元素分组) 分组。
 - 分组键本身不能包含聚合函数，聚合函数也不能嵌套（`sum(count(*))` 会报错）。
 - 同一个目标不能把聚合函数和聚合函数之外的列混在一起，即使这个列已经被分组。`number - sum(number)` 和 `possign(sum(position), account)` 都会报错，后者应写成 `sum(possign(position, account))`。只由聚合函数和常量构成的表达式，例如 `sum(number) / 12` 或 `units(sum(position))`，本身就是聚合表达式，可以正常使用。
 - 没有分组键的聚合查询，即使没有匹配的分录也返回一行：`count` 和数值 `sum` 返回 `0`，持仓 `sum` 返回空持仓，`first`、`last`、`min` 和 `max` 返回 `NULL`。`HAVING`、`LIMIT` 和 `OFFSET` 仍然生效。有显式或隐式分组键的查询在没有匹配时返回零行。
@@ -207,6 +207,28 @@ SELECT root(account, 2) AS category, sum(position) AS total
 WHERE account ~ '^Expenses'
 GROUP BY category
 ```
+
+#### 按集合的元素分组
+
+`unnest(set)` 让集合中的每个元素各自成为一个分组键：一条分录计入集合中每个元素的分组，该分组键的值就是这个元素；集合为空或为 `NULL` 时，分录不计入任何分组。一笔同时带有 `#food` 和 `#work` 标签的交易，其分录既计入 `food` 分组，也计入 `work` 分组；没有标签的分录两者都不计入。
+
+```sql
+SELECT unnest(tags) AS tag, count(*) AS postings, sum(position) AS total
+WHERE account ~ '^Expenses'
+GROUP BY tag
+ORDER BY tag
+```
+
+:::caution[unnest 会改变什么]
+- **一条分录按元素计入多次**。带两个标签的分录会出现在两个分组中，所以把各分组的 `sum` 或 `count` 加起来会把它算两次：各分组的合计不等于分录的合计。
+- **一个查询只能有一个 `unnest`**。第二个会导致编译错误。
+- **没有 `ORDER BY` 时分组的顺序**：按各分组第一行出现的顺序（即账本顺序），同一行内则按集合的顺序，也就是排序后的顺序。需要确定的顺序时请写 `ORDER BY`。
+:::
+
+- `unnest` 只能作为一个完整的目标或 `GROUP BY` 项出现，并且必须是分组键；一个查询最多只能有一个。出现在其他地方，例如嵌在其他表达式里，或出现在 `WHERE`、`ORDER BY` 或聚合函数的参数中，都会报错。`HAVING` 和 `ORDER BY` 可以像读取其他分组键一样读取它。
+- 它的参数可以是任何逐行求值的 `set` 表达式：`tags`、`links`、`open_meta_values(account, 'budget', date, time)` 或参数。
+- 这个分组键的值是 `str`。其他分组键和聚合对每个元素都相同，所以一个分组的内容与按 `:element IN set` 筛选、逐个元素查询得到的完全一样。
+- `unnest` 是张记账的扩展。
 
 ### HAVING
 
@@ -1058,7 +1080,7 @@ WHERE file = 'data/2024.zhang'
 - `metas`：逐对比较，先比键，再比值。
 - `interval`：与 beanquery 一样，间隔没有顺序（`1 month` 既不大于也不小于 `30 days`），所以 `<`、`<=`、`>`、`>=`、`ORDER BY`、`min`、`max` 和 `PIVOT BY` 都不接受间隔。间隔可以相等或不相等：`=`、`!=`、`IN`、`GROUP BY` 和 `DISTINCT` 比较它们的月数（一年计为十二个月）和天数，所以 `interval('12 months') = interval('1 year')`。beanquery 不接受对间隔使用 `=` 和 `!=`。
 
-`set`、`inventory` 和 `metas` 类型的值不能作为分组键。
+`set`、`inventory` 和 `metas` 类型的值不能作为分组键；[`unnest`](#按集合的元素分组) 可以按集合的元素分组。
 
 ## 函数
 
@@ -1253,6 +1275,7 @@ GROUP BY week ORDER BY week
 | `any_icontains(set, str) -> bool` | 集合中是否有元素包含该文本，忽略大小写。 | `any_icontains(tags, 'trip')` |
 | `intersects(set, set) -> bool` | 两个集合是否有共同元素。 | `intersects(tags, :tags)` |
 | `set(str, ...) -> set` | 由给定字符串组成的集合，字符串个数不限。`set()` 是空集合。 | `intersects(tags, set('trip', 'food'))` |
+| `unnest(set) -> str` | 集合中的每个元素，各自作为一个分组键；只能作为完整的分组键使用。参见[按集合的元素分组](#按集合的元素分组)。 | `SELECT unnest(tags) AS tag, count(*) GROUP BY tag` |
 
 ```sql
 SELECT date, payee, narration, account, position
