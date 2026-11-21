@@ -549,7 +549,7 @@ plugin "plugins/fx-rates.wasm"
 
 *预算指令未被解释：`<reason>`*
 
-账本用到了预算，但解释预算的官方插件 `zhang:budget` 没有运行：服务器以关闭插件的方式运行（`zhang serve --plugins off` 或 `ZHANG_PLUGINS=off`），这会停止所有插件，包括 `zhang:budget`。除此之外，每个账本都有 `zhang:budget`，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响。账本加载时不带预算：不报告任何预算错误，[预算](/zh-cn/guides/budgets/)页面、预算表（`#budgets`、`#budget_definitions`、`#budget_events`）、`#postings` 的 `budgets` 列以及 `budgets.*` [内置查询](/zh-cn/reference/builtin-queries/)都会返回不可用的错误并说明原因。这个错误只报告一次，在第一个预算指令或带 `budget` 元数据的 `open` 上。元数据：`plugin`（`zhang:budget`）和 `reason`，例如 `plugins are off (ZHANG_PLUGINS=off)`。
+账本用到了预算，但解释预算的官方插件 `zhang:budget` 没有运行：服务器以关闭插件的方式运行（`zhang serve --plugins off` 或 `ZHANG_PLUGINS=off`），这会停止所有插件，包括 `zhang:budget`。除此之外，每个账本都有 `zhang:budget`，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响。账本加载时不带预算：不报告任何预算错误，[预算](/zh-cn/guides/budgets/)页面、预算表（`#budgets`、`#budget_definitions`、`#budget_events`）、`#postings` 的 `budgets` 列以及 `budgets.*` [内置查询](/zh-cn/reference/builtin-queries/)都会返回不可用的错误并说明原因。查询函数 `account_budgets()` 仍然会返回结果：它和 `open_meta_values()` 一样，只读取账户 `open` 指令的 `budget` 元数据。这个错误只报告一次，在第一个预算指令或带 `budget` 元数据的 `open` 上。元数据：`plugin`（`zhang:budget`）和 `reason`，例如 `plugins are off (ZHANG_PLUGINS=off)`。
 
 **修正方法**：如果服务器由你运行，用 `--plugins read`（默认值）或 `write` 启动它，或者取消设置 `ZHANG_PLUGINS`。
 

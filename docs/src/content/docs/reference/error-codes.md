@@ -700,8 +700,9 @@ with plugins off (`zhang serve --plugins off` or `ZHANG_PLUGINS=off`), which sto
 included. Every ledger has `zhang:budget` otherwise, without a `plugin` directive and whatever its `features.plugin`
 option says. The ledger loads without budgets: no budget error is reported, and the [budget](/guides/budgets/) pages,
 the budget tables (`#budgets`, `#budget_definitions`, `#budget_events`), the `budgets` column of `#postings` and the
-`budgets.*` [built-in queries](/reference/builtin-queries/) answer that they are unavailable, saying why. The error is
-reported once, on the first budget directive or `open` with `budget` metadata. Metas: `plugin` (`zhang:budget`) and
+`budgets.*` [built-in queries](/reference/builtin-queries/) answer that they are unavailable, saying why. The query
+function `account_budgets()` still answers: it reads only the `budget` metadata of the accounts' `open` directives, as
+`open_meta_values()` does. The error is reported once, on the first budget directive or `open` with `budget` metadata. Metas: `plugin` (`zhang:budget`) and
 `reason`, such as `plugins are off (ZHANG_PLUGINS=off)`.
 
 **Fix:** if you run the server, start it with `--plugins read` (the default) or `write`, or unset `ZHANG_PLUGINS`.

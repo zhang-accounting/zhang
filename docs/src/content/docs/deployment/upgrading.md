@@ -67,7 +67,8 @@ Open the web UI, check the version on the **Settings** page, and look at the err
   every ledger has, without a `plugin` directive and whatever its `features.plugin` option says, and which the
   operator's switch stops as it stops every plugin. A server run with `--plugins off` or `ZHANG_PLUGINS=off` logs that
   budgets are off when it starts; the budget pages and queries answer that the budget tables are unavailable, and the
-  error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error. Budgets need
-  `ZHANG_PLUGINS` `read`, the default, or `write`.
+  error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error. The query function
+  `account_budgets()` still answers, as it reads only the `budget` metadata of the accounts' `open` directives. Budgets
+  need `ZHANG_PLUGINS` `read`, the default, or `write`.
 
 [Error Codes](/reference/error-codes/) explains how to fix each error.

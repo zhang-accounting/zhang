@@ -9,7 +9,7 @@ sidebar:
 
 预算与账户并存：它们从不改变任何余额。完整语法见[预算](/zh-cn/reference/directives/budget/)。
 
-预算由 `zhang:budget` 解释，它是每个账本都有的官方[插件](/zh-cn/guides/plugins/#服务器允许的范围)，无需任何声明。以关闭插件的方式（`ZHANG_PLUGINS=off`）运行的服务器也会停止它：预算页面会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。
+预算由 `zhang:budget` 解释，它是每个账本都有的官方[插件](/zh-cn/guides/plugins/#服务器允许的范围)，无需任何声明。以关闭插件的方式（`ZHANG_PLUGINS=off`）运行的服务器也会停止它：预算页面会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。查询函数 [`account_budgets()`](/zh-cn/reference/query-language/) 仍然会返回结果，因为它只读取账户 `open` 指令的 `budget` 元数据，而不是 `zhang:budget` 解释的内容。
 
 ## 创建预算并关联账户
 
