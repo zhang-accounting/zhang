@@ -11,6 +11,7 @@ pub mod data_type;
 pub mod derived;
 pub mod domains;
 pub mod error;
+pub mod extensions;
 pub mod inputs;
 pub mod inventory;
 pub mod ledger;

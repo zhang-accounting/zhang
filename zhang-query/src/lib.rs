@@ -43,6 +43,7 @@
 //! # }
 //! ```
 
+pub mod analysis;
 mod ast;
 pub mod catalog;
 mod compiler;
@@ -316,6 +317,10 @@ impl Query {
                     QueryErrorKind::Compile,
                     "the ledger's tables changed since the query was compiled; compile it again",
                 ));
+            }
+            // a label column reads its provider's snapshot as a table does: not when it failed, nor before it published
+            for column in self.projection.label_columns() {
+                extension::snapshot::check_label_column(ledger, column).map_err(|message| QueryError::new(QueryErrorKind::Eval, message))?;
             }
         }
         self.check_params(params)?;

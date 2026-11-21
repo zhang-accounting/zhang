@@ -41,13 +41,15 @@ fn manifest() -> Manifest {
         tables: vec![
             TableDecl {
                 name: "shop_items".to_owned(),
+                published_as: "items".to_owned(),
                 description: "Items.".to_owned(),
-                kind: TableKind::Records,
+                kind: TableKind::Records(RecordOrder::Published),
                 columns: vec![column("item", DataType::Str, None), column("price", DataType::Amount, None)],
                 wildcard: vec!["item".to_owned()],
             },
             TableDecl {
                 name: "shop_stock".to_owned(),
+                published_as: "stock".to_owned(),
                 description: "Stock per month.".to_owned(),
                 kind: TableKind::Series(SeriesDecl {
                     period: "date".to_owned(),
@@ -70,6 +72,7 @@ fn manifest() -> Manifest {
         labels: vec![LabelDecl {
             table: "postings".to_owned(),
             name: "shop_tags".to_owned(),
+            published_as: "tags".to_owned(),
             description: "Tags.".to_owned(),
             predicate: "account IN :accounts AND number >= :min".to_owned(),
             params: vec![("accounts".to_owned(), DataType::Set), ("min".to_owned(), DataType::Decimal)],
@@ -77,13 +80,23 @@ fn manifest() -> Manifest {
     }
 }
 
+/// The provider of `manifest`, whose snapshot is published into the ledger.
+pub(crate) fn published(manifest: Manifest) -> Provider {
+    Provider {
+        manifest,
+        source: Source::Published,
+    }
+}
+
+/// Why a catalog of `providers` skips the first it skips; `None` when it skips none.
+fn skipped(providers: &[Provider]) -> Option<String> {
+    build(providers).skipped.into_iter().next().map(|skipped| skipped.message)
+}
+
 fn build_error(change: impl FnOnce(&mut Manifest)) -> String {
     let mut manifest = manifest();
     change(&mut manifest);
-    match build(&[manifest]) {
-        Ok(_) => panic!("the manifest is accepted"),
-        Err(err) => err,
-    }
+    skipped(&[published(manifest)]).expect("the manifest is refused")
 }
 
 fn series(manifest: &mut Manifest) -> &mut TableDecl {
@@ -92,7 +105,7 @@ fn series(manifest: &mut Manifest) -> &mut TableDecl {
 
 #[test]
 fn a_manifest_is_checked_before_its_tables_exist() {
-    assert!(build(&[manifest()]).is_ok());
+    assert_eq!(skipped(&[published(manifest())]), None);
     type Change = Box<dyn FnOnce(&mut Manifest)>;
     let cases: Vec<(Change, &str)> = vec![
         (Box::new(|m| m.tables[0].name = "prices".to_owned()), "table 'prices' is already a table"),
@@ -157,24 +170,72 @@ fn a_manifest_is_checked_before_its_tables_exist() {
             Box::new(|m| m.labels[0].params.push(("label".to_owned(), DataType::Str))),
             "a parameter is named label",
         ),
+        (
+            Box::new(|m| m.tables[0].kind = TableKind::Records(RecordOrder::Columns(vec!["nope".to_owned()]))),
+            "its rows are ordered by 'nope', which is no column",
+        ),
+        (Box::new(|m| m.labels.push(m.labels[0].clone())), "postings already has a column 'shop_tags'"),
+        (Box::new(|m| m.tables.push(m.tables[0].clone())), "table 'shop_items' is already a table"),
     ];
     for (change, expected) in cases {
         let err = build_error(change);
         assert!(err.starts_with("test:shop: "), "{err}");
         assert!(err.contains(expected), "{err}");
     }
-    // two providers with one name: the first keeps it
-    let err = build(&[manifest(), manifest()]).err().unwrap();
-    assert!(err.contains("table 'shop_items' is already a table"), "{err}");
+}
+
+#[test]
+fn of_two_providers_declaring_one_name_the_first_keeps_it_and_the_later_is_skipped() {
     let mut other = manifest();
+    other.provider = "test:other".to_owned();
+    other.tables.remove(0);
+    let mut unrelated = manifest();
+    unrelated.provider = "test:unrelated".to_owned();
+    unrelated.tables = vec![];
+    unrelated.labels[0].name = "unrelated_tags".to_owned();
+    let extensions = build(&[published(manifest()), published(other.clone()), published(unrelated)]);
+    assert_eq!(
+        extensions.skipped,
+        [Skipped {
+            index: 1,
+            provider: "test:other".to_owned(),
+            message: "test:other: table 'shop_stock' is already a table".to_owned(),
+        }]
+    );
+    // the later provider has none of its tables and columns, the others keep theirs
+    let names = extensions.tables.iter().map(|table| table.name().to_owned()).collect::<Vec<_>>();
+    assert_eq!(names, ["shop_items", "shop_stock"]);
+    let labels = extensions
+        .labels
+        .iter()
+        .map(|(def, column)| (def.name.to_string(), column.provider.to_string()))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        labels,
+        [
+            ("shop_tags".to_owned(), "test:shop".to_owned()),
+            ("unrelated_tags".to_owned(), "test:unrelated".to_owned())
+        ]
+    );
+    assert_eq!(
+        extensions.providers.iter().map(|it| it.manifest.provider.as_str()).collect::<Vec<_>>(),
+        ["test:shop", "test:unrelated"]
+    );
+    // its label column too
     other.tables.clear();
-    let err = build(&[manifest(), other]).err().unwrap();
-    assert!(err.contains("postings already has a column 'shop_tags'"), "{err}");
+    assert_eq!(
+        skipped(&[published(manifest()), published(other)]).unwrap(),
+        "test:other: column postings.shop_tags: postings already has a column 'shop_tags'"
+    );
+    // a core name is never a provider's
+    let mut core = manifest();
+    core.tables[1].name = "accounts".to_owned();
+    assert_eq!(skipped(&[published(core)]).unwrap(), "test:shop: table 'accounts' is already a table");
 }
 
 #[test]
 fn a_catalog_lists_the_extensions_tables_before_errors_and_their_columns_after_the_cores() {
-    let catalog = Catalog::with_extensions(&[manifest()]).unwrap();
+    let catalog = Catalog::with_extensions(&[published(manifest())]).unwrap();
     let names = catalog.tables().iter().map(|table| table.name()).collect::<Vec<_>>();
     assert_eq!(
         names,
@@ -210,11 +271,14 @@ fn a_catalog_lists_the_extensions_tables_before_errors_and_their_columns_after_t
 }
 
 #[test]
-fn a_digest_follows_the_manifests() {
-    let digest = |manifests: &[Manifest]| Catalog::with_extensions(manifests).unwrap().digest();
+fn a_digest_follows_the_manifests_and_their_sources() {
+    let digest = |manifests: &[Manifest]| {
+        let providers = manifests.iter().cloned().map(published).collect::<Vec<_>>();
+        Catalog::with_extensions(&providers).unwrap().digest()
+    };
     assert_eq!(digest(&[manifest()]), digest(&[manifest()]));
     assert_eq!(Catalog::core().digest(), digest(&[]));
-    assert_eq!(Catalog::standard().digest(), digest(native_manifests()));
+    assert_eq!(Catalog::standard().digest(), Catalog::with_extensions(native_providers()).unwrap().digest());
     assert_ne!(Catalog::standard().digest(), Catalog::core().digest());
     let mut described = manifest();
     described.tables[0].columns[0].description = "Another.".to_owned();
@@ -222,13 +286,23 @@ fn a_digest_follows_the_manifests() {
     let mut predicate = manifest();
     predicate.labels[0].predicate = "account IN :accounts".to_owned();
     assert_ne!(digest(&[manifest()]), digest(&[predicate]));
+    // the native provider's tables served from a snapshot published into the ledger are other tables
+    let republished = native_providers().iter().map(|native| published(native.manifest.clone())).collect::<Vec<_>>();
+    assert_ne!(Catalog::with_extensions(&republished).unwrap().digest(), Catalog::standard().digest());
+    assert_ne!(published(manifest()).digest(), published(predicate_changed()).digest());
+}
+
+fn predicate_changed() -> Manifest {
+    let mut manifest = manifest();
+    manifest.labels[0].predicate = "account IN :accounts".to_owned();
+    manifest
 }
 
 #[test]
 fn a_query_of_an_extensions_data_runs_only_on_a_catalog_with_its_digest() {
     let ledger = ledger("1970-01-01 open Assets:Bank\n");
     let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
-    let catalog = Catalog::with_extensions(&[manifest()]).unwrap();
+    let catalog = Catalog::with_extensions(&[published(manifest())]).unwrap();
     let compile = |sql: &str| Query::compile_in(&catalog, sql, &ParamTypes::default()).unwrap();
     for sql in [
         "SELECT item FROM #shop_items",
@@ -290,11 +364,13 @@ fn labels_of(predicate: &str, labels: &[Label]) -> (Option<String>, Vec<(String,
     let decl = LabelDecl {
         table: "postings".to_owned(),
         name: "shop_tags".to_owned(),
+        published_as: "tags".to_owned(),
         description: String::new(),
         predicate: predicate.to_owned(),
         params: vec![("accounts".to_owned(), DataType::Set), ("min".to_owned(), DataType::Decimal)],
     };
-    let column = Arc::new(LabelColumn::compile(&Arc::from("test:shop"), &decl).unwrap());
+    let provider = published(manifest());
+    let column = Arc::new(LabelColumn::compile(&Arc::from("test:shop"), provider.digest(), provider.source, &decl).unwrap());
     let indexed = column.index.as_ref().map(|(column, param)| format!("{} {}", column.name(), param));
     let ledger = ledger(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 open Expenses:Fun\n\
@@ -418,7 +494,7 @@ fn an_extensions_table_has_at_most_64_columns() {
     let mut widest = manifest();
     widest.tables[0].columns = columns(64);
     widest.tables[0].wildcard = vec!["c0".to_owned()];
-    let catalog = Catalog::with_extensions(&[widest]).unwrap();
+    let catalog = Catalog::with_extensions(&[published(widest)]).unwrap();
     assert_eq!(catalog.find("shop_items").unwrap().columns().len(), 64);
     let err = build_error(|m| {
         m.tables[0].columns = columns(65);
@@ -427,27 +503,35 @@ fn an_extensions_table_has_at_most_64_columns() {
     assert_eq!(err, "test:shop: table #shop_items: a table has at most 64 columns");
 }
 
+mod published;
+
 #[test]
 fn a_catalog_has_at_most_16_label_columns_shared_by_its_providers() {
     let label = |name: String| LabelDecl {
         table: "postings".to_owned(),
+        published_as: name.clone(),
         name,
         description: String::new(),
         predicate: "account IN :accounts".to_owned(),
         params: vec![("accounts".to_owned(), DataType::Set)],
     };
-    let labels = |provider: &str, from: usize, to: usize| Manifest {
-        provider: provider.to_owned(),
-        tables: vec![],
-        labels: (from..to).map(|it| label(format!("tag{it}"))).collect(),
+    let labels = |provider: &str, from: usize, to: usize| {
+        published(Manifest {
+            provider: provider.to_owned(),
+            tables: vec![],
+            labels: (from..to).map(|it| label(format!("tag{it}"))).collect(),
+        })
     };
     let catalog = Catalog::with_extensions(&[labels("test:one", 0, 16)]).unwrap();
     assert_eq!(catalog.postings().columns().len(), crate::table::COLUMNS.len() + 16);
-    let err = build(&[labels("test:one", 0, 17)]).err().unwrap();
+    let err = skipped(&[labels("test:one", 0, 17)]).unwrap();
     assert_eq!(err, "test:one: column postings.tag16: a catalog has at most 16 label columns");
-    // the limit is the catalog's, whichever provider reaches it
-    let err = build(&[labels("test:one", 0, 10), labels("test:two", 10, 17)]).err().unwrap();
-    assert_eq!(err, "test:two: column postings.tag16: a catalog has at most 16 label columns");
+    // the limit is the catalog's, whichever provider reaches it: that one is skipped, and the others keep theirs
+    let extensions = build(&[labels("test:one", 0, 10), labels("test:two", 10, 17), labels("test:three", 20, 26)]);
+    let messages = extensions.skipped.iter().map(|it| it.message.as_str()).collect::<Vec<_>>();
+    assert_eq!(messages, ["test:two: column postings.tag16: a catalog has at most 16 label columns"]);
+    assert_eq!(extensions.labels.len(), 16);
+    assert_eq!(extensions.labels.last().unwrap().0.name, "tag25");
     // the native providers leave room: zhang:budget has one
-    assert_eq!(native_manifests().iter().map(|it| it.labels.len()).sum::<usize>(), 1);
+    assert_eq!(native_providers().iter().map(|it| it.manifest.labels.len()).sum::<usize>(), 1);
 }

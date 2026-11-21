@@ -421,8 +421,8 @@ impl<'a> Record<'a> {
     /// The cell at `index` of an extension's row, as a series fills it in a generated period; NULL on any other row.
     fn cell(&self, index: usize) -> Value {
         match self {
-            // TODO(P1.4): a missing cell reads NULL silently; the publish checks of a snapshot rule it out
-            Record::Extension(row) => row.cells.get(index).cloned().unwrap_or(Value::Null),
+            // a snapshot is checked before it is read: every row has a cell per column ([`extension::snapshot`])
+            Record::Extension(row) => row.cells[index].clone(),
             Record::Series(row) => row.cell(index),
             _ => Value::Null,
         }
@@ -522,21 +522,19 @@ impl<'a> Dataset<'a> {
             Rows::Records(source) => source(ledger, projection),
             Rows::Extension(rows) => {
                 let table = projection.table();
-                let unavailable = || {
-                    LocatedError::eval(
-                        format!("table #{} is unavailable: {} has no data for this ledger", table.name(), rows.provider),
-                        None,
-                    )
-                };
-                let data = extension::snapshot(ledger, &rows.provider)
-                    .and_then(|snapshot| snapshot.table(ledger, table.name()))
-                    .ok_or_else(unavailable)?;
+                let data = extension::snapshot::table_data(ledger, rows, table.name()).map_err(|message| LocatedError::eval(message, None))?;
                 match (&rows.kind, data) {
-                    (ExtensionKind::Records, TableData::Records(records)) => records.iter().map(Record::Extension).collect(),
-                    (ExtensionKind::Series(spec), TableData::Series(partitions)) => {
+                    (_, None) => vec![],
+                    (ExtensionKind::Records, Some(TableData::Records(records))) => records.iter().map(Record::Extension).collect(),
+                    (ExtensionKind::Series(spec), Some(TableData::Series(partitions))) => {
                         extension::series::rows(ledger, table, &rows.provider, spec, partitions, Generation { today, until }, limits)?
                     }
-                    _ => return Err(unavailable()),
+                    _ => {
+                        return Err(LocatedError::eval(
+                            format!("table #{} is unavailable: {} published other rows", table.name(), rows.provider),
+                            None,
+                        ))
+                    }
                 }
             }
         };
@@ -583,15 +581,12 @@ impl<'a> Dataset<'a> {
     }
 
     /// The label column at `slot` of the table, resolved for this execution on its first read: the labels of its
-    /// provider's snapshot of the ledger, the predicate bound to each. A provider without a snapshot of the ledger
-    /// gives no label.
+    /// provider's snapshot of the ledger, the predicate bound to each. A provider that was skipped gives no label; a
+    /// query does not read the column of one that failed ([`extension::snapshot::check_label_column`]).
     pub(crate) fn labels(&self, slot: u16) -> &Labels<'a> {
         self.labels[slot as usize].get_or_init(|| {
             let column = &self.projection.table().labels()[slot as usize];
-            let labels = extension::snapshot(self.ledger, &column.provider)
-                .and_then(|snapshot| snapshot.labels(self.ledger, &column.name))
-                .unwrap_or_default();
-            Labels::resolve(column, labels)
+            Labels::resolve(column, extension::snapshot::label_data(self.ledger, column))
         })
     }
 

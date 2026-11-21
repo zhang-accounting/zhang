@@ -37,7 +37,7 @@ use zhang_core::utils::id::FromSpan;
 
 use super::lookups::Lookups;
 use super::postings;
-use crate::extension::Snapshot;
+use crate::extension::NativeSnapshot;
 use crate::prices::PriceMap;
 use crate::value::Cost;
 use crate::Amount;
@@ -56,8 +56,8 @@ pub(crate) struct LedgerCache {
     documented: OnceLock<Vec<u32>>,
     /// the account and commodity directives by name
     lookups: OnceLock<Lookups>,
-    /// the snapshots of the ledger's providers ([`crate::extension`])
-    snapshots: OnceLock<Vec<Snapshot>>,
+    /// the snapshots of the native providers of the ledger ([`crate::extension`])
+    snapshots: OnceLock<Vec<NativeSnapshot>>,
 }
 
 impl LedgerCache {
@@ -99,9 +99,9 @@ impl LedgerCache {
         })
     }
 
-    /// The snapshots of the ledger's providers, each part built on first use.
-    pub fn snapshots(&self) -> &[Snapshot] {
-        self.snapshots.get_or_init(crate::extension::snapshots)
+    /// The snapshots of the ledger's native providers, each part built on first use.
+    pub fn native_snapshots(&self) -> &[NativeSnapshot] {
+        self.snapshots.get_or_init(crate::extension::native_snapshots)
     }
 
     /// The account and commodity directives of the ledger by name.

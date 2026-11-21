@@ -108,8 +108,8 @@ use zhang_ast::{Account, Date, Directive, Meta, Spanned};
 use zhang_core::ledger::Ledger;
 
 use super::{
-    Cause, ColumnDecl, DatePart, FactRow, Fill, Label, LabelDecl, Manifest, NativeProvider, Partition, PeriodUnit, RecordRow, SeriesDecl, TableData, TableDecl,
-    TableKind,
+    Cause, ColumnDecl, DatePart, FactRow, Fill, Label, LabelDecl, Manifest, NativeProvider, Partition, PeriodUnit, RecordOrder, RecordRow, SeriesDecl,
+    TableData, TableDecl, TableKind,
 };
 use crate::params::Params;
 use crate::prices::PriceMap;
@@ -148,6 +148,7 @@ fn manifest() -> Manifest {
     let carry = || Some(Fill::Carry);
     let budgets = TableDecl {
         name: "budgets".to_owned(),
+        published_as: "budgets".to_owned(),
         description: "One row per budget per month, from the budget's first month through its last entry, the ledger's last month with a transaction or the current month, whichever is latest, with the assigned, activity and available amounts the budget pages show, in the budget's commodity; ordered by name, then month.".to_owned(),
         kind: TableKind::Series(SeriesDecl {
             period: "date".to_owned(),
@@ -200,10 +201,11 @@ fn manifest() -> Manifest {
     };
     let events = TableDecl {
         name: "budget_events".to_owned(),
+        published_as: "budget_events".to_owned(),
         description: "One row per effect of a budget directive, in ledger order: the amount a budget-add assigns, the amount a \
                       budget-transfer moves out of one budget and into another, and a budget-close."
             .to_owned(),
-        kind: TableKind::Records,
+        kind: TableKind::Records(RecordOrder::Published),
         columns: vec![
             column("name", Str, "Name of the budget.", None),
             column("date", Date, "Date of the budget directive.", None),
@@ -236,8 +238,9 @@ fn manifest() -> Manifest {
     };
     let definitions = TableDecl {
         name: "budget_definitions".to_owned(),
+        published_as: "budget_definitions".to_owned(),
         description: "One row per budget, as its directives define it: its commodity, display name, category, the accounts of its activity and the date and time it is closed; ordered by name. It has no months, so it reads no transaction.".to_owned(),
-        kind: TableKind::Records,
+        kind: TableKind::Records(RecordOrder::Columns(names(&["name"]))),
         columns: vec![
             column("name", Str, "Name of the budget, as written in its directives.", None),
             column("date", Date, "Date of the budget directive, from which the budget exists.", None),
@@ -268,6 +271,7 @@ fn manifest() -> Manifest {
     let postings_budgets = LabelDecl {
         table: "postings".to_owned(),
         name: "budgets".to_owned(),
+        published_as: "budgets".to_owned(),
         description: "The budgets the posting counts toward, as the budget pages count it: those the budget metadata of its \
         account's open in effect at its date and time names, defined before it and not closed by then, into \
         whose commodity a price converts it. The postings of a budget in a month add up to its activity in \
@@ -876,8 +880,14 @@ mod tests {
 
     #[test]
     fn the_budgets_column_is_indexed_by_the_budgets_accounts() {
-        let manifest = manifest();
-        let column = crate::extension::LabelColumn::compile(&std::sync::Arc::from(manifest.provider.as_str()), &manifest.labels[0]).unwrap();
+        let provider = &crate::extension::native_providers()[0];
+        let column = crate::extension::LabelColumn::compile(
+            &std::sync::Arc::from(provider.manifest.provider.as_str()),
+            provider.digest(),
+            provider.source,
+            &provider.manifest.labels[0],
+        )
+        .unwrap();
         let (indexed, param) = column.index.as_ref().expect("an index");
         assert_eq!((indexed.name(), param.to_string()), ("account", ":accounts".to_owned()));
     }
