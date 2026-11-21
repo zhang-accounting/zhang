@@ -294,14 +294,30 @@ fn check(
     ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin, manifest: &abi::Manifest, output: &[u8],
 ) -> Result<(Arc<dyn Any + Send + Sync>, Vec<Diagnostic>), AnalysisFailure> {
     let invalid = |message: String| AnalysisFailure::new("output", message);
+    let started = Instant::now();
     abi::check_size(output, abi::MAX_OUTPUT_BYTES, abi::MAX_OUTPUT_NODES, abi::MAX_OUTPUT_OBJECTS)
         .map_err(|why| invalid(format!("its output is too large to read: {}", log_safe(&why))))?;
+    let sized = Instant::now();
     if let Some(checked) = quick_check(ledger, host, plugin, manifest, output) {
+        log::debug!(
+            "analyzer {}: its output sized in {:?}, read the quick way, checked and published in {:?}",
+            log_safe(&plugin.name),
+            sized.duration_since(started),
+            sized.elapsed()
+        );
         return Ok(checked);
     }
     let output: abi::Output = serde_json::from_slice(output).map_err(|e| invalid(format!("its output is not one: {}", log_safe(&e.to_string()))))?;
+    let read = Instant::now();
     let diagnostics = analysis::diagnostics(ledger, &plugin.name, manifest, plugin.is_budget_provider(), &output.diagnostics).map_err(invalid)?;
     let data = host.publish(ledger, &plugin.name, &output).map_err(invalid)?;
+    log::debug!(
+        "analyzer {}: its output sized in {:?}, read in {:?}, checked and published in {:?}",
+        log_safe(&plugin.name),
+        sized.duration_since(started),
+        read.duration_since(sized),
+        read.elapsed()
+    );
     Ok((data, diagnostics))
 }
 
