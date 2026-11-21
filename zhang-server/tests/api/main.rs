@@ -15,6 +15,7 @@ mod day_order;
 mod error_bodies;
 mod error_lines;
 mod journals_engine;
+mod lua_analyzers;
 mod number_bounds;
 mod open_commodities;
 mod paging_contract;

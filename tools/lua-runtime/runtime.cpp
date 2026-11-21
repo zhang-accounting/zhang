@@ -1,10 +1,11 @@
 // The Lua interpreter zhang pairs with every `plugin "x.lua"` directive: an Extism plugin exporting the plugin
-// ABI v1 identity functions, `capabilities` and `router`, which run the script the host hands over in the config key
-// `zhang.script` (named `zhang.script_name` in messages). Lua 5.4.8 (lua.wasm's onelua.c, compiled as C++ so its
-// error handling rides wasm exception handling) and the JSON codec of json.cpp are linked in; this file is the glue.
+// ABI v1 identity functions, `capabilities`, `router`, and the analyzer's `manifest` and `analyze`, which run the
+// script the host hands over in the config key `zhang.script` (named `zhang.script_name` in messages). Lua 5.4.8
+// (lua.wasm's onelua.c, compiled as C++ so its error handling rides wasm exception handling) and the JSON codec of
+// json.cpp are linked in; this file is the glue.
 //
-// Sections: imports, memory budget, bridges, prelude (the `zhang`/`json` API, the sandbox, dispatch), the
-// `zhang.decimal` library, exports.
+// Sections: imports, memory budget, bridges, prelude (the `zhang`/`json` API, `zhang.decimal`, the sandbox,
+// dispatch), exports.
 //
 // Every call gets a fresh Lua state: no Lua value survives between requests or between plugins. The host
 // functions are C closures the prelude receives as arguments and keeps as upvalues of the `zhang` table; they
@@ -39,6 +40,8 @@ EXTISM_IMPORT_USER("zhang_query") extern uint64_t host_query(uint64_t);
 EXTISM_IMPORT_USER("zhang_query_params") extern uint64_t host_query_params(uint64_t);
 EXTISM_IMPORT_USER("zhang_query_schema") extern uint64_t host_query_schema(void);
 EXTISM_IMPORT_USER("zhang_query_builtin") extern uint64_t host_query_builtin(uint64_t);
+// the ledger's prices, for an analysis (and a router): a batch of amounts converted as a query's convert() converts
+EXTISM_IMPORT_USER("zhang_convert") extern uint64_t host_convert(uint64_t);
 EXTISM_IMPORT_USER("zhang_read_file") extern uint64_t host_read_file(uint64_t);
 EXTISM_IMPORT_USER("zhang_list_dir") extern uint64_t host_list_dir(uint64_t);
 EXTISM_IMPORT_USER("zhang_emit_error") extern void host_emit_error(uint64_t);
@@ -129,6 +132,7 @@ static int bridge_query_schema(lua_State *L) { return push_handle(L, host_query_
 static int bridge_query_builtin(lua_State *L) { return call_with_text(L, host_query_builtin); }
 static int bridge_query(lua_State *L) { return call_with_text(L, host_query); }
 static int bridge_query_params(lua_State *L) { return call_with_text(L, host_query_params); }
+static int bridge_convert(lua_State *L) { return call_with_text(L, host_convert); }
 static int bridge_read_file(lua_State *L) { return call_with_text(L, host_read_file); }
 static int bridge_list_dir(lua_State *L) { return call_with_text(L, host_list_dir); }
 static int bridge_write_preview(lua_State *L) { return call_with_text(L, host_write_preview); }
@@ -172,6 +176,7 @@ static const luaL_Reg BRIDGES[] = {
     {"query_params", bridge_query_params},
     {"query_schema", bridge_query_schema},
     {"query_builtin", bridge_query_builtin},
+    {"convert", bridge_convert},
     {"read_file", bridge_read_file},
     {"list_dir", bridge_list_dir},
     {"write_preview", bridge_write_preview},
@@ -189,11 +194,11 @@ static const luaL_Reg BRIDGES[] = {
 // the wrong shape is reported without one.
 
 static const char PRELUDE[] = R"lua(
-local raw, codec, base, source, script_name, entry, input, decimal_source = ...
+local raw, codec, base, source, script_name, entry, input, decimal_source, analyzer_source = ...
 local type, error, pairs, ipairs, next, tostring, tonumber, select, setmetatable, getmetatable, rawget, rawset, rawequal, xpcall, pcall =
       type, error, pairs, ipairs, next, tostring, tonumber, select, setmetatable, getmetatable, rawget, rawset, rawequal, xpcall, pcall
 local sbyte, schar, sgsub, ssub, slower, sformat = string.byte, string.char, string.gsub, string.sub, string.lower, string.format
-local concat, utf8len = table.concat, utf8.len
+local concat, utf8len, mtype = table.concat, utf8.len, math.type
 local rawload, traceback = base.load, base.debug.traceback
 
 -- ---- json: the C codec of json.cpp (null, encode, decode, and the sealed object/array markers) --------------------
@@ -273,7 +278,7 @@ end
 local zhang = {
   -- the version of this API, raised by every release that adds to the `zhang` table (the guide lists what each
   -- version added), so a script checks `zhang.api_version >= n` before it uses what version n brought. 1 is the API
-  -- of the first release with Lua scripts, zhang.decimal values included
+  -- of the first release with Lua scripts: routers, analyzers, zhang.decimal values and zhang.convert
   api_version = 1,
   str = constructor("str"),
   int = constructor("int"),
@@ -371,6 +376,32 @@ end
 
 function zhang.query_schema()
   local value = unwrap(raw.query_schema())
+  return value
+end
+
+-- amounts converted with the ledger's prices, as a query's convert(position, currency, date) converts them: a list
+-- of {amount = {number = "12.50", currency = "USD"}, target = "CNY", date = "2024-01-31", via = "USD"?} in, and for
+-- each the converted {number, currency}, exact, or json.null when no price converts it. A number is a string, an
+-- integer or a decimal value; a float is refused before anything is sent
+function zhang.convert(conversions)
+  if type(conversions) ~= "table" then
+    error("zhang.convert expects a list of {amount = {number = ..., currency = ...}, target = ..., date = ...}, got " .. type(conversions), 2)
+  end
+  local batch = json.array()
+  for index, conversion in ipairs(conversions) do
+    local amount = type(conversion) == "table" and conversion.amount
+    if type(amount) ~= "table" then
+      error(sformat("conversion %d must be {amount = {number = ..., currency = ...}, target = ..., date = ...}", index), 2)
+    end
+    local number = amount.number
+    if mtype(number) == "float" then
+      error(sformat("conversion %d: amount `%s` must be a string, such as \"%s\"", index, tostring(number), tostring(number)), 2)
+    elseif mtype(number) == "integer" then
+      number = tostring(number)
+    end
+    batch[index] = {amount = {number = number, currency = amount.currency}, target = conversion.target, date = conversion.date, via = conversion.via}
+  end
+  local value = unwrap(raw.convert(json.encode(batch)))
   return value
 end
 
@@ -505,8 +536,8 @@ elseif entry == "supported_type" then
   for _, kind in ipairs(types) do
     if kind == "Processor" or kind == "Mapper" then
       return fail(script_name .. ": Lua processors and mappers are not supported yet (#698 P1): zhang.decimal adds, subtracts and compares but does not multiply or divide, and the host would take back an amount turned into a JSON number")
-    elseif kind ~= "Router" then
-      return fail(sformat('%s: unknown plugin type %q; Lua scripts declare types = {"Router"}', script_name, tostring(kind)))
+    elseif kind ~= "Router" and kind ~= "Analyzer" then
+      return fail(sformat('%s: unknown plugin type %q; Lua scripts declare types = {"Router"}, {"Analyzer"} or both', script_name, tostring(kind)))
     end
     declared[#declared + 1] = kind
   end
@@ -563,6 +594,27 @@ elseif entry == "router" then
     end
   end
   return true, json.encode(wire)
+elseif entry == "manifest" or entry == "analyze" then
+  -- the analyzer's exports, whose code is a chunk of its own (ANALYZER), read by these two entries only
+  local chunk, err = rawload(analyzer_source, "=zhang.analyzer", "t", base)
+  if not chunk then return fail(err) end
+  local analyzer = chunk(json)
+  if entry == "manifest" then
+    -- an analyzer's manifest is fields of its module table (zhang_shared::plugin_abi::analysis::Manifest), read once
+    -- while it registers
+    local encoded, text = pcall(json.encode, analyzer.manifest(module))
+    if not encoded then return fail(script_name .. ": the analyzer's manifest cannot be written as JSON: " .. tostring(text)) end
+    return true, text
+  end
+  local handler = module.analyze
+  if type(handler) ~= "function" then return fail(script_name .. ": the module table has no `analyze` function") end
+  local ok, output = xpcall(handler, traceback, json.decode(input))
+  if not ok then return fail(output) end
+  -- anything but a table is passed on as it is, so the host refuses it as no output
+  if type(output) == "table" then output = analyzer.output(output) end
+  local encoded, text = pcall(json.encode, output)
+  if not encoded then return fail(script_name .. ": what `analyze` returned cannot be written as JSON: " .. tostring(text)) end
+  return true, text
 end
 return fail("unknown entry point " .. tostring(entry))
 )lua";
@@ -893,6 +945,97 @@ return {
 }
 )lua";
 
+// ---- analyzers: the code of the `manifest` and `analyze` exports, a chunk the prelude reads for them only --------
+
+static const char ANALYZER[] = R"lua(
+-- The code of an analyzer's two exports, read by the prelude for the `manifest` and `analyze` entries only, so a router
+-- request does not pay for reading it: the prelude runs this chunk with the json table and gets `manifest(module)`, the
+-- manifest of a module table, and `output(value)`, what `analyze` returned made ready for json.encode. Both make a map
+-- Lua writes as `{}` when it is empty, which json.encode writes `[]`, an object where the host reads one.
+local json = ...
+local type, pairs, ipairs, next, getmetatable, rawget = type, pairs, ipairs, next, getmetatable, rawget
+
+-- the fields of the module table that make an analyzer's manifest
+local MANIFEST_FIELDS = {"analysis_abi", "namespace", "consumes", "open_meta", "diagnostics", "tables", "columns", "queries"}
+
+-- `value`, or json.object() for a plain empty table, which json.encode writes `[]`: where the host reads an object
+local function as_object(value)
+  if type(value) == "table" and next(value) == nil and getmetatable(value) == nil then return json.object() end
+  return value
+end
+
+-- call `visit` with every table of the list `list`, if it is one
+local function each(list, visit)
+  if type(list) ~= "table" then return end
+  for _, item in ipairs(list) do
+    if type(item) == "table" then visit(item) end
+  end
+end
+
+-- call `visit` with every table value of the map `map`, if it is one
+local function each_value(map, visit)
+  if type(map) ~= "table" then return end
+  for _, value in pairs(map) do
+    if type(value) == "table" then visit(value) end
+  end
+end
+
+-- rows: an empty row, and an empty `$meta`, are objects
+local function shape_rows(rows)
+  if type(rows) ~= "table" then return end
+  for index = 1, #rows do
+    local row = rows[index]
+    if type(row) == "table" then
+      if next(row) == nil then
+        rows[index] = as_object(row)
+      else
+        local meta = rawget(row, "$meta")
+        if meta ~= nil then row["$meta"] = as_object(meta) end
+      end
+    end
+  end
+end
+
+-- what `analyze` returned, with every map of zhang_shared::plugin_abi::analysis::Output an object even when empty: the
+-- output itself, its tables, series and labels, each row and its `$meta`, each partition's key, each label's
+-- params, each diagnostic's target and metas. Cells are left as they are: a decimal value is written as its text
+local function output_of(output)
+  output = as_object(output)
+  output.tables = as_object(output.tables)
+  output.series = as_object(output.series)
+  output.labels = as_object(output.labels)
+  each_value(output.tables, shape_rows)
+  each_value(output.series, function(series)
+    each(series.partitions, function(partition)
+      partition.key = as_object(partition.key)
+      shape_rows(partition.rows)
+    end)
+  end)
+  each_value(output.labels, function(labels)
+    each(labels, function(label) label.params = as_object(label.params) end)
+  end)
+  each(output.diagnostics, function(diagnostic)
+    diagnostic.target = as_object(diagnostic.target)
+    diagnostic.metas = as_object(diagnostic.metas)
+  end)
+  return output
+end
+
+-- the manifest of the module table `module`: the fields of MANIFEST_FIELDS it has
+local function manifest_of(module)
+  local manifest = json.object()
+  for _, key in ipairs(MANIFEST_FIELDS) do manifest[key] = module[key] end
+  each(manifest.tables, function(declared)
+    if type(declared.period) == "table" then declared.period.derive = as_object(declared.period.derive) end
+  end)
+  each(manifest.columns, function(column) column.params = as_object(column.params) end)
+  each(manifest.queries, function(query) query.params = as_object(query.params) end)
+  return manifest
+end
+
+return { manifest = manifest_of, output = output_of }
+)lua";
+
 // ---- exports ----------------------------------------------------------------------------------------------------
 
 // push the config value of `key`, or raise naming it: the host sets both keys for every script
@@ -952,7 +1095,8 @@ static int run_protected(lua_State *L) {
   lua_pushstring(L, entry);
   push_input(L);
   lua_pushlstring(L, DECIMAL_LIBRARY, sizeof(DECIMAL_LIBRARY) - 1);
-  lua_call(L, 8, 2);
+  lua_pushlstring(L, ANALYZER, sizeof(ANALYZER) - 1);
+  lua_call(L, 9, 2);
   return 2;
 }
 
@@ -1002,4 +1146,6 @@ int32_t EXTISM_EXPORTED_FUNCTION(version) { return dispatch("version"); }
 int32_t EXTISM_EXPORTED_FUNCTION(supported_type) { return dispatch("supported_type"); }
 int32_t EXTISM_EXPORTED_FUNCTION(capabilities) { return dispatch("capabilities"); }
 int32_t EXTISM_EXPORTED_FUNCTION(router) { return dispatch("router"); }
+int32_t EXTISM_EXPORTED_FUNCTION(manifest) { return dispatch("manifest"); }
+int32_t EXTISM_EXPORTED_FUNCTION(analyze) { return dispatch("analyze"); }
 }

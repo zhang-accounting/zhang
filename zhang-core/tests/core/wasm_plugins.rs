@@ -2329,6 +2329,8 @@ mod lua {
 
     use super::*;
 
+    /// Lua analyzers as they register: their types and their manifest (`wasm_plugins/lua/analyzer.rs`)
+    mod analyzer;
     /// `zhang.decimal` against the host's decimals, and its rules (`wasm_plugins/lua/decimal.rs`)
     mod decimal;
 
