@@ -51,8 +51,16 @@ pub const LEGACY_KINDS: [&str; 4] = ["BudgetDoesNotExist", "DefineDuplicatedBudg
 /// The most diagnostics one analysis reports; past it, one more says how many were left out.
 pub const MAX_DIAGNOSTICS: usize = 10_000;
 
-/// The largest output of one analysis, in bytes of JSON.
-pub const MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
+/// The longest message or meta value of a diagnostic, in bytes; a longer one is cut there, with `…`.
+pub const MAX_META_LEN: usize = 4096;
+
+/// The most metas of a diagnostic.
+pub const MAX_METAS: usize = 32;
+
+/// The metas the load sets on an error itself: a plugin's diagnostic does not give them. `txn_id` names the
+/// transaction a diagnostic is placed at; `account_name` is the account of the budget kinds, which only `zhang:budget`
+/// reports.
+pub const RESERVED_METAS: [&str; 2] = ["txn_id", "account_name"];
 
 /// The metas of a [`ErrorKind::PluginAnalysisFailed`] and of a plugin's diagnostic.
 pub const PLUGIN_META: &str = "plugin";
@@ -68,14 +76,72 @@ pub trait AnalysisHost: Send + Sync {
     fn catalog(&self, analyzers: &[AnalyzerTables<'_>]) -> AnalysisCatalog;
 
     /// What an analyzer of `ledger` queries it with while it analyses it: BQL over the ledger's catalog, with the
-    /// limits of `POST /api/query`, and conversions with its prices. The ledger is shared with the host for the call
-    /// only: the host keeps nothing of it once the analyzer returned.
+    /// limits of `POST /api/query`, and conversions with its prices. The ledger is lent for the call only: once the
+    /// analyzer returned, `ledger` reads nothing ([`LentLedger::with`]).
     #[cfg(feature = "plugin_runtime")]
-    fn queries(&self, ledger: Arc<Ledger>) -> Arc<dyn crate::plugin::router::RouterHost>;
+    fn queries(&self, ledger: LentLedger) -> Arc<dyn crate::plugin::router::RouterHost>;
 
     /// Publish `output`, what the analyzer providing the tables of `provider` found in `ledger`, checked against its
     /// manifest in the ledger's catalog: the data of its snapshot, or what does not hold.
     fn publish(&self, ledger: &Ledger, provider: &str, output: &abi::Output) -> Result<Arc<dyn Any + Send + Sync>, String>;
+}
+
+/// A ledger lent to the host functions of one analysis, for as long as it runs: the host functions are linked once per
+/// compiled module and keep what they reach behind `'static` handles, so they get this handle rather than a reference.
+/// Once the analysis ended, the handle reads nothing.
+#[cfg(feature = "plugin_runtime")]
+#[derive(Clone)]
+pub struct LentLedger(Arc<std::sync::Mutex<Option<LedgerPointer>>>);
+
+/// Where the ledger lent is.
+#[cfg(feature = "plugin_runtime")]
+struct LedgerPointer(std::ptr::NonNull<Ledger>);
+
+// SAFETY: the pointer only ever gives a shared reference to the ledger, which is `Sync`, and only while the `Lend` that
+// set it borrows the ledger (see `LentLedger::with`)
+#[cfg(feature = "plugin_runtime")]
+unsafe impl Send for LedgerPointer {}
+#[cfg(feature = "plugin_runtime")]
+unsafe impl Sync for LedgerPointer {}
+
+#[cfg(feature = "plugin_runtime")]
+impl LentLedger {
+    /// `read` with the ledger, while it is lent; `None` once the analysis it was lent for ended.
+    pub fn with<T>(&self, read: impl FnOnce(&Ledger) -> T) -> Option<T> {
+        let lent = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // SAFETY: the pointer is set from a `&'l Ledger` by `Lend::new` and cleared, under this lock, when that `Lend`
+        // drops, which it does before the borrow `'l` ends; so it points to a live ledger that nothing mutates for as
+        // long as the lock is held here
+        lent.as_ref().map(|ledger| read(unsafe { ledger.0.as_ref() }))
+    }
+}
+
+/// The loan of a ledger to an analysis: its handle reads the ledger until this drops.
+#[cfg(feature = "plugin_runtime")]
+pub(crate) struct Lend<'l> {
+    lent: LentLedger,
+    _ledger: std::marker::PhantomData<&'l Ledger>,
+}
+
+#[cfg(feature = "plugin_runtime")]
+impl<'l> Lend<'l> {
+    pub(crate) fn new(ledger: &'l Ledger) -> Lend<'l> {
+        Lend {
+            lent: LentLedger(Arc::new(std::sync::Mutex::new(Some(LedgerPointer(std::ptr::NonNull::from(ledger)))))),
+            _ledger: std::marker::PhantomData,
+        }
+    }
+
+    pub(crate) fn handle(&self) -> LentLedger {
+        self.lent.clone()
+    }
+}
+
+#[cfg(feature = "plugin_runtime")]
+impl Drop for Lend<'_> {
+    fn drop(&mut self) {
+        *self.lent.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+    }
 }
 
 /// The tables an analyzer declares, for the catalog: its manifest under its provider's name.
@@ -369,17 +435,25 @@ pub fn diagnostics(ledger: &Ledger, plugin: &str, manifest: &abi::Manifest, lega
         if at > MAX_DIAGNOSTICS {
             continue;
         }
+        if diagnostic.metas.len() > MAX_METAS {
+            return Err(format!("{}: it has {} metas, more than {}", what(), diagnostic.metas.len(), MAX_METAS));
+        }
+        let legacy_kind = legacy && LEGACY_KINDS.contains(&diagnostic.kind.as_str());
+        // the metas the load sets itself are not the plugin's to give: `zhang:budget` names the account of a budget
+        // kind, as the native checks do
+        let reserved = |key: &str| key == "txn_id" || (!legacy_kind && RESERVED_METAS.contains(&key));
         let mut metas = diagnostic
             .metas
             .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
+            .filter(|(key, _)| !reserved(key))
+            .map(|(key, value)| (cut(key), cut(value)))
             .collect::<HashMap<_, _>>();
         let kind = match ErrorKind::from_str(&diagnostic.kind) {
-            Ok(kind) if legacy && LEGACY_KINDS.contains(&diagnostic.kind.as_str()) => kind,
+            Ok(kind) if legacy_kind => kind,
             _ => {
                 metas.insert(PLUGIN_META.to_owned(), plugin.to_owned());
-                metas.insert(KIND_META.to_owned(), diagnostic.kind.clone());
-                metas.insert(MESSAGE_META.to_owned(), diagnostic.message.clone().unwrap_or_else(|| diagnostic.kind.clone()));
+                metas.insert(KIND_META.to_owned(), cut(&diagnostic.kind));
+                metas.insert(MESSAGE_META.to_owned(), cut(diagnostic.message.as_deref().unwrap_or(&diagnostic.kind)));
                 ErrorKind::PluginError
             }
         };
@@ -391,6 +465,29 @@ pub fn diagnostics(ledger: &Ledger, plugin: &str, manifest: &abi::Manifest, lega
         });
     }
     Ok(checked)
+}
+
+/// `text`, cut at [`MAX_META_LEN`] bytes on a character boundary, with `…` when it was longer.
+fn cut(text: &str) -> String {
+    if text.len() <= MAX_META_LEN {
+        return text.to_owned();
+    }
+    let end = (0..=MAX_META_LEN).rev().find(|at| text.is_char_boundary(*at)).unwrap_or(0);
+    format!("{}…", &text[..end])
+}
+
+/// `errors` without those at `removed` (ascending), and `marks`, positions in `errors` ([`merge`]), moved as they move:
+/// the native budget checks' errors, when `zhang:budget` reported them instead.
+pub fn without(errors: Vec<ErrorDomain>, marks: &[usize], removed: &[usize]) -> (Vec<ErrorDomain>, Vec<usize>) {
+    let marks = marks.iter().map(|mark| mark - removed.partition_point(|at| at < mark)).collect();
+    let mut removed = removed.iter().peekable();
+    let errors = errors
+        .into_iter()
+        .enumerate()
+        .filter(|(at, _)| removed.next_if(|it| **it == *at).is_none())
+        .map(|(_, error)| error)
+        .collect();
+    (errors, marks)
 }
 
 /// The error a failed analysis reports.
@@ -481,7 +578,7 @@ mod test {
     use zhang_ast::SpanInfo;
     use zhang_shared::plugin_abi::analysis as abi;
 
-    use super::{diagnostics, input, merge, Place, Reported, MAX_DIAGNOSTICS};
+    use super::{diagnostics, input, merge, without, Place, Reported, MAX_DIAGNOSTICS};
     use crate::data_source::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
     use crate::domains::schemas::ErrorDomain;
@@ -618,5 +715,29 @@ mod test {
         // a load without a fold of directives
         let merged = merge(vec![error("l0")], &[], Reported::default());
         assert_eq!(merged.len(), 1);
+    }
+
+    #[test]
+    fn errors_removed_move_the_marks_after_them() {
+        let errors = ["l0", "f0", "f2a", "f2b", "a0"].map(error).to_vec();
+        let (errors, marks) = without(errors, &[1, 2, 2, 4], &[1, 3]);
+        let names = errors.iter().map(|it| it.metas["n"].as_str()).collect::<Vec<_>>();
+        assert_eq!(names, ["l0", "f2a", "a0"]);
+        assert_eq!(marks, [1, 1, 1, 2]);
+    }
+
+    #[cfg(feature = "plugin_runtime")]
+    #[test]
+    fn a_lent_ledger_reads_nothing_once_the_loan_ended() {
+        use super::Lend;
+
+        let ledger = load(TEXT);
+        let handle = {
+            let lend = Lend::new(&ledger);
+            let handle = lend.handle();
+            assert_eq!(handle.with(|it| it.directives.len()), Some(ledger.directives.len()));
+            handle
+        };
+        assert_eq!(handle.with(|it| it.directives.len()), None);
     }
 }

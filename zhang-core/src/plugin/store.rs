@@ -50,6 +50,8 @@ impl PluginStore {
         // settings every other instance gets, so the plugin's `capabilities` export sees its config and
         // the compiled code is reused by the first stage run or request. A script's module is the
         // embedded Lua interpreter, and the script rides in the config of every manifest
+        // TODO(P1.5/P1.6): keep the compiled code across loads, by module digest and settings: every load, and so every
+        // write, compiles each plugin again, analyzers and the default `zhang:budget` included
         let (module_bytes, script) = module.into_parts();
         let runtime = Arc::new(PluginRuntime::new(module_bytes));
         let timeout = declaration.capabilities.timeout;
@@ -139,7 +141,8 @@ impl PluginStore {
             .map(|(plugin, _)| plugin)
     }
 
-    /// whether the analyzer `zhang:budget` reports the budget system's errors, which the fold then leaves to it
+    /// whether the analyzer `zhang:budget` reports the budget system's errors: the native checks' then stand in for
+    /// its diagnostics only when its analysis fails
     pub fn reports_budget_errors(&self) -> bool {
         self.analyzers().any(|plugin| {
             plugin.is_budget_provider()
@@ -220,6 +223,10 @@ fn declared_capabilities(plugin: &mut PluginInstance, name: &str, timeout: Durat
     Ok(declared_writes(name, &declared))
 }
 
+/// the most JSON values, and objects, of an analyzer's manifest ([`abi::check_size`])
+const MANIFEST_NODES: usize = 100_000;
+const MANIFEST_OBJECTS: usize = 20_000;
+
 /// the manifest an analyzer declares in its `manifest` export, read once while it registers; what does not hold, or a
 /// plugin without the export, is an error to report when the ledger is analysed
 fn declared_manifest(plugin: &mut PluginInstance, name: &str, timeout: Duration, policy: &PluginPolicy) -> Result<abi::Manifest, String> {
@@ -229,6 +236,9 @@ fn declared_manifest(plugin: &mut PluginInstance, name: &str, timeout: Duration,
     let manifest = plugin
         .call::<(), Vec<u8>>(abi::MANIFEST, ())
         .map_err(|e| call_error(name, abi::MANIFEST, timeout, policy, e).to_string())?;
+    // a manifest is a few kilobytes: one far larger is refused before it is read
+    abi::check_size(&manifest, abi::MAX_MANIFEST_BYTES, MANIFEST_NODES, MANIFEST_OBJECTS)
+        .map_err(|why| format!("its manifest is too large to read: {}", log_safe(&why)))?;
     serde_json::from_slice::<abi::Manifest>(&manifest).map_err(|e| format!("its manifest is not one: {}", log_safe(&e.to_string())))
 }
 

@@ -127,7 +127,11 @@ pub const ANALYZE: &str = "analyze";
 pub const CONVERT: &str = "zhang_convert";
 
 /// The most conversions one `zhang_convert` call converts.
-pub const MAX_CONVERSIONS: usize = 100_000;
+pub const MAX_CONVERSIONS: usize = 10_000;
+
+/// The most digits a number `zhang_convert` reads or answers has, written out in full, before and after its point
+/// together, as a number a write writes has (`MAX_WRITTEN_DIGITS` of the server); an answer has at most twice as many.
+pub const MAX_CONVERTED_DIGITS: u64 = 1000;
 
 /// What `analyze` reads: the records of the kinds the analyzer consumes, in the order zhang processed the ledger, and
 /// what the ledger is kept in.

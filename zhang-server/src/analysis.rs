@@ -16,7 +16,7 @@ use std::sync::{Arc, LazyLock};
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
 use serde_json::Value;
-use zhang_core::analysis::{AnalysisCatalog, AnalysisHost, AnalyzerTables, LoadOptions};
+use zhang_core::analysis::{AnalysisCatalog, AnalysisHost, AnalyzerTables, LentLedger, LoadOptions};
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::router::{Conversion, ConvertedAmount, QueryFailure, RawQueryParam, RouterHost};
 use zhang_core::plugin_policy::PluginPolicy;
@@ -26,6 +26,7 @@ use zhang_shared::plugin_abi::{analysis as abi, HostError, HostErrorKind};
 
 use crate::response::{QueryResultEntity, QuerySchemaEntity};
 use crate::routes::query::{execute_options, max_result_values};
+use crate::validate::written_digits;
 
 /// The most queries one analysis runs, so that a script looping on queries ends before its time limit does.
 pub const MAX_QUERIES: usize = 10_000;
@@ -43,7 +44,7 @@ impl AnalysisHost for ServerAnalysisHost {
         }
     }
 
-    fn queries(&self, ledger: Arc<Ledger>) -> Arc<dyn RouterHost> {
+    fn queries(&self, ledger: LentLedger) -> Arc<dyn RouterHost> {
         Arc::new(AnalysisQueries {
             ledger,
             queries: AtomicUsize::new(0),
@@ -69,9 +70,10 @@ pub fn load_options(plugin_policy: Arc<PluginPolicy>) -> LoadOptions {
     }
 }
 
-/// What an analyzer reads the ledger being loaded with, during its analysis.
+/// What an analyzer reads the ledger being loaded with, during its analysis: the ledger is lent for the call, and reads
+/// nothing once it returned.
 struct AnalysisQueries {
-    ledger: Arc<Ledger>,
+    ledger: LentLedger,
     /// the queries the analysis ran so far
     queries: AtomicUsize,
 }
@@ -100,11 +102,20 @@ impl AnalysisQueries {
         if count > MAX_QUERIES {
             return Err(unlocated(format!("the analysis ran more than {MAX_QUERIES} queries")));
         }
-        let query = Query::compile_in(&Catalog::of_ledger(&self.ledger), bql, types).map_err(failure)?;
-        let result = query
-            .execute_with_options(&self.ledger, params, &execute_options(max_result_values()))
-            .map_err(failure)?;
+        let result = self.read(|ledger| {
+            let query = Query::compile_in(&Catalog::of_ledger(ledger), bql, types).map_err(failure)?;
+            query
+                .execute_with_options(ledger, params, &execute_options(max_result_values()))
+                .map_err(failure)
+        })??;
         serde_json::to_value(QueryResultEntity::from(result)).map_err(|e| unlocated(format!("the result cannot be encoded: {e}")))
+    }
+
+    /// `read` with the ledger, while the analysis runs
+    fn read<T>(&self, read: impl FnOnce(&Ledger) -> T) -> Result<T, QueryFailure> {
+        self.ledger
+            .with(read)
+            .ok_or_else(|| unlocated("the analysis has ended: its ledger is no longer lent".to_owned()))
     }
 }
 
@@ -119,36 +130,73 @@ impl RouterHost for AnalysisQueries {
     }
 
     fn schema(&self) -> Result<Value, QueryFailure> {
-        serde_json::to_value(QuerySchemaEntity::from(zhang_query::schema_of(&self.ledger))).map_err(|e| unlocated(format!("the schema cannot be encoded: {e}")))
+        let schema = self.read(zhang_query::schema_of)?;
+        serde_json::to_value(QuerySchemaEntity::from(schema)).map_err(|e| unlocated(format!("the schema cannot be encoded: {e}")))
     }
 
     fn convert(&self, conversions: &[Conversion]) -> Result<Vec<Option<ConvertedAmount>>, HostError> {
-        convert(&self.ledger, conversions)
+        self.ledger.with(|ledger| convert(ledger, conversions)).unwrap_or_else(|| {
+            Err(HostError::new(
+                HostErrorKind::Unavailable,
+                "the analysis has ended: its ledger is no longer lent",
+            ))
+        })
     }
 }
 
 /// `conversions` converted with the prices of `ledger`, as `zhang_convert` answers: see
 /// [`zhang_query::prices::convert_at`].
+///
+/// A plugin's number is bounded before anything reads it, as a number a write writes is (`MAX_WRITTEN_DIGITS`): its
+/// text first, so that a text of millions of digits is refused at once instead of parsed (a parse takes the square
+/// of its length), then its digits written out in full, so that `1e999999999999999999` is refused instead of written
+/// out with as many zeros. An answer is bounded too: a price with a far exponent could give one of a million digits.
+/// A refused number names itself in a few characters.
 pub fn convert(ledger: &Ledger, conversions: &[Conversion]) -> Result<Vec<Option<ConvertedAmount>>, HostError> {
+    let limit = abi::MAX_CONVERTED_DIGITS;
     conversions
         .iter()
         .enumerate()
         .map(|(at, conversion)| {
             let invalid = |what: String| HostError::new(HostErrorKind::InvalidInput, format!("conversion {}: {}", at + 1, what));
-            let number = BigDecimal::from_str(conversion.amount.number.trim())
-                .ok()
-                .filter(|_| conversion.amount.number.len() <= 100)
-                .ok_or_else(|| invalid(format!("{:?} is no decimal", conversion.amount.number)))?;
-            let date = NaiveDate::parse_from_str(&conversion.date, "%Y-%m-%d").map_err(|_| invalid(format!("{:?} is no date YYYY-MM-DD", conversion.date)))?;
+            let text = conversion.amount.number.trim();
+            // a number of `limit` digits, its sign, point and exponent written with it, is far shorter
+            if text.len() > limit as usize + 32 {
+                return Err(invalid(format!("{} is no number of at most {limit} digits", shown(text))));
+            }
+            let number = BigDecimal::from_str(text).map_err(|_| invalid(format!("{} is no decimal", shown(text))))?;
+            if written_digits(&number) > limit {
+                return Err(invalid(format!("{} has more than {limit} digits written out in full", shown(text))));
+            }
+            let date =
+                NaiveDate::parse_from_str(&conversion.date, "%Y-%m-%d").map_err(|_| invalid(format!("{} is no date YYYY-MM-DD", shown(&conversion.date))))?;
             let amount = Amount::new(number, conversion.amount.currency.as_str());
-            Ok(
-                zhang_query::prices::convert_at(ledger, &amount, &conversion.target, conversion.via.as_deref(), date).map(|converted| ConvertedAmount {
-                    number: zhang_query::decimal::to_plain_string(&converted.number),
-                    currency: converted.commodity,
-                }),
-            )
+            let Some(converted) = zhang_query::prices::convert_at(ledger, &amount, &conversion.target, conversion.via.as_deref(), date) else {
+                return Ok(None);
+            };
+            if written_digits(&converted.number) > 2 * limit {
+                return Err(invalid(format!(
+                    "{} {} in {} has more than {} digits written out in full: the ledger's prices give it so",
+                    shown(text),
+                    shown(&conversion.amount.currency),
+                    shown(&conversion.target),
+                    2 * limit
+                )));
+            }
+            Ok(Some(ConvertedAmount {
+                number: zhang_query::decimal::to_plain_string(&converted.number),
+                currency: converted.commodity,
+            }))
         })
         .collect()
+}
+
+/// `text`, as an error names it: quoted, and cut after 40 characters.
+fn shown(text: &str) -> String {
+    match text.char_indices().nth(40) {
+        None => format!("{text:?}"),
+        Some((end, _)) => format!("{:?}… ({} bytes)", &text[..end], text.len()),
+    }
 }
 
 #[cfg(test)]
@@ -172,6 +220,22 @@ mod test {
             date: date.to_owned(),
             via: via.map(str::to_owned),
         }
+    }
+
+    /// a price of far more digits than a plugin may get back gives an error, not a number of thousands of digits
+    #[test]
+    fn a_conversion_is_bounded_by_the_digits_of_its_answer() {
+        let dir = tempfile::tempdir().unwrap().keep();
+        std::fs::write(dir.join("main.zhang"), format!("2024-01-01 price USD 0.{}1 CNY\n", "0".repeat(2100))).unwrap();
+        let ledger = Ledger::load_with_data_source(dir, "main.zhang".to_owned(), Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))).unwrap();
+        let error = convert(&ledger, &[conversion("1.00", "USD", "CNY", "2024-01-15", None)]).unwrap_err();
+        assert!(
+            error
+                .message
+                .ends_with("has more than 2000 digits written out in full: the ledger's prices give it so"),
+            "{}",
+            error.message
+        );
     }
 
     #[test]
@@ -216,6 +280,20 @@ mod test {
                 Some("12.50 CNY".to_owned()),
             ]
         );
+        // numbers a plugin could give to exhaust the host: refused before anything reads them, quickly
+        let probes = [
+            ("1e999999999999999999", "has more than 1000 digits written out in full"),
+            ("1e100000000", "has more than 1000 digits written out in full"),
+            ("1e-9223372036854775807", "has more than 1000 digits written out in full"),
+            (&"1".repeat(2_000_000), "… (2000000 bytes) is no number of at most 1000 digits"),
+        ];
+        for (number, error) in probes {
+            let started = std::time::Instant::now();
+            let refused = convert(&ledger, &[conversion(number, "USD", "CNY", "2024-01-15", None)]).unwrap_err();
+            assert!(refused.message.ends_with(error), "{}", refused.message);
+            assert!(refused.message.len() < 200, "the number is named shortly");
+            assert!(started.elapsed() < std::time::Duration::from_secs(1), "{number:.20}: refused at once");
+        }
         let error = convert(&ledger, &[conversion("ten", "USD", "CNY", "2024-01-15", None)]).unwrap_err();
         assert_eq!(error.message, "conversion 1: \"ten\" is no decimal");
         let error = convert(&ledger, &[conversion("1", "USD", "CNY", "2024-1-15x", None)]).unwrap_err();

@@ -2,19 +2,25 @@
 //!
 //! Each analyzer runs in a new instance of its plugin, with its own manifest's config, timeout and memory limit, like
 //! a stage. It reads the ledger through the router functions (`zhang_query`, `zhang_query_params`,
-//! `zhang_query_schema`, `zhang_ledger_info`) and `zhang_convert`, bound to the ledger being loaded; `zhang_now`
-//! returns the time of the load and makes the ledger depend on the date. It reads no file and reaches no network,
-//! whatever its directive grants: an analysis is a function of the ledger. What it reports through `zhang_emit_error`
-//! is logged and dropped: its diagnostics are those of its output.
+//! `zhang_query_schema`, `zhang_ledger_info`) and `zhang_convert`, bound to the ledger being loaded, which is lent to
+//! them for the call only ([`analysis::LentLedger`]); `zhang_now` returns the time of the load and makes the ledger
+//! depend on the date. It reads no file and reaches no network, whatever its directive grants: an analysis is a
+//! function of the ledger. What it reports through `zhang_emit_error` is logged and dropped: its diagnostics are those
+//! of its output.
+//!
+//! The analyses of one load run at most the operator's `ZHANG_PLUGIN_MAX_TIMEOUT` together: an analyzer whose turn
+//! comes once that time is spent does not run, and fails with the reason `timeout`. One that started runs to its own
+//! timeout, so a load spends at most twice that on its analyses.
 
+use std::any::Any;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use log::{info, warn};
 use zhang_shared::plugin_abi::analysis as abi;
 
-use crate::analysis::{self, AnalysisFailure, AnalyzerTables, Diagnostic, Reported};
-use crate::extensions::{AnalyzerSlot, Snapshot};
+use crate::analysis::{self, AnalysisFailure, AnalyzerTables, Diagnostic, Lend, Reported};
+use crate::extensions::{AnalyzerSlot, Snapshot, SnapshotStatus};
 use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
 use crate::plugin::host::{PluginHost, MESSAGE_META};
@@ -23,20 +29,21 @@ use crate::plugin::router::{ledger_info, RouterHost};
 use crate::plugin::store::RegisteredPlugin;
 use crate::plugin_policy::{Size, MAX_MEMORY_ENV};
 
-/// What an analyzer's call answered: its output, as bytes, and whether it read the time.
+/// What an analyzer's call answered: its output as bytes, or why there is none, and whether it read the time (a call
+/// that failed may have read it too).
 pub struct AnalyzerRun {
-    pub output: Vec<u8>,
+    pub output: Result<Vec<u8>, AnalysisFailure>,
     pub read_clock: bool,
 }
 
 impl RegisteredPlugin {
     /// Analyse `ledger` in a new instance of the plugin: call its `analyze` export with `input`, the JSON of an
-    /// [`abi::Input`], with the router functions reading the ledger through `host`. The answer, or why there is none.
-    pub fn execute_as_analyzer(&self, ledger: &Ledger, input: &[u8], host: Arc<dyn RouterHost>) -> Result<AnalyzerRun, AnalysisFailure> {
+    /// [`abi::Input`], with the router functions reading the ledger through `host`.
+    pub fn execute_as_analyzer(&self, ledger: &Ledger, input: &[u8], host: Arc<dyn RouterHost>) -> AnalyzerRun {
         let plugin_host =
             PluginHost::analysing(self.name.clone(), self.span().clone(), ledger.clock.clone(), ledger.options.timezone).with_router(host, ledger_info(ledger));
         let timeout = self.analysis_timeout();
-        let output = {
+        let output = (|| {
             let mut plugin = self
                 .runtime
                 .instantiate(self.manifest(&ledger.options.all()), plugin_host.clone())
@@ -47,8 +54,26 @@ impl RegisteredPlugin {
                     format!("it declares the type Analyzer and exports no `{}`", abi::ANALYZE),
                 ));
             }
-            plugin.call::<&[u8], &[u8]>(abi::ANALYZE, input).map(<[u8]>::to_vec)
-        };
+            plugin
+                .call::<&[u8], &[u8]>(abi::ANALYZE, input)
+                .map(<[u8]>::to_vec)
+                .map_err(|error| match error.to_string().as_str() {
+                    // extism reports a call it stopped at the manifest's timeout as exactly "timeout"
+                    "timeout" => AnalysisFailure::new(
+                        "timeout",
+                        format!("its analysis ran longer than {timeout:?}; a `timeout` meta on its `plugin` directive raises the limit, up to the server's"),
+                    ),
+                    // and one whose memory would grow past the manifest's limit as exactly "oom"
+                    "oom" => AnalysisFailure::new(
+                        "memory",
+                        format!(
+                            "its analysis needed more than the {} the server allows a plugin ({MAX_MEMORY_ENV})",
+                            Size(self.policy().max_memory)
+                        ),
+                    ),
+                    _ => AnalysisFailure::new("trap", log_safe(&format!("{error:#}")).into_owned()),
+                })
+        })();
         // an analysis has no error list of its own: what the plugin reports is in its output
         for error in plugin_host.take_errors() {
             let message = error.metas.get(MESSAGE_META).map(String::as_str).unwrap_or_default();
@@ -58,25 +83,9 @@ impl RegisteredPlugin {
                 log_safe(message)
             );
         }
-        let read_clock = plugin_host.take_clock_read();
-        match output {
-            Ok(output) => Ok(AnalyzerRun { output, read_clock }),
-            Err(error) => Err(match error.to_string().as_str() {
-                // extism reports a call it stopped at the manifest's timeout as exactly "timeout"
-                "timeout" => AnalysisFailure::new(
-                    "timeout",
-                    format!("its analysis ran longer than {timeout:?}; a `timeout` meta on its `plugin` directive raises the limit, up to the server's"),
-                ),
-                // and one whose memory would grow past the manifest's limit as exactly "oom"
-                "oom" => AnalysisFailure::new(
-                    "memory",
-                    format!(
-                        "its analysis needed more than the {} the server allows a plugin ({MAX_MEMORY_ENV})",
-                        Size(self.policy().max_memory)
-                    ),
-                ),
-                _ => AnalysisFailure::new("trap", log_safe(&format!("{error:#}")).into_owned()),
-            }),
+        AnalyzerRun {
+            output,
+            read_clock: plugin_host.take_clock_read(),
         }
     }
 
@@ -86,13 +95,13 @@ impl RegisteredPlugin {
     }
 }
 
-/// Run the analyzers of `ledger` (see [`crate::analysis`]): the ledger with its catalog and the snapshots they
-/// published, and what they reported, to merge into its errors.
-pub(crate) fn analyze(mut ledger: Ledger) -> (Ledger, Reported) {
+/// Run the analyzers of `ledger` (see [`crate::analysis`]): its catalog and the snapshots they published go into it,
+/// and what they reported comes back, to merge into its errors.
+pub(crate) fn analyze(ledger: &mut Ledger) -> Reported {
     let analyzers = ledger.plugins.analyzers().cloned().collect::<Vec<_>>();
     let mut reported = Reported::default();
     if analyzers.is_empty() {
-        return (ledger, reported);
+        return reported;
     }
     let fail = |ledger: &Ledger, reported: &mut Reported, plugin: &RegisteredPlugin, failure: AnalysisFailure| {
         warn!(
@@ -108,9 +117,9 @@ pub(crate) fn analyze(mut ledger: Ledger) -> (Ledger, Reported) {
     let Some(host) = ledger.load_options.analysis.clone() else {
         for plugin in &analyzers {
             let failure = AnalysisFailure::new("unavailable", "this zhang analyses no ledger: it runs without an analysis host");
-            fail(&ledger, &mut reported, plugin, failure);
+            fail(ledger, &mut reported, plugin, failure);
         }
-        return (ledger, reported);
+        return reported;
     };
     // the analyzers whose manifest holds declare the catalog's tables; the others are reported, in the order of all
     let declared = analyzers
@@ -136,8 +145,8 @@ pub(crate) fn analyze(mut ledger: Ledger) -> (Ledger, Reported) {
     let mut runs = vec![];
     for plugin in &analyzers {
         match (plugin.analyzer(), skipped(plugin)) {
-            (Some(Err(message)), _) => fail(&ledger, &mut reported, plugin, AnalysisFailure::new("manifest", message.clone())),
-            (_, Some(message)) => fail(&ledger, &mut reported, plugin, AnalysisFailure::new("manifest", message)),
+            (Some(Err(message)), _) => fail(ledger, &mut reported, plugin, AnalysisFailure::new("manifest", message.clone())),
+            (_, Some(message)) => fail(ledger, &mut reported, plugin, AnalysisFailure::new("manifest", message)),
             _ if catalog.analyzers.contains(&plugin.name) => runs.push(plugin.clone()),
             _ => {}
         }
@@ -146,18 +155,30 @@ pub(crate) fn analyze(mut ledger: Ledger) -> (Ledger, Reported) {
     ledger.extensions.analyzers = catalog.analyzers.iter().map(AnalyzerSlot::new).collect();
     ledger.extensions.analysing = true;
 
-    // the analyzers share the ledger with the host functions of their calls; the ledger is whole again once they end
-    let shared = Arc::new(ledger);
+    // every analyzer reads the ledger as it is now, through a loan its host functions cannot keep
+    let budget = ledger.plugin_policy.max_timeout;
+    let started = Instant::now();
     let mut outcomes = vec![];
-    for plugin in &runs {
-        let Outcome { snapshot, report, read_clock } = run(&shared, &*host, plugin);
-        let slot = shared.extensions.analyzer(&plugin.name).expect("a slot per analyzer of the catalog");
-        if slot.snapshot.set(snapshot).is_err() {
-            unreachable!("the catalog runs one analyzer per provider");
+    {
+        let shared: &Ledger = ledger;
+        for plugin in &runs {
+            let Outcome { snapshot, report, read_clock } = match started.elapsed() < budget {
+                true => run(shared, &*host, plugin),
+                false => Outcome::failed(
+                    AnalysisFailure::new(
+                        "timeout",
+                        format!("it did not run: the analyses of this load ran past {budget:?} together (ZHANG_PLUGIN_MAX_TIMEOUT)"),
+                    ),
+                    false,
+                ),
+            };
+            let slot = shared.extensions.analyzer(&plugin.name).expect("a slot per analyzer of the catalog");
+            if slot.snapshot.set(snapshot).is_err() {
+                unreachable!("the catalog runs one analyzer per provider");
+            }
+            outcomes.push((plugin, report, read_clock));
         }
-        outcomes.push((plugin, report, read_clock));
     }
-    let mut ledger = Arc::into_inner(shared).expect("an analysis keeps no reference to the ledger once it ended");
     ledger.extensions.analysing = false;
     for (plugin, report, read_clock) in outcomes {
         if read_clock {
@@ -165,13 +186,25 @@ pub(crate) fn analyze(mut ledger: Ledger) -> (Ledger, Reported) {
         }
         match report {
             Ok(diagnostics) => {
-                let span = analysis::plugin_span(&ledger, plugin.span(), plugin.analyzer_manifest());
+                let span = analysis::plugin_span(ledger, plugin.span(), plugin.analyzer_manifest());
                 reported.add(diagnostics, span.as_ref(), &ledger.directives);
             }
-            Err(failure) => fail(&ledger, &mut reported, plugin, failure),
+            Err(failure) => fail(ledger, &mut reported, plugin, failure),
         }
     }
-    (ledger, reported)
+    reported
+}
+
+/// Whether the analyzer `zhang:budget` of `ledger` published its snapshot, its diagnostics with it: then they stand
+/// for the native budget checks' errors (`Ledger::analyze`).
+pub(crate) fn budget_published(ledger: &Ledger) -> bool {
+    ledger
+        .plugins
+        .analyzers()
+        .find(|plugin| plugin.is_budget_provider())
+        .and_then(|plugin| ledger.extensions.analyzer(&plugin.name))
+        .and_then(|slot| slot.snapshot.get())
+        .is_some_and(|snapshot| snapshot.status == SnapshotStatus::Ok)
 }
 
 /// What one analysis ended with: what it publishes, and its diagnostics or why it failed.
@@ -192,7 +225,7 @@ impl Outcome {
 }
 
 /// Run the analyzer `plugin` on `ledger`, and check what it answers.
-fn run(ledger: &Arc<Ledger>, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin) -> Outcome {
+fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin) -> Outcome {
     let manifest = plugin.analyzer_manifest().expect("an analyzer of the catalog has a manifest");
     let input = analysis::input(ledger, manifest);
     if !analysis::reads_something(ledger, manifest, &input) {
@@ -203,21 +236,23 @@ fn run(ledger: &Arc<Ledger>, host: &dyn analysis::AnalysisHost, plugin: &Registe
             read_clock: false,
         };
     }
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let input = match serde_json::to_vec(&input) {
         Ok(input) => input,
         Err(error) => return Outcome::failed(AnalysisFailure::new("trap", format!("its input cannot be written: {error}")), false),
     };
-    let outcome = match plugin.execute_as_analyzer(ledger, &input, host.queries(ledger.clone())) {
-        Err(failure) => Outcome::failed(failure, false),
-        Ok(run) => match check(ledger, host, plugin, manifest, &run.output) {
-            Ok((data, diagnostics)) => Outcome {
-                snapshot: Snapshot::ok(data),
-                report: Ok(diagnostics),
-                read_clock: run.read_clock,
-            },
-            Err(failure) => Outcome::failed(failure, run.read_clock),
+    let run = {
+        // lent for the call only: once it returned, the host functions it may have kept read nothing
+        let lend = Lend::new(ledger);
+        plugin.execute_as_analyzer(ledger, &input, host.queries(lend.handle()))
+    };
+    let outcome = match run.output.and_then(|output| check(ledger, host, plugin, manifest, &output)) {
+        Ok((data, diagnostics)) => Outcome {
+            snapshot: Snapshot::ok(data),
+            report: Ok(diagnostics),
+            read_clock: run.read_clock,
         },
+        Err(failure) => Outcome::failed(failure, run.read_clock),
     };
     info!(
         "analyzer {} analysed the ledger in {:?}: {}",
@@ -231,18 +266,14 @@ fn run(ledger: &Arc<Ledger>, host: &dyn analysis::AnalysisHost, plugin: &Registe
     outcome
 }
 
-/// The data and the diagnostics of `output`, what `plugin` answered, checked whole.
+/// The data and the diagnostics of `output`, what `plugin` answered, checked whole: its size first, without reading
+/// it ([`abi::check_size`]), then the shapes.
 fn check(
     ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin, manifest: &abi::Manifest, output: &[u8],
-) -> Result<(Arc<dyn std::any::Any + Send + Sync>, Vec<Diagnostic>), AnalysisFailure> {
+) -> Result<(Arc<dyn Any + Send + Sync>, Vec<Diagnostic>), AnalysisFailure> {
     let invalid = |message: String| AnalysisFailure::new("output", message);
-    if output.len() > analysis::MAX_OUTPUT_BYTES {
-        return Err(invalid(format!(
-            "its output is {} bytes of JSON, more than the {} an analysis may answer",
-            output.len(),
-            analysis::MAX_OUTPUT_BYTES
-        )));
-    }
+    abi::check_size(output, abi::MAX_OUTPUT_BYTES, abi::MAX_OUTPUT_NODES, abi::MAX_OUTPUT_OBJECTS)
+        .map_err(|why| invalid(format!("its output is too large to read: {}", log_safe(&why))))?;
     let output: abi::Output = serde_json::from_slice(output).map_err(|e| invalid(format!("its output is not one: {}", log_safe(&e.to_string()))))?;
     let diagnostics = analysis::diagnostics(ledger, &plugin.name, manifest, plugin.is_budget_provider(), &output.diagnostics).map_err(invalid)?;
     let data = host.publish(ledger, &plugin.name, &output).map_err(invalid)?;

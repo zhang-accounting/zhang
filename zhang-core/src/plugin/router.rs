@@ -321,8 +321,8 @@ fn schema_answer(host: Option<&dyn RouterHost>) -> Result<Value, HostError> {
     host.schema().map_err(query_error)
 }
 
-/// the most bytes `zhang_convert` reads for its input, a list of conversions
-const CONVERT_MAX_LEN: usize = 16 * 1024 * 1024;
+/// the most bytes `zhang_convert` reads for its input, a list of at most [`MAX_CONVERSIONS`] conversions
+const CONVERT_MAX_LEN: usize = 2 * 1024 * 1024;
 
 /// `zhang_convert(input) -> amounts`
 pub(super) fn zhang_convert(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
@@ -576,7 +576,7 @@ mod test {
         let error = convert(Some(&NoBuiltins), Ok(&many));
         assert_eq!(error["Err"]["kind"], json!("invalid_input"));
         assert!(
-            error["Err"]["message"].as_str().unwrap().ends_with("more than the 100000 of one call"),
+            error["Err"]["message"].as_str().unwrap().ends_with("more than the 10000 of one call"),
             "{error}"
         );
     }

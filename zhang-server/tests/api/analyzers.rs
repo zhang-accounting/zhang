@@ -31,6 +31,8 @@ enum Analyze {
     ReadsTheClockThen(Value),
     /// traps
     Traps,
+    /// reads the time, then traps
+    ReadsTheClockThenTraps,
     /// runs until its time limit stops it
     Loops,
     /// grows its memory past any limit
@@ -98,6 +100,7 @@ fn analyzer(name: &str, manifest: Option<Value>, analyze: Analyze) -> String {
             format!("(drop (call $zhang_now)) (call $output_bytes (i32.const {offset}) (i32.const {len}))")
         }
         (Analyze::Traps, _) => "unreachable".to_owned(),
+        (Analyze::ReadsTheClockThenTraps, _) => "(drop (call $zhang_now)) unreachable".to_owned(),
         (Analyze::Loops, _) => "(loop $forever (br $forever))".to_owned(),
         (Analyze::Hogs, _) => "(if (i32.eq (memory.grow (i32.const 4096)) (i32.const -1)) (then (unreachable)))".to_owned(),
         _ => String::new(),
@@ -496,4 +499,123 @@ async fn a_query_while_a_reload_analyses_reads_the_ledger_served() {
         reads += 1;
     }
     reloads.await.unwrap();
+}
+
+/// What a plugin's diagnostic says is its own: the load names the transaction and the account itself, a message or a
+/// meta is cut at 4 KiB, and a diagnostic has at most 32 metas.
+#[test]
+fn a_diagnostic_does_not_name_a_transaction_or_an_account_itself() {
+    let forged = json!({"diagnostics": [{"kind": "UnknownItem", "target": {"seq": CUSTOM},
+        "metas": {"txn_id": "00000000-0000-0000-0000-000000000000", "account_name": "Assets:Cash", "item": "x".repeat(5000)},
+        "message": "y".repeat(5000)}]});
+    let dir = scratch(&[("shop.wat", &analyzer("shop", Some(shop_manifest()), Analyze::Output(forged)), "")]);
+    let ledger = load(&dir);
+    let error = ledger.errors.iter().find(|it| it.error_type == ErrorKind::PluginError).expect("the diagnostic");
+    assert!(
+        !error.metas.contains_key("txn_id"),
+        "the custom directive is no transaction: {:?}",
+        error.metas.keys()
+    );
+    assert!(!error.metas.contains_key("account_name"));
+    assert_eq!(error.metas["item"].len(), 4096 + "…".len());
+    assert_eq!(error.metas["message"], format!("{}…", "y".repeat(4096)));
+    // a diagnostic at a transaction names it by the load's id, whatever the plugin says
+    let at_lunch = json!({"diagnostics": [{"kind": "UnknownItem", "target": {"seq": LUNCH}, "metas": {"txn_id": "forged"}}]});
+    let dir = scratch(&[("shop.wat", &analyzer("shop", Some(shop_manifest()), Analyze::Output(at_lunch)), "")]);
+    let ledger = load(&dir);
+    let error = ledger.errors.iter().find(|it| it.error_type == ErrorKind::PluginError).expect("the diagnostic");
+    assert_ne!(error.metas["txn_id"], "forged");
+    // too many metas fail the analysis
+    let metas = (0..33).map(|it| (format!("k{it}"), json!("v"))).collect::<serde_json::Map<_, _>>();
+    let many = json!({"diagnostics": [{"kind": "UnknownItem", "target": {"seq": CUSTOM}, "metas": metas}]});
+    let dir = scratch(&[("shop.wat", &analyzer("shop", Some(shop_manifest()), Analyze::Output(many)), "")]);
+    let failed = failures(&load(&dir));
+    assert_eq!(failed.len(), 1);
+    assert!(failed[0].1.ends_with("it has 33 metas, more than 32"), "{:?}", failed);
+}
+
+/// The analyses of a load run the operator's `max_timeout` together: an analyzer whose turn comes after does not run.
+#[test]
+fn the_analyses_of_a_load_share_one_time_limit() {
+    let looping = analyzer("slow", Some(shop_manifest()), Analyze::Loops);
+    let mut other = shop_manifest();
+    other["namespace"] = json!("other");
+    let scratch = scratch(&[
+        ("slow.wat", &looping, ""),
+        ("other.wat", &analyzer("other", Some(other), Analyze::Output(json!({}))), ""),
+    ]);
+    let policy = PluginPolicy {
+        max_timeout: std::time::Duration::from_secs(1),
+        ..PluginPolicy::default()
+    };
+    let ledger = load_with(&scratch, load_options(Arc::new(policy)), Clock::System);
+    let failed = failures(&ledger);
+    assert_eq!(failed.len(), 2, "{failed:?}");
+    assert_eq!(failed[0].0, "timeout");
+    assert_eq!(failed[1].0, "timeout");
+    assert!(
+        failed[1].1.starts_with("it did not run: the analyses of this load ran past 1s together"),
+        "{}",
+        failed[1].1
+    );
+}
+
+/// An analysis that read the time and then failed made the ledger depend on the date all the same.
+#[test]
+fn a_failed_analysis_that_read_the_time_makes_the_ledger_depend_on_the_date() {
+    let scratch = scratch(&[("shop.wat", &analyzer("shop", Some(shop_manifest()), Analyze::ReadsTheClockThenTraps), "")]);
+    let ledger = load(&scratch);
+    assert_eq!(failures(&ledger)[0].0, "trap");
+    assert!(ledger.extra_inputs.contains(&ExtraInput::Clock));
+}
+
+/// The manifest of a stand-in for `zhang:budget` that reports the budget errors.
+fn budget_manifest() -> Value {
+    json!({
+        "analysis_abi": 1,
+        "consumes": ["budget", "budget-add", "budget-transfer", "budget-close"],
+        "open_meta": ["budget"],
+        "diagnostics": [{"kind": "BudgetDoesNotExist"}]
+    })
+}
+
+/// [`LEDGER`], analysed by `zhang:budget` as the default plugin, written as `analyze` says.
+fn with_default_budget(analyze: Analyze, manifest: Value) -> Ledger {
+    let scratch = scratch(&[]);
+    let mut options = load_options(Arc::new(PluginPolicy::default()));
+    options.default_plugins.push(zhang_core::analysis::DefaultPlugin {
+        module: "zhang:budget".to_owned(),
+        file: "budget.wat".to_owned(),
+        content: Arc::from(analyzer("zhang:budget", Some(manifest), analyze).into_bytes()),
+    });
+    load_with(&scratch, options, Clock::System)
+}
+
+/// Until the native budget code goes (P5), its checks stand in for `zhang:budget`'s diagnostics when its analysis
+/// fails: the ledger keeps its budget errors, where and as they always were, next to the analysis's failure.
+#[test]
+fn the_native_budget_checks_stand_in_when_zhang_budget_fails() {
+    let kinds = |ledger: &Ledger| ledger.errors.iter().map(|it| it.error_type.to_string()).collect::<Vec<_>>();
+    let native = load(&scratch(&[]));
+    assert_eq!(kinds(&native), ["BudgetDoesNotExist", "BudgetDoesNotExist"]);
+    let ids = |ledger: &Ledger| {
+        ledger
+            .errors
+            .iter()
+            .filter(|it| it.error_type == ErrorKind::BudgetDoesNotExist)
+            .map(|it| it.id.clone())
+            .collect::<Vec<_>>()
+    };
+    // failed: the native errors, with their ids, and the failure
+    let failed = with_default_budget(Analyze::Traps, budget_manifest());
+    assert_eq!(kinds(&failed), ["BudgetDoesNotExist", "BudgetDoesNotExist", "PluginAnalysisFailed"]);
+    assert_eq!(ids(&failed), ids(&native));
+    // published: its own diagnostics only (here none)
+    let published = with_default_budget(Analyze::Output(json!({})), budget_manifest());
+    assert_eq!(kinds(&published), Vec::<String>::new());
+    // one that reports no budget error leaves the native checks theirs
+    let mut quiet = budget_manifest();
+    quiet["diagnostics"] = json!([]);
+    let other = with_default_budget(Analyze::Output(json!({})), quiet);
+    assert_eq!(kinds(&other), ["BudgetDoesNotExist", "BudgetDoesNotExist"]);
 }
