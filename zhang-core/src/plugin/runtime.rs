@@ -19,15 +19,20 @@
 //! map from extism's instance id to a weak reference to the instance's context, registered as soon
 //! as the instance exists and removed when it drops: the compiled code never retains a call's ledger
 //! host, clock or file access.
+//!
+//! Compiling goes through the disk cache of [`crate::plugin::disk_cache`]: a module compiled before, by this process or
+//! an earlier one, is read back instead of compiled again. The cache keeps code by the module's bytes and wasmtime's
+//! settings, which the settings of a [`Manifest`] do not change, so one entry serves every config of a module.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
-use extism::{CompiledPlugin, CurrentPlugin, Function, Manifest, Plugin, PluginBuilder, UserData, Val, ValType, Wasm, EXTISM_USER_MODULE};
+use extism::{Cache, CompiledPlugin, CurrentPlugin, Function, Manifest, Plugin, PluginBuilder, UserData, Val, ValType, Wasm, EXTISM_USER_MODULE};
 use uuid::Uuid;
 
+use crate::plugin::disk_cache;
 use crate::plugin::host::PluginHost;
 
 /// the most compiled plugins a runtime keeps idle for its current settings. Concurrent calls each
@@ -107,6 +112,8 @@ pub struct PluginRuntime {
     pool: Arc<Mutex<Pool>>,
     /// how many times the module was compiled
     compilations: AtomicUsize,
+    /// the disk cache compiling reads and writes, [`disk_cache::shared`]; none compiles without one
+    disk_cache: Option<Cache>,
 }
 
 impl PluginRuntime {
@@ -117,7 +124,15 @@ impl PluginRuntime {
             bindings: InstanceBindings::default(),
             pool: Arc::default(),
             compilations: AtomicUsize::new(0),
+            disk_cache: disk_cache::shared().cloned(),
         }
+    }
+
+    /// the runtime compiling with the disk cache `cache` instead of the shared one, or with none
+    #[cfg(test)]
+    pub(crate) fn with_disk_cache(mut self, cache: Option<Cache>) -> Self {
+        self.disk_cache = cache;
+        self
     }
 
     /// the module's bytes, as the load read them
@@ -128,10 +143,15 @@ impl PluginRuntime {
     /// the module compiled with the settings of `manifest`, with the host functions linked in
     fn compile(&self, manifest: Manifest) -> Result<CompiledPlugin, extism::Error> {
         self.compilations.fetch_add(1, Ordering::Relaxed);
-        PluginBuilder::new(manifest.with_wasm(Wasm::data(self.module_bytes.clone())))
+        let builder = PluginBuilder::new(manifest.with_wasm(Wasm::data(self.module_bytes.clone())))
             .with_functions(PluginHost::functions_for_instances(&self.bindings))
-            .with_wasi(true)
-            .compile()
+            .with_wasi(true);
+        // never extism's own cache, which `EXTISM_CACHE_CONFIG` or wasmtime's configuration file set up
+        match &self.disk_cache {
+            Some(cache) => builder.with_cache(cache.clone()),
+            None => builder.with_cache_disabled(),
+        }
+        .compile()
     }
 
     /// how many times the module was compiled, for any settings
@@ -327,6 +347,110 @@ mod tests {
             drop(runtime.instantiate(settings, host("2026-10-06T00:00:00Z")).unwrap());
             generation += 1;
             assert_eq!(pool_state(&runtime), (1, generation), "capabilities are part of the settings");
+        }
+    }
+
+    #[test]
+    fn a_compilation_reads_back_the_code_an_earlier_one_kept_in_the_disk_cache() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("cache");
+        let cache = disk_cache::set_up(Some(dir.clone().into_os_string()), None, None, None).expect("a writable directory is used");
+        let module = include_bytes!("../../tests/plugins/config_echo.wat").to_vec();
+        let settings = Manifest::default().with_config([("zhang.plugin", "cached")].into_iter());
+
+        let first = PluginRuntime::new(module.clone()).with_disk_cache(Some(cache.clone()));
+        assert_eq!(
+            echoed_config(&mut first.instantiate(settings.clone(), host("2026-10-05T00:00:00Z")).unwrap()),
+            "cached"
+        );
+        let compiled = cache.cache_misses();
+        assert!(compiled > 0, "the first compilation writes the code");
+        assert_eq!(cache.cache_hits(), 0);
+        assert!(
+            dir.join(disk_cache::SUBDIRECTORY).join("modules").is_dir(),
+            "the code is kept in zhang's subdirectory"
+        );
+
+        // another runtime, as a restart or another load has: the same module and settings are read back
+        let second = PluginRuntime::new(module).with_disk_cache(Some(cache.clone()));
+        assert_eq!(
+            echoed_config(&mut second.instantiate(settings, host("2026-10-05T00:00:00Z")).unwrap()),
+            "cached"
+        );
+        assert_eq!((cache.cache_hits(), cache.cache_misses()), (compiled, compiled), "nothing is compiled again");
+    }
+
+    /// a directory holding a ledger keeps every file of it when the cache is set there by mistake: wasmtime's clean-up,
+    /// which deletes what it does not recognise as its own, reads zhang's subdirectory only
+    #[test]
+    fn a_compilation_into_a_directory_holding_a_ledger_keeps_every_file_of_it() {
+        let root = tempfile::tempdir().unwrap();
+        let volume = root.path().join("data");
+        let files = [
+            ("main.zhang", "include \"data/2024/01.zhang\"\n"),
+            ("data/2024/01.zhang", "2024-01-01 open Assets:Cash\n"),
+            ("documents/2024/receipts/lunch.pdf", "%PDF-1.4"),
+            (".zhang/passkeys.json", "[]"),
+            ("notes.txt", "kept"),
+        ];
+        for (file, content) in files {
+            let path = volume.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, content).unwrap();
+        }
+        let cache = disk_cache::set_up(Some(volume.clone().into_os_string()), None, None, None).expect("the volume is usable");
+        // a file wasmtime does not recognise in its own directory: its clean-up deletes it, which says that it ran
+        let canary = volume.join(disk_cache::SUBDIRECTORY).join("canary");
+        std::fs::write(&canary, "").unwrap();
+        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/config_echo.wat").to_vec()).with_disk_cache(Some(cache.clone()));
+        let settings = Manifest::default().with_config([("zhang.plugin", "volume")].into_iter());
+        assert_eq!(
+            echoed_config(&mut runtime.instantiate(settings, host("2026-10-05T00:00:00Z")).unwrap()),
+            "volume"
+        );
+        assert!(cache.cache_misses() > 0, "the compilation wrote to the cache, which starts its clean-up");
+        let started = Instant::now();
+        while canary.exists() {
+            assert!(started.elapsed() < Duration::from_secs(30), "wasmtime's clean-up did not run");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        for (file, content) in files {
+            assert_eq!(std::fs::read_to_string(volume.join(file)).unwrap(), content, "{file} is kept");
+        }
+    }
+
+    #[test]
+    fn plugins_load_when_the_disk_cache_directory_cannot_be_used() {
+        let root = tempfile::tempdir().unwrap();
+        let file = root.path().join("cache");
+        std::fs::write(&file, "in the way").unwrap();
+        let ledger = root.path().join("ledger");
+        std::fs::create_dir(&ledger).unwrap();
+        let mut unusable = vec![(file.clone(), None), (file.join("below"), None), (ledger.join("cache"), Some(ledger.as_path()))];
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let read_only = root.path().join("read-only");
+            std::fs::create_dir(&read_only).unwrap();
+            std::fs::set_permissions(&read_only, std::fs::Permissions::from_mode(0o500)).unwrap();
+            // root writes to it all the same: no test then
+            if std::fs::write(read_only.join("privileged"), "").is_err() {
+                unusable.push((read_only, None));
+            }
+            let shared = root.path().join("shared");
+            std::fs::create_dir(&shared).unwrap();
+            std::fs::set_permissions(&shared, std::fs::Permissions::from_mode(0o1777)).unwrap();
+            unusable.push((shared, None));
+        }
+        for (dir, ledger_root) in unusable {
+            let cache = disk_cache::set_up(Some(dir.clone().into_os_string()), None, None, ledger_root);
+            assert!(cache.is_none(), "{} turns the cache off", dir.display());
+            let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/config_echo.wat").to_vec()).with_disk_cache(cache);
+            let settings = Manifest::default().with_config([("zhang.plugin", "uncached")].into_iter());
+            let mut plugin = runtime
+                .instantiate(settings, host("2026-10-05T00:00:00Z"))
+                .expect("the plugin compiles without a cache");
+            assert_eq!(echoed_config(&mut plugin), "uncached");
         }
     }
 

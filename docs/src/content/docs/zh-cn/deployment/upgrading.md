@@ -5,7 +5,7 @@ sidebar:
   order: 6
 ---
 
-除了你的账本文件，张记账自己不保存任何数据，所以升级就是替换程序并重新启动。账本文件不会被转换。
+除了你的账本文件，以及需要时会重新生成的[插件编译代码缓存](/zh-cn/guides/plugins/#编译后的代码)，张记账自己不保存任何数据，所以升级就是替换程序并重新启动。账本文件不会被转换。
 
 ## 升级之前
 
@@ -64,5 +64,6 @@ zhang update --verbose
 - [Router 插件](/zh-cn/guides/router-plugins/)的页面在沙箱中运行：页面中的脚本不能再使用你的会话，从张记账加载脚本、样式、图片或 JSON 的页面需要把它们内联。插件只会收到允许列表中的请求头，也只能发送允许列表中的响应头；一个请求最多运行 30 秒；每个插件实例最多使用 256 MiB 内存，除非 `ZHANG_PLUGIN_MAX_MEMORY` 允许更多。
 
 - **`ZHANG_PLUGINS=off` 也会关闭预算。** 预算由官方插件 `zhang:budget` 解释：每个账本都有它，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响，而运维者的开关会像停止其他插件一样停止它。以 `--plugins off` 或 `ZHANG_PLUGINS=off` 运行的服务器会在启动时记录预算已关闭；预算页面和查询会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。查询函数 `account_budgets()` 仍然会返回结果，因为它只读取账户 `open` 指令的 `budget` 元数据。预算需要 `ZHANG_PLUGINS` 为 `read`（默认值）或 `write`。
+- **插件编译后的代码保存在张记账自己的缓存中**：放在 `~/.cache/zhang`（或 [`ZHANG_PLUGIN_CACHE_DIR`](/zh-cn/guides/plugins/#编译后的代码) 指定的目录）的子目录 `zhang-wasmtime-cache` 里，最多约 128 MiB。wasmtime 默认目录（Linux 上为 `~/.cache/wasmtime`）中的缓存不再使用，如果没有其他程序使用 wasmtime，可以删除它；`EXTISM_CACHE_CONFIG` 和 wasmtime 的配置文件也不再读取。由于缓存保存服务器会运行的代码，张记账只在属于运行它的用户、其他用户不能写入的目录中使用缓存，并且从不在账本文件夹中使用。张记账无法写入或拒绝使用的目录（例如在只读文件系统上）不会再让所有插件都无法加载：张记账会在没有缓存的情况下运行它们，并在启动时记录一条警告。
 
 [错误码](/zh-cn/reference/error-codes/)解释了每种错误的修复方法。

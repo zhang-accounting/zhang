@@ -43,6 +43,8 @@ pub use plugin::{
     CancelHandle, CompiledPlugin, Plugin, WasmInput, EXTISM_ENV_MODULE, EXTISM_USER_MODULE,
 };
 pub use plugin_builder::{DebugOptions, PluginBuilder};
+// zhang patch: the cache `PluginBuilder::with_cache` takes, and its configuration
+pub use wasmtime::{Cache, CacheConfig};
 pub use pool::{Pool, PoolBuilder, PoolPlugin};
 
 pub(crate) use internal::{Internal, Wasi};

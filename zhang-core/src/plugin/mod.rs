@@ -13,6 +13,7 @@ pub mod analyzer;
 pub mod bundled;
 mod cache;
 pub mod capabilities;
+pub mod disk_cache;
 pub mod files;
 pub mod host;
 pub mod http;

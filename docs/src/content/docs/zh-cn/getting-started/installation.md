@@ -47,6 +47,8 @@ services:
 
 镜像设置了 `RUST_LOG=info`，所以 `docker logs zhang` 会显示张记账在做什么，包括账本无法加载时的原因。镜像以 `root` 身份运行张记账：它在 `/data` 中创建的文件在宿主机上属于 `root`（见[文件权限](/zh-cn/deployment/data-sources/local/#文件权限)）。
 
+[插件](/zh-cn/guides/plugins/#编译后的代码)编译后的代码保存在容器内的 `/root/.cache/zhang/zhang-wasmtime-cache`。重新创建的容器没有这些代码，会重新编译插件，每个插件需要一点时间。要在重新创建容器后保留这些代码，请在 `/root/.cache/zhang` 挂载一个卷，例如 `-v zhang-cache:/root/.cache/zhang`；根文件系统只读（`--read-only`）时，如果没有挂载这样的卷，插件会在没有缓存的情况下运行。这个卷保存服务器会运行的原生代码，能写入它的任何东西都能在张记账的容器里运行代码：请使用单独的卷，属于 `root` 且只有它能写入（新建的命名卷就是这样），不要使用存放账本的卷，张记账会拒绝它。
+
 ## 预编译二进制文件
 
 每个[发布版](https://github.com/zhang-accounting/zhang/releases)都附带名为 `zhang-<version>-<target>` 的二进制文件，其中已内置网页界面：
@@ -102,7 +104,7 @@ zhang serve [OPTIONS] <PATH>
 | `--source <SOURCE>` | `ZHANG_DATA_SOURCE` | `fs` | 账本存放的位置：`fs`（[本地文件系统](/zh-cn/deployment/data-sources/local/)）、`s3`（[S3](/zh-cn/deployment/data-sources/s3/)）、`web-dav`（[WebDAV](/zh-cn/deployment/data-sources/webdav/)）或 `github`（[GitHub](/zh-cn/deployment/data-sources/github/)）。 |
 | `--no-report` | | 关闭 | 停止匿名使用报告：张记账每小时向 `https://zhang-cloud.kilerd.me/client_report` 发送一次它的版本号和构建日期。 |
 
-命令行选项优先于对应的环境变量。不含冒号的 `--auth` 或 `ZHANG_AUTH` 值会被忽略，未知的 `ZHANG_DATA_SOURCE` 值会回退为 `fs`。无法读取的 `ZHANG_PLUGINS` 或 `ZHANG_PLUGIN_*` 值会让 `zhang serve` 报错退出并指出该变量，所以限制永远不会被悄悄忽略。`zhang serve` 启动时会在日志中记录插件能做什么。
+命令行选项优先于对应的环境变量。不含冒号的 `--auth` 或 `ZHANG_AUTH` 值会被忽略，未知的 `ZHANG_DATA_SOURCE` 值会回退为 `fs`。无法读取的 `ZHANG_PLUGINS` 或 `ZHANG_PLUGIN_*` 值会让 `zhang serve` 报错退出并指出该变量，所以限制永远不会被悄悄忽略；无法使用或被张记账拒绝的 `ZHANG_PLUGIN_CACHE_DIR` 只会关闭缓存，并给出一条警告。`zhang serve` 启动时会在日志中记录插件能做什么。
 
 其他环境变量：
 
@@ -114,6 +116,7 @@ zhang serve [OPTIONS] <PATH>
 | `ZHANG_PLUGIN_ALLOWED_HOSTS` | [插件](/zh-cn/guides/plugins/#服务器允许的范围)最多能访问的主机，用逗号分隔，例如 `api.frankfurter.dev`；`*` 允许任何主机。默认为无：插件不能访问网络。 |
 | `ZHANG_PLUGIN_MAX_TIMEOUT` | 对插件的一次调用最长能运行多久，例如 `90s` 或 `2m`。默认为 `30s`。 |
 | `ZHANG_PLUGIN_MAX_MEMORY` | 一个[插件](/zh-cn/guides/plugins/)实例最多能使用的内存，例如 `512MiB`。默认为 `256MiB`。 |
+| `ZHANG_PLUGIN_CACHE_DIR` | [插件](/zh-cn/guides/plugins/#编译后的代码)在两次启动之间保存编译后代码的目录，代码放在其中的子目录 `zhang-wasmtime-cache` 里，最多约 128 MiB。默认为 `$XDG_CACHE_HOME/zhang`，否则为 `~/.cache/zhang`。设为空值会关闭缓存。它保存服务器会运行的代码：它必须属于运行张记账的用户、只有该用户能写入，并且位于账本文件夹之外，否则张记账不使用缓存。 |
 | `ZHANG_PLUGIN_MAX_BODY`、`ZHANG_PLUGIN_MAX_CONCURRENCY` | [Router 插件](/zh-cn/guides/router-plugins/#限制)能收到的最大请求体（默认为 `4MiB`），以及一个 Router 插件能同时处理的请求数（默认为 `4`）。 |
 | `ZHANG_LOG` | 日志过滤器，例如 `info`、`debug` 或 `zhang_core=trace`（[env_logger 语法](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)）。不设置时使用 `RUST_LOG`；两者都不设置时级别为 `info`。Docker 镜像设置了 `RUST_LOG=info`。 |
 
