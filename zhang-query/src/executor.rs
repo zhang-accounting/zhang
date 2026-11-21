@@ -1,12 +1,13 @@
 //! Evaluation of a [`Plan`] over a [`Dataset`].
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap, HashSet};
 use std::time::{Duration as StdDuration, Instant};
 
 use bigdecimal::{BigDecimal, Zero};
-use chrono::Duration;
+use chrono::{Duration, NaiveTime};
 use indexmap::map::Entry;
 use indexmap::IndexMap;
 use regex::Regex;
@@ -14,9 +15,9 @@ use zhang_ast::amount::Amount;
 
 use crate::compiler::{build_regex, AggregateCall, ArithOp, CExpr, CmpOp, ConstSet, LimitMode, Plan, RegexPattern, StrTest, StrTestKind, Window};
 use crate::error::{LocatedError, QueryErrorKind, Span};
-use crate::functions::{AggregateKind, Eval, ScalarFunction};
+use crate::functions::{open_meta_has_at, time_of_day, AggregateKind, Eval, ScalarFunction};
 use crate::params::Params;
-use crate::projector::{borrowed_str, set_membership};
+use crate::projector::{borrowed_str, borrowed_time, set_membership};
 use crate::running::RunningState;
 use crate::table::{Dataset, RowRef};
 use crate::value::{calendar_value, Inventory, Position, Value};
@@ -175,6 +176,7 @@ impl CExpr {
             CExpr::Case { branches, otherwise } => eval_case(branches, otherwise, env),
             CExpr::InConst { needle, set, negated } => eval_in_const(needle, set, *negated, env),
             CExpr::StrTest { subject, test, .. } => eval_str_test(subject, test, env),
+            CExpr::OpenMetaHas { function, args, span } => eval_open_meta_has(function, args, *span, env),
         }
     }
 }
@@ -230,6 +232,73 @@ fn eval_str_test(subject: &CExpr, test: &StrTest, env: &Env<'_, '_>) -> Result<V
     })
 }
 
+/// An argument of a prepared call, read in place or evaluated.
+enum Arg<T> {
+    Value(T),
+    /// NULL, which makes the call NULL
+    Null,
+    /// a value of another type than the parameter's, which the call as written reports
+    Other,
+}
+
+/// A string argument, read in place when it can be ([`borrowed_str`]).
+fn str_arg<'r>(arg: &'r CExpr, env: &Env<'r, '_>) -> Result<Arg<Cow<'r, str>>, LocatedError> {
+    Ok(match borrowed_str(arg, env) {
+        Some(Some(text)) => Arg::Value(Cow::Borrowed(text)),
+        Some(None) => Arg::Null,
+        None => match arg.eval(env)? {
+            Value::Str(text) => Arg::Value(Cow::Owned(text)),
+            Value::Null => Arg::Null,
+            _ => Arg::Other,
+        },
+    })
+}
+
+/// A prepared `open_meta_has(account, key, value, date[, time])` ([`CExpr::OpenMetaHas`]): the call as written answers,
+/// but its strings are read in place, the `time` column of a posting as a time of day ([`borrowed_time`]), another time
+/// of day from its text, and the value is looked up in the values of the `open` in effect without copying them. The
+/// arguments are read in order, as [`eval_scalar`] evaluates them: the first NULL one makes the call NULL, and a value
+/// of another type, or no execution, leaves the call to [`eval_scalar`].
+fn eval_open_meta_has(function: &ScalarFunction, args: &[CExpr], span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
+    let (Some(data), [account, key, value, date, time @ ..]) = (env.data, args) else {
+        return eval_scalar(function, args, span, env);
+    };
+    macro_rules! read {
+        ($arg:expr) => {
+            match $arg {
+                Arg::Value(it) => it,
+                Arg::Null => return Ok(Value::Null),
+                Arg::Other => return eval_scalar(function, args, span, env),
+            }
+        };
+    }
+    let account = read!(str_arg(account, env)?);
+    let key = read!(str_arg(key, env)?);
+    let value = read!(str_arg(value, env)?);
+    let date = read!(match date.eval(env)? {
+        Value::Date(date) => Arg::Value(date),
+        Value::Null => Arg::Null,
+        _ => Arg::Other,
+    });
+    let time = match time {
+        [] => NaiveTime::MIN,
+        [time] => match borrowed_time(time, env) {
+            Some(time) => time,
+            None => {
+                let text = read!(str_arg(time, env)?);
+                time_of_day(&text, function.name).map_err(|message| call_failed(function, span, message))?
+            }
+        },
+        _ => return eval_scalar(function, args, span, env),
+    };
+    Ok(Value::Bool(open_meta_has_at(data, &account, &key, &value, date.and_time(time))))
+}
+
+/// The error of a call of `function` at `span` that failed with `message`.
+fn call_failed(function: &ScalarFunction, span: Span, message: String) -> LocatedError {
+    LocatedError::eval(format!("{}(): {}", function.name, message), Some(span))
+}
+
 fn eval_scalar(function: &ScalarFunction, args: &[CExpr], span: Span, env: &Env<'_, '_>) -> Result<Value, LocatedError> {
     let mut values = Vec::with_capacity(args.len());
     for arg in args {
@@ -246,7 +315,7 @@ fn eval_scalar(function: &ScalarFunction, args: &[CExpr], span: Span, env: &Env<
         // without an execution, as when folding constants, which leaves these calls alone
         (Eval::Execution(_) | Eval::Row(_), None) => return Err(LocatedError::eval(format!("{}() is not available here", function.name), Some(span))),
     };
-    value.map_err(|message| LocatedError::eval(format!("{}(): {}", function.name, message), Some(span)))
+    value.map_err(|message| call_failed(function, span, message))
 }
 
 fn widen_int(value: Value) -> Value {

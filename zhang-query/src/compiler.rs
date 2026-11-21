@@ -154,6 +154,14 @@ pub(crate) enum CExpr {
         test: Arc<StrTest>,
         span: Span,
     },
+    /// a call of `open_meta_has(account, key, value, date[, time])`, prepared by the optimizer so that a row reads its
+    /// strings and its time of day in place and looks the value up in the values of the `open` in effect, which a
+    /// call of the function as written copies first; it answers what the call does
+    OpenMetaHas {
+        function: &'static ScalarFunction,
+        args: Vec<CExpr>,
+        span: Span,
+    },
 }
 
 /// The constant items of a membership test, hashed: strings are looked up without copying
@@ -1693,6 +1701,11 @@ impl CExpr {
                 test,
                 span,
             },
+            CExpr::OpenMetaHas { function, args, span } => CExpr::OpenMetaHas {
+                function,
+                args: args.into_iter().map(&mut *f).collect::<Result<_, _>>()?,
+                span,
+            },
         })
     }
 
@@ -1700,7 +1713,7 @@ impl CExpr {
     pub(crate) fn children(&self) -> Vec<&CExpr> {
         match self {
             CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) | CExpr::Target(_) => vec![],
-            CExpr::Scalar { args, .. } => args.iter().collect(),
+            CExpr::Scalar { args, .. } | CExpr::OpenMetaHas { args, .. } => args.iter().collect(),
             CExpr::WidenInt(inner) | CExpr::Neg(inner, _) | CExpr::Not(inner) => vec![inner],
             CExpr::And(operands) | CExpr::Or(operands) => operands.iter().collect(),
             CExpr::Arith { first, rest } => std::iter::once(first.as_ref()).chain(rest.iter().map(|step| &step.operand)).collect(),
@@ -1860,7 +1873,7 @@ impl fmt::Display for CExpr {
             CExpr::Column(column) => f.write_str(column.name()),
             CExpr::Running(running) => f.write_str(running.expression()),
             CExpr::Param(param) => write!(f, "{}", param),
-            CExpr::Scalar { function, args, .. } => {
+            CExpr::Scalar { function, args, .. } | CExpr::OpenMetaHas { function, args, .. } => {
                 write!(f, "{}(", function.name)?;
                 list(f, args, ", ")?;
                 f.write_str(")")

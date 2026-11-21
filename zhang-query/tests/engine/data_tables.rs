@@ -1482,6 +1482,149 @@ fn open_meta_values_read_the_open_in_effect_at_a_date_and_time() {
     assert!(error.to_string().contains("HH:MM:SS or HH:MM"), "{error}");
 }
 
+/// Accounts opened, closed and opened again, on one day and at times of day, with postings before, at and after each
+/// change, at times of day and without one.
+const OPEN_META: &str = r#"option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+2024-01-02 open Expenses:A
+  budget: "y"
+  budget: "x"
+  budget: "y"
+  team: "red"
+2024-01-01 "a" "before its open"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-01-02 "b" "on the day of its open"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-02-01 09:59:59 "c0" "a second before the close"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-02-01 10:00:00 close Expenses:A
+2024-02-01 11:00:00 "c" "after the close, before the reopen"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-02-01 12:00:00 open Expenses:A
+  budget: "z"
+2024-02-01 11:59:59 "d0" "a second before the reopen"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-02-01 12:00:00 "d" "at the time of the reopen"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-02-01 12:00:01 "d1" "a second after the reopen"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-03-01 close Expenses:A
+2024-03-05 "e" "after the second close"
+  Expenses:A 1 CNY
+  Assets:Bank
+2024-01-02 open Expenses:B
+  budget: "first"
+2024-03-31 23:59 "f0" "the evening before the same-day reopen"
+  Expenses:B 1 CNY
+  Assets:Bank
+2024-04-01 close Expenses:B
+2024-04-01 open Expenses:B
+  budget: "second"
+2024-04-01 "f" "on the day of the same-day reopen"
+  Expenses:B 1 CNY
+  Assets:Bank
+2024-04-01 08:30 "f1" "at a time of the day of the same-day reopen"
+  Expenses:B 1 CNY
+  Expenses:A 1 CNY
+  Assets:Bank
+"#;
+
+/// `open_meta_has(account, key, value, date[, time])` answers `value IN open_meta_values(account, key, date[, time])` on
+/// every posting, with the posting's time and with a constant one, in either form, with NULL arguments, and on a record
+/// table, where nothing is read in place; and it fails on a time it does not read as `open_meta_values()` does.
+#[test]
+fn open_meta_has_answers_membership_in_open_meta_values() {
+    let ledger = zhang_testkit::ledger::load_text(OPEN_META);
+    assert_eq!(run(&ledger, "SELECT count(*)"), rows(&[&["23"]]));
+    let (mut held, mut checked) = (0, 0);
+    let mut agree = |from: &str, has: &str, values: &str| {
+        let sql = format!("SELECT {has}, {values} {from}");
+        for row in run(&ledger, &sql) {
+            assert_eq!(row[0], row[1], "{sql}: {row:?}");
+            held += usize::from(row[0] == "TRUE");
+            checked += 1;
+        }
+    };
+    let pairs = [
+        ("budget", "'x'"),
+        ("budget", "'y'"),
+        ("budget", "'z'"),
+        ("budget", "'first'"),
+        ("budget", "'second'"),
+        ("team", "'red'"),
+        ("budget", "''"),
+        ("nope", "'x'"),
+    ];
+    for (key, value) in pairs {
+        for time in ["", ", time", ", '12:00'", ", '11:59:59'", ", '00:00'", ", '23:59:59'", ", NULL"] {
+            for account in ["account", "'Expenses:A'", "'Nowhere'", "NULL"] {
+                for date in ["date", "2024-04-01", "NULL"] {
+                    agree(
+                        "",
+                        &format!("open_meta_has({account}, '{key}', {value}, {date}{time})"),
+                        &format!("{value} IN open_meta_values({account}, '{key}', {date}{time})"),
+                    );
+                }
+            }
+        }
+        agree(
+            "",
+            &format!("open_meta_has(account, '{key}', NULL, date, time)"),
+            &format!("NULL IN open_meta_values(account, '{key}', date, time)"),
+        );
+        agree(
+            "",
+            &format!("open_meta_has(account, NULL, {value}, date)"),
+            &format!("{value} IN open_meta_values(account, NULL, date)"),
+        );
+        // a record table, whose account and time are evaluated rather than read in place
+        agree(
+            "FROM #accounts",
+            &format!("open_meta_has(account, '{key}', {value}, 2024-02-01, '12:00')"),
+            &format!("{value} IN open_meta_values(account, '{key}', 2024-02-01, '12:00')"),
+        );
+    }
+    // a time an expression computes
+    agree(
+        "",
+        "open_meta_has(account, 'budget', 'z', date, '12:0' + '0')",
+        "'z' IN open_meta_values(account, 'budget', date, '12:00')",
+    );
+    assert!(held > 100 && checked > 3 * held, "{held} of {checked}");
+
+    let error = |sql: &str| {
+        Query::compile(&format!("SELECT {sql}"))
+            .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
+            .unwrap_err()
+            .message
+    };
+    for (has, values) in [
+        (
+            "open_meta_has(account, 'budget', 'x', date, '25:00')",
+            "'x' IN open_meta_values(account, 'budget', date, '25:00')",
+        ),
+        (
+            "open_meta_has(account, 'budget', 'x', date, narration)",
+            "'x' IN open_meta_values(account, 'budget', date, narration)",
+        ),
+    ] {
+        let (has, values) = (error(has), error(values));
+        assert!(
+            has.starts_with("open_meta_has(): open_meta_has() expects a time as HH:MM:SS or HH:MM, not '"),
+            "{has}"
+        );
+        assert_eq!(has.replace("open_meta_has", "open_meta_values"), values);
+    }
+}
+
 /// `account_budgets(account, date)` answers what `open_meta_values(account, 'budget', date)` does on every row, and what
 /// the `budgets` column counts a posting in is among `open_meta_values(account, 'budget', date, time)`.
 #[test]

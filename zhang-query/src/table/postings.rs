@@ -409,6 +409,13 @@ pub(super) fn txn_time(at: &DateTime<FixedOffset>) -> Value {
     time_value(at.time())
 }
 
+/// The `time` of a stored transaction booked at `at` as a time of day, to the second, as its text [`txn_time`] writes
+/// it and a function reads that text back: what predicates read in place ([`Borrow::Time`]).
+fn txn_time_of_day(at: &DateTime<FixedOffset>) -> NaiveTime {
+    let time = at.time();
+    NaiveTime::from_hms_opt(time.hour(), time.minute(), time.second()).expect("a time of day")
+}
+
 /// The `timestamp` of a stored transaction booked at `at`: its Unix time.
 pub(super) fn txn_timestamp(at: &DateTime<FixedOffset>) -> Value {
     Value::Int(at.timestamp())
@@ -595,12 +602,13 @@ pub static COLUMNS: &[ColumnDef] = &[
         including this one; not allowed in FROM or WHERE.",
         |_, row| Value::Inventory(Inventory::from_iter([position(row)])),
     ),
-    ColumnDef::posting(
+    ColumnDef::posting_borrowing(
         "time",
         DataType::Str,
         "Time of day of the transaction in the ledger's timezone, as `HH:MM:SS`: the time written, or midnight without one, \
         moved past the gap on a day daylight saving skips it, as zhang stores it. A zhang extension.",
         |data, row| txn_time(&data.entry(row).datetime),
+        Borrow::Time(|data, row| txn_time_of_day(&data.entry(row).datetime)),
     ),
     ColumnDef::posting(
         "timestamp",

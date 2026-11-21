@@ -443,6 +443,7 @@ fn b_case_the_budget_definitions_and_date_bounds_are_documented_in_both_referenc
         "account_budgets(",
         "account_status(",
         "open_meta_values(",
+        "open_meta_has(",
     ]);
 }
 

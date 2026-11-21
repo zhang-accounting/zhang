@@ -11,7 +11,7 @@
         "commodity": "str",
         "defined_seq": "int"
       },
-      "predicate": "account IN :accounts AND seq > :defined_seq AND :label IN open_meta_values(account, 'budget', date, time) AND (:close_date IS NULL OR (:close_time IS NULL AND date <= :close_date) OR (:close_time IS NOT NULL AND (date < :close_date OR (date = :close_date AND time <= :close_time)))) AND currency(convert(position, :commodity, date)) = :commodity",
+      "predicate": "account IN :accounts AND seq > :defined_seq AND open_meta_has(account, 'budget', :label, date, time) AND (:close_date IS NULL OR (:close_time IS NULL AND date <= :close_date) OR (:close_time IS NOT NULL AND (date < :close_date OR (date = :close_date AND time <= :close_time)))) AND currency(convert(position, :commodity, date)) = :commodity",
       "table": "postings"
     }
   ],
