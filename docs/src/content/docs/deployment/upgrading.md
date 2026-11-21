@@ -70,11 +70,13 @@ Open the web UI, check the version on the **Settings** page, and look at the err
   error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error. The query function
   `account_budgets()` still answers, as it reads only the `budget` metadata of the accounts' `open` directives. Budgets
   need `ZHANG_PLUGINS` `read`, the default, or `write`.
-- **Plugins keep their compiled code in a cache of Zhang's own**, `~/.cache/zhang/wasmtime` unless
-  [`ZHANG_PLUGIN_CACHE_DIR`](/guides/plugins/#compiled-code) sets another directory, about 128 MiB at most. The cache
-  in wasmtime's default directory (`~/.cache/wasmtime` on Linux) is no longer used, and you can delete it unless
-  another program uses wasmtime; `EXTISM_CACHE_CONFIG` and wasmtime's configuration file are no longer read. A
-  directory Zhang cannot write to, such as on a read-only file system, no longer stops every plugin from loading:
-  Zhang runs them without the cache and logs a warning when it starts.
+- **Plugins keep their compiled code in a cache of Zhang's own**, in the subdirectory `zhang-wasmtime-cache` of
+  `~/.cache/zhang`, or of the directory [`ZHANG_PLUGIN_CACHE_DIR`](/guides/plugins/#compiled-code) sets, about
+  128 MiB at most. The cache in wasmtime's default directory (`~/.cache/wasmtime` on Linux) is no longer used, and you
+  can delete it unless another program uses wasmtime; `EXTISM_CACHE_CONFIG` and wasmtime's configuration file are no
+  longer read. As the cache holds code the server runs, Zhang uses it only in directories that belong to the user
+  running it and that no other user can write to, and never in the ledger's folder. A directory Zhang cannot write to,
+  such as on a read-only file system, or one it refuses, no longer stops every plugin from loading: Zhang runs them
+  without the cache and logs a warning when it starts.
 
 [Error Codes](/reference/error-codes/) explains how to fix each error.
