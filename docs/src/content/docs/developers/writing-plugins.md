@@ -355,15 +355,17 @@ moves into the official plugin `zhang:budget`.
   aggregates in Zhang, exactly, and only the answer crosses the boundary.
 - **What it may do:** nothing else. It reads no file and reaches no network, whatever its directive grants; its
   `timeout` (within `ZHANG_PLUGIN_MAX_TIMEOUT`) and the server's memory limit apply. It may run up to 10,000 queries.
+  The analyses of one load share `ZHANG_PLUGIN_MAX_TIMEOUT`: an analyzer whose turn comes once it has passed fails
+  with the reason `timeout` without running.
 - **When it fails** (a trap, its timeout, its memory, an output that does not hold, a manifest that does not), the
   ledger still loads, unlike with a failing processor: the plugin's directive gets one
-  [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error, its tables answer that they are
-  unavailable, and its label columns read empty. The other analyzers are unaffected, and the next load tries again.
+  [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error, and a query of its tables or of its
+  label columns answers that they are unavailable. The other analyzers are unaffected, and the next load tries again.
 
 ### The manifest
 
-An analyzer declares `Analyzer` in `supported_type` and exports `manifest`, read once while it registers, so the tables
-are known before any analysis runs:
+An analyzer declares `Analyzer` in `supported_type` and exports `manifest`, at most 1 MiB of JSON, read once while it
+registers, so the tables are known before any analysis runs:
 
 ```json
 {"analysis_abi": 1,
@@ -444,14 +446,17 @@ It answers the diagnostics and the rows of its tables, by their names in the man
 - **A diagnostic** names a kind of its manifest and a target: `{"seq": n}`, an entry; `{"txn": "<id>"}`, a
   transaction; or `{"plugin": true}`, the plugin's directive. Zhang reports it as a
   [`PluginError`](/reference/error-codes/#pluginerror) with the metas `plugin`, `kind` (its kind), `message` and its own,
-  on the target's directive. A diagnostic of the phase `fold` (the default) goes with that directive's errors, after
+  on the target's directive. It has at most 32 metas of its own; a meta's key and value, the kind and the message are
+  each cut at 4 KiB. Zhang names the transaction itself: a meta `txn_id` of the plugin's is dropped, and so is an
+  `account_name`. A diagnostic of the phase `fold` (the default) goes with that directive's errors, after
   those of the directives before it and before those of the directives after it, so its id is stable; one of the phase
   `after_fold` comes after the errors of every directive, as a check that needs every price does. One at a transaction
   is among the transaction's errors and names it in `txn_id`. At most 10,000 are listed, then one more says how many
   there were.
 - **Checked whole:** every cell of its column's type, the rows in their order, every partition with its key and its
-  periods strictly increasing first days of months, every label binding each parameter, at most 1,000,000 values and 64
-  MiB of JSON. Anything that does not hold publishes nothing.
+  periods strictly increasing first days of months, every label binding each parameter, at most 1,000,000 values. Its
+  JSON is at most 32 MiB, 4,000,000 values and 400,000 objects, counted before any of it is read. Anything that does
+  not hold publishes nothing.
 
 While it analyses, an analyzer reads the ledger with the query functions of a router (`zhang_query`,
 `zhang_query_params`, `zhang_query_schema`, `zhang_ledger_info`), each query with the limits of `POST /api/query`, and
@@ -631,7 +636,7 @@ They live in the `extism:host/user` namespace. Arguments and results are `i64` o
 | `zhang_query_builtin` | `{"name": "accounts.subtree", "params": {"account": "Expenses", "date": "2026-10-13", "time": "09:30:00"}}`: a [built-in query](/reference/builtin-queries/) by name, every parameter it declares as plain JSON (`null`, a boolean, an integer, a string, a list of strings) | as `zhang_query`: the query's columns and rows | `unavailable`, `invalid_input`, `query` (an unknown name, a parameter missing, unknown or not of its type) |
 | `zhang_query_schema` | none | `{"tables": [{"name", "description", "columns": [{"name", "type", "description", "provided_by"}], "provided_by"}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`, the `data` of `GET /api/query/schema` for the served ledger; `provided_by` is the provider of a table or column that is not the core's (`zhang:budget` for the budget tables), else `null` | `unavailable` |
 | `zhang_ledger_info` | none | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
-| `zhang_convert` | `[{"amount": {"number": "1.50", "currency": "USD"}, "target": "CNY", "date": "2024-03-01", "via": "USD"?}]`, at most 100,000 | for each, the amount in `target` as `convert(position, target, date)` converts a position held at a cost in `via`, with the ledger's prices (`{"number", "currency"}`, exact), or `null` when no price converts it | `unavailable`, `invalid_input` |
+| `zhang_convert` | `[{"amount": {"number": "1.50", "currency": "USD"}, "target": "CNY", "date": "2024-03-01", "via": "USD"?}]`, at most 10,000 a call, each number of at most 1,000 digits written out | for each, the amount in `target` as `convert(position, target, date)` converts a position held at a cost in `via`, with the ledger's prices (`{"number", "currency"}`, exact), or `null` when no price converts it | `unavailable`, `invalid_input` |
 | `zhang_write_preview` | `{"directives": [{"kind": "transaction", …}, {"kind": "open", …}]}` | `{"ok", "file", "generation", "entries": [{"index", "kind", "file", "text", "field_errors", "unbalanced", "errors", "already_open"?}], "token"}` | `unavailable`, `denied`, `invalid_input`, `invalid`, `conflict`, `io` |
 | `zhang_write_commit` | the same, with `"token"` | `{"file", "bytes", "entries", "generation"}` | as `zhang_write_preview` |
 

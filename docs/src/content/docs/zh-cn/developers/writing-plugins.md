@@ -348,12 +348,12 @@ fn route(request: Request) -> Result<Response, Error> {
 
 - **何时运行**：每次加载时，因此每次写入时也会运行（写入会重新加载账本）：在记账和张记账自己的检查之后，在错误被编号之前。多个分析器按 `plugin` 指令的顺序依次运行。
 - **读取什么**：它所消费的指令种类的*记录*，以及 BQL。不读取指令流：查询在张记账中精确地完成聚合，只有答案跨越边界。
-- **可以做什么**：除此之外什么都不能做。无论指令授予了什么，它都不读取文件，也不访问网络；它的 `timeout`（不超过 `ZHANG_PLUGIN_MAX_TIMEOUT`）和服务器的内存上限照常生效。它最多可以运行 10,000 次查询。
-- **失败时**（trap、超时、内存不足、输出不成立、清单不成立），账本仍会加载，这与失败的 processor 不同：插件的指令上会有一个 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误，它的表会回答不可用，它的标签列读取为空。其他分析器不受影响，下一次加载会重新尝试。
+- **可以做什么**：除此之外什么都不能做。无论指令授予了什么，它都不读取文件，也不访问网络；它的 `timeout`（不超过 `ZHANG_PLUGIN_MAX_TIMEOUT`）和服务器的内存上限照常生效。它最多可以运行 10,000 次查询。一次加载的所有分析共用 `ZHANG_PLUGIN_MAX_TIMEOUT`：轮到某个分析器时若已超过这个时间，它不会运行，并以原因 `timeout` 失败。
+- **失败时**（trap、超时、内存不足、输出不成立、清单不成立），账本仍会加载，这与失败的 processor 不同：插件的指令上会有一个 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误，查询它的表或标签列会回答它们不可用。其他分析器不受影响，下一次加载会重新尝试。
 
 ### 清单
 
-分析器在 `supported_type` 中声明 `Analyzer`，并导出 `manifest`。张记账在注册插件时读取一次清单，所以在任何分析运行之前，表就已经确定：
+分析器在 `supported_type` 中声明 `Analyzer`，并导出 `manifest`（最多 1 MiB 的 JSON）。张记账在注册插件时读取一次清单，所以在任何分析运行之前，表就已经确定：
 
 ```json
 {"analysis_abi": 1,
@@ -407,8 +407,8 @@ fn route(request: Request) -> Result<Response, Error> {
 ```
 
 - **单元格**是查询 API 写出的 JSON：字符串、整数、布尔值、`YYYY-MM-DD` 日期、金额 `{"number": "1.50", "currency": "CNY"}`、字符串列表表示的集合、`[{"key", "value"}]` 表示的元数据，或者 `null`。小数是文本：`decimal` 或 `amount` 单元格中的 JSON 数字会被拒绝。每一行对每一列都有一个单元格（序列的事实行不包括分区列和由周期派生的列），还可以在 `$meta` 下带有它的元数据，供 `meta()` 读取。
-- **诊断**指明清单中的一个种类和一个目标：`{"seq": n}` 表示一个条目；`{"txn": "<id>"}` 表示一笔交易；`{"plugin": true}` 表示插件的指令。张记账在目标的指令上把它报告为 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror)，元数据为 `plugin`、`kind`（它的种类）、`message` 和它自己的元数据。阶段为 `fold`（默认）的诊断与该指令的错误放在一起，在它之前的指令的错误之后、在它之后的指令的错误之前，所以它的 id 是稳定的；阶段为 `after_fold` 的诊断排在所有指令的错误之后，就像需要所有价格的检查那样。指向交易的诊断属于该交易的错误，并在 `txn_id` 中指明它。最多列出 10,000 个，之后再用一个诊断说明总数。
-- **整体检查**：每个单元格都符合所在列的类型，各行符合声明的顺序，每个分区都有它的键，其周期是严格递增的月初日期，每个标签都绑定了列的每个参数，最多 1,000,000 个值和 64 MiB 的 JSON。任何一项不成立，就什么都不发布。
+- **诊断**指明清单中的一个种类和一个目标：`{"seq": n}` 表示一个条目；`{"txn": "<id>"}` 表示一笔交易；`{"plugin": true}` 表示插件的指令。张记账在目标的指令上把它报告为 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror)，元数据为 `plugin`、`kind`（它的种类）、`message` 和它自己的元数据。它自己的元数据最多 32 项；每项元数据的键和值、种类和消息各自截断到 4 KiB。交易由张记账自己指明：插件给出的 `txn_id` 元数据会被丢弃，`account_name` 也是。阶段为 `fold`（默认）的诊断与该指令的错误放在一起，在它之前的指令的错误之后、在它之后的指令的错误之前，所以它的 id 是稳定的；阶段为 `after_fold` 的诊断排在所有指令的错误之后，就像需要所有价格的检查那样。指向交易的诊断属于该交易的错误，并在 `txn_id` 中指明它。最多列出 10,000 个，之后再用一个诊断说明总数。
+- **整体检查**：每个单元格都符合所在列的类型，各行符合声明的顺序，每个分区都有它的键，其周期是严格递增的月初日期，每个标签都绑定了列的每个参数，最多 1,000,000 个值。它的 JSON 最多 32 MiB、4,000,000 个值和 400,000 个对象，在读取任何内容之前就会计数。任何一项不成立，就什么都不发布。
 
 分析期间，分析器用 router 的查询函数读取账本（`zhang_query`、`zhang_query_params`、`zhang_query_schema`、`zhang_ledger_info`），每次查询都有 `POST /api/query` 的限制，并用 `zhang_convert` 换算金额。此时账本的错误还没有最终确定，所以 `#errors` 以及 `errors` 和 `balanced` 列会被拒绝；它自己的表和它之后的分析器的表也一样。`zhang_now` 给出这次加载的时间，并使账本依赖于日期：`zhang serve` 会在午夜重新分析。它用 `zhang_emit_error` 报告的内容会被丢弃：它的诊断就是它输出中的诊断。
 
@@ -537,7 +537,7 @@ fn route(request: Request) -> Result<Response, Error> {
 | `zhang_query_builtin` | `{"name": "accounts.subtree", "params": {"account": "Expenses", "date": "2026-10-13", "time": "09:30:00"}}`：按名称运行一条[内置查询](/zh-cn/reference/builtin-queries/)，它声明的每个参数都以普通 JSON 给出（`null`、布尔值、整数、字符串、字符串列表） | 与 `zhang_query` 相同：查询的列和行 | `unavailable`、`invalid_input`、`query`（名称未知，参数缺失、未知或类型不符） |
 | `zhang_query_schema` | 无 | `{"tables": [{"name", "description", "columns": [{"name", "type", "description", "provided_by"}], "provided_by"}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`，即当前服务账本的 `GET /api/query/schema` 的 `data`；不属于核心的表或列的 `provided_by` 是其提供者（预算表为 `zhang:budget`），其余为 `null` | `unavailable` |
 | `zhang_ledger_info` | 无 | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
-| `zhang_convert` | `[{"amount": {"number": "1.50", "currency": "USD"}, "target": "CNY", "date": "2024-03-01", "via": "USD"?}]`，最多 100,000 项 | 对每一项，按账本的价格换算到 `target` 的金额（`{"number", "currency"}`，精确），与 `convert(position, target, date)` 换算一个以 `via` 计成本的持仓相同；没有价格可以换算时为 `null` | `unavailable`、`invalid_input` |
+| `zhang_convert` | `[{"amount": {"number": "1.50", "currency": "USD"}, "target": "CNY", "date": "2024-03-01", "via": "USD"?}]`，每次最多 10,000 项，每个数字写出后最多 1,000 位 | 对每一项，按账本的价格换算到 `target` 的金额（`{"number", "currency"}`，精确），与 `convert(position, target, date)` 换算一个以 `via` 计成本的持仓相同；没有价格可以换算时为 `null` | `unavailable`、`invalid_input` |
 | `zhang_write_preview` | `{"directives": [{"kind": "transaction", …}, {"kind": "open", …}]}` | `{"ok", "file", "generation", "entries": [{"index", "kind", "file", "text", "field_errors", "unbalanced", "errors", "already_open"?}], "token"}` | `unavailable`、`denied`、`invalid_input`、`invalid`、`conflict`、`io` |
 | `zhang_write_commit` | 同上，外加 `"token"` | `{"file", "bytes", "entries", "generation"}` | 同 `zhang_write_preview` |
 
