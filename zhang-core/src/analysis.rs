@@ -384,7 +384,30 @@ pub fn input(ledger: &Ledger, manifest: &abi::Manifest) -> abi::Input {
             operating_currency: ledger.options.operating_currency.clone(),
             timezone: ledger.options.timezone.name().to_owned(),
         },
+        last_transaction: last_transaction(ledger),
     }
+}
+
+/// The last transaction of `ledger`, of the latest date the one the load processed last: the last one it accepted
+/// (it has a `seq`), as the directives are in the order of their dates.
+fn last_transaction(ledger: &Ledger) -> Option<abi::EntryAt> {
+    ledger
+        .directives
+        .iter()
+        .zip(&ledger.outcomes)
+        .rev()
+        .find_map(|(directive, outcome)| match (&directive.data, outcome.seq) {
+            (Directive::Transaction(transaction), Some(seq)) => Some(abi::EntryAt {
+                seq,
+                date: transaction
+                    .date
+                    .to_timezone_datetime(&ledger.options.timezone)
+                    .date_naive()
+                    .format("%Y-%m-%d")
+                    .to_string(),
+            }),
+            _ => None,
+        })
 }
 
 /// Whether `ledger` gives the analyzer declaring `manifest` something to read: a record of a kind it consumes, or an

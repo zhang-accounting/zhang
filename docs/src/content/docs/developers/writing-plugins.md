@@ -436,12 +436,16 @@ The `analyze` export reads the records, in the order Zhang processed the ledger:
 {"records": [{"kind": "custom:shop", "seq": 41, "date": "2024-03-01", "time": "00:00:00", "has_time": false,
               "timestamp": 1709251200, "fields": {"values": ["apple", "1.50 CNY"]}, "meta": {"note": ["fresh"]},
               "file": "shop.zhang", "line": 12}],
- "ledger": {"title": null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}}
+ "ledger": {"title": null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"},
+ "last_transaction": {"seq": 980, "date": "2024-11-03"}}
 ```
 
 `seq` is the record's row of `#entries`, which `#postings` numbers its transactions with too. The fields of the budget
 kinds are `name` and `commodity` (`budget`), `name` and `amount` (`budget-add`), `from`, `to` and `amount`
 (`budget-transfer`) and `name` (`budget-close`), an amount being `{"number": "500.00", "currency": "CNY"}`.
+`last_transaction` is the ledger's last transaction, of the latest date the one Zhang processed last, with its `seq`
+and its date in the ledger's timezone: where a series that follows the transactions ends at least, without a query of
+`#transactions`. A ledger without transactions has none.
 
 It answers the diagnostics and the rows of its tables, by their names in the manifest:
 
@@ -455,12 +459,16 @@ It answers the diagnostics and the rows of its tables, by their names in the man
 ```
 
 - **A cell** is JSON as the query API writes one: a string, an integer, a boolean, a date `YYYY-MM-DD`, an amount
-  `{"number": "1.50", "currency": "CNY"}`, a set as a list of strings, metadata as `[{"key", "value"}]`, or `null`. A
-  decimal is text: a JSON number in a `decimal` or `amount` cell is refused, and so is a decimal (an amount's number
-  too) of more than 1000 digits written out in full, before and after its point together, the bound of `zhang_convert`
-  (`1e999` is 1000 digits, `0.` and 1000 digits after the point 1001). A row has a cell for every column (a
-  series fact every column but its partition's and those derived from the period), and maybe its metadata under
-  `$meta`, which `meta()` reads.
+  `{"number": "1.50", "currency": "CNY"}` (or, shorter, `["1.50", "CNY"]`), a set as a list of strings, metadata as
+  `[{"key", "value"}]`, or `null`. A decimal is text: a JSON number in a `decimal` or `amount` cell is refused, and so
+  is a decimal (an amount's number too) of more than 1000 digits written out in full, before and after its point
+  together, the bound of `zhang_convert` (`1e999` is 1000 digits, `0.` and 1000 digits after the point 1001). A row
+  has a cell for every column (a series fact every column but its partition's and those derived from the period), and
+  maybe its metadata under `$meta`, which `meta()` reads. A row of a record table may instead be the list of its cells
+  in the order of the columns, maybe followed by its metadata: `["apple", ["1.50", "CNY"], {"origin": ["Fuji"]}]`. A
+  series fact after a partition's first may leave out the cells of the columns filled with `carry`, and its `$meta`: it
+  then has those of the fact before it, as a generated period does. The shorter forms make the output smaller, which
+  every load reads.
 - **A diagnostic** names a kind of its manifest and a target: `{"seq": n}`, an entry; `{"txn": "<id>"}`, a
   transaction; or `{"plugin": true}`, the plugin's directive. Zhang reports it as a
   [`PluginError`](/reference/error-codes/#pluginerror) with the metas `plugin`, `kind` (its kind), `message` and its own,

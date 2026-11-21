@@ -398,10 +398,11 @@ fn route(request: Request) -> Result<Response, Error> {
 {"records": [{"kind": "custom:shop", "seq": 41, "date": "2024-03-01", "time": "00:00:00", "has_time": false,
               "timestamp": 1709251200, "fields": {"values": ["apple", "1.50 CNY"]}, "meta": {"note": ["fresh"]},
               "file": "shop.zhang", "line": 12}],
- "ledger": {"title": null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}}
+ "ledger": {"title": null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"},
+ "last_transaction": {"seq": 980, "date": "2024-11-03"}}
 ```
 
-`seq` 是记录在 `#entries` 中的行，`#postings` 也用它给交易编号。预算记录的字段是 `name` 和 `commodity`（`budget`）、`name` 和 `amount`（`budget-add`）、`from`、`to` 和 `amount`（`budget-transfer`）以及 `name`（`budget-close`），金额写作 `{"number": "500.00", "currency": "CNY"}`。
+`seq` 是记录在 `#entries` 中的行，`#postings` 也用它给交易编号。预算记录的字段是 `name` 和 `commodity`（`budget`）、`name` 和 `amount`（`budget-add`）、`from`、`to` 和 `amount`（`budget-transfer`）以及 `name`（`budget-close`），金额写作 `{"number": "500.00", "currency": "CNY"}`。`last_transaction` 是账本的最后一笔交易：日期最晚的交易中张记账最后处理的那一笔，带有它的 `seq` 和它在账本时区中的日期。随交易延伸的序列至少延伸到它，不必查询 `#transactions`。没有交易的账本没有这一项。
 
 它返回诊断和它的表的行，按清单中的名称：
 
@@ -414,7 +415,7 @@ fn route(request: Request) -> Result<Response, Error> {
  "labels": {"items": [{"label": "apple", "params": {"accounts": ["Expenses:Food"], "min": "0"}}]}}
 ```
 
-- **单元格**是查询 API 写出的 JSON：字符串、整数、布尔值、`YYYY-MM-DD` 日期、金额 `{"number": "1.50", "currency": "CNY"}`、字符串列表表示的集合、`[{"key", "value"}]` 表示的元数据，或者 `null`。小数是文本：`decimal` 或 `amount` 单元格中的 JSON 数字会被拒绝；小数（包括金额的 number）完整写出时，小数点前后合计超过 1000 位的也会被拒绝，这是 `zhang_convert` 的上限（`1e999` 是 1000 位，`0.` 后接 1000 位是 1001 位）。每一行对每一列都有一个单元格（序列的事实行不包括分区列和由周期派生的列），还可以在 `$meta` 下带有它的元数据，供 `meta()` 读取。
+- **单元格**是查询 API 写出的 JSON：字符串、整数、布尔值、`YYYY-MM-DD` 日期、金额 `{"number": "1.50", "currency": "CNY"}`（或更短的 `["1.50", "CNY"]`）、字符串列表表示的集合、`[{"key", "value"}]` 表示的元数据，或者 `null`。小数是文本：`decimal` 或 `amount` 单元格中的 JSON 数字会被拒绝；小数（包括金额的 number）完整写出时，小数点前后合计超过 1000 位的也会被拒绝，这是 `zhang_convert` 的上限（`1e999` 是 1000 位，`0.` 后接 1000 位是 1001 位）。每一行对每一列都有一个单元格（序列的事实行不包括分区列和由周期派生的列），还可以在 `$meta` 下带有它的元数据，供 `meta()` 读取。记录表的一行也可以写成按列顺序排列的单元格列表，后面可以再跟它的元数据：`["apple", ["1.50", "CNY"], {"origin": ["Fuji"]}]`。分区中第一个事实行之后的事实行可以省略以 `carry` 填充的列的单元格以及它的 `$meta`：这时它沿用前一个事实行的值，和生成的周期一样。这些更短的写法让输出更小，而每次加载都要读取输出。
 - **诊断**指明清单中的一个种类和一个目标：`{"seq": n}` 表示一个条目；`{"txn": "<id>"}` 表示一笔交易；`{"plugin": true}` 表示插件的指令。张记账在目标的指令上把它报告为 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror)，元数据为 `plugin`、`kind`（它的种类）、`message` 和它自己的元数据。它自己的元数据最多 32 项；每项元数据的键和值、种类和消息各自截断到 4 KiB。交易由张记账自己指明：插件给出的 `txn_id` 元数据会被丢弃，`account_name` 也是。阶段为 `fold`（默认）的诊断与该指令的错误放在一起，在它之前的指令的错误之后、在它之后的指令的错误之前，所以它的 id 是稳定的；阶段为 `after_fold` 的诊断排在所有指令的错误之后，就像需要所有价格的检查那样。指向交易的诊断属于该交易的错误，并在 `txn_id` 中指明它。最多列出 10,000 个，之后再用一个诊断说明总数。
 - **整体检查**：每个单元格都符合所在列的类型，各行符合声明的顺序，每个分区都有它的键，其周期是严格递增的月初日期，每个标签都绑定了列的每个参数，最多 1,000,000 个值。它的 JSON 最多 32 MiB、4,000,000 个值和 400,000 个对象，在读取任何内容之前就会计数。任何一项不成立，就什么都不发布。
 
