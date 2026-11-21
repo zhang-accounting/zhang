@@ -49,7 +49,10 @@ pub fn div(lhs: &BigDecimal, rhs: &BigDecimal) -> Option<BigDecimal> {
     } else {
         quotient
     };
-    let ideal_scale = lhs.fractional_digit_count() - rhs.fractional_digit_count();
+    // the scales of numbers zhang reads are far within an i64; one that is not keeps the quotient as it is
+    let Some(ideal_scale) = lhs.fractional_digit_count().checked_sub(rhs.fractional_digit_count()) else {
+        return Some(quotient.normalized());
+    };
     let normalized = quotient.normalized();
     if normalized.fractional_digit_count() < ideal_scale
         && normalized.digits() + (ideal_scale - normalized.fractional_digit_count()) as u64 <= DIVISION_PRECISION
@@ -69,23 +72,37 @@ pub fn per_unit(total: &BigDecimal, units: &BigDecimal) -> Option<BigDecimal> {
 
 /// Multiply exactly. The product keeps the scale `lhs.scale + rhs.scale`
 /// (`-1000.00 × 1 = -1000.00`); see the module docs for the rounding policy.
+///
+/// The scales of the numbers zhang reads are bounded ([`checked_mul`] for numbers that may not be): a product whose
+/// scale would leave an `i64` panics rather than give a wrong number.
 pub fn mul(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
+    checked_mul(lhs, rhs).expect("the scale of a product of numbers zhang reads fits in an i64")
+}
+
+/// [`mul`], `None` when the scale of the product would leave an `i64`: for numbers no bound applies to.
+pub fn checked_mul(lhs: &BigDecimal, rhs: &BigDecimal) -> Option<BigDecimal> {
     let (lhs_int, lhs_scale) = lhs.as_bigint_and_exponent();
     let (rhs_int, rhs_scale) = rhs.as_bigint_and_exponent();
-    BigDecimal::new(lhs_int * rhs_int, lhs_scale + rhs_scale)
+    let scale = lhs_scale.checked_add(rhs_scale)?;
+    Some(BigDecimal::new(lhs_int * rhs_int, scale))
 }
 
 /// Multiply in Python's default decimal context: exact when the product fits in
 /// [`DIVISION_PRECISION`] significant digits, otherwise rounded half-even to that many.
-/// Used for valuation at market rates; see the module docs.
+/// Used for valuation at market rates; see the module docs. It panics as [`mul`] does.
 pub fn mul_in_context(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
-    let mut product = mul(lhs, rhs);
+    checked_mul_in_context(lhs, rhs).expect("the scale of a product of numbers zhang reads fits in an i64")
+}
+
+/// [`mul_in_context`], `None` when the scale of the product would leave an `i64`.
+pub fn checked_mul_in_context(lhs: &BigDecimal, rhs: &BigDecimal) -> Option<BigDecimal> {
+    let mut product = checked_mul(lhs, rhs)?;
     let precision = NonZeroU64::new(DIVISION_PRECISION).expect("non zero precision");
     // a carry (9.99… → 10.00…) adds a digit; the second pass drops the extra trailing zero
     while product.digits() > DIVISION_PRECISION {
         product = product.with_precision_round(precision, RoundingMode::HalfEven);
     }
-    product
+    Some(product)
 }
 
 /// A decimal written out in plain notation, which both zhang and beancount read: never with an exponent, as
@@ -179,6 +196,15 @@ mod tests {
         assert_eq!(div(&d("10.00"), &d("2")).unwrap().to_string(), "5.00");
         assert_eq!(div(&d("2"), &d("3")).unwrap().to_string(), "0.6666666666666666666666666667");
         assert_eq!(div(&d("1"), &d("0")), None);
+    }
+
+    #[test]
+    fn a_product_whose_scale_leaves_an_i64_is_none_in_checked_arithmetic() {
+        let tiny = BigDecimal::from_str("1e-9223372036854775807").unwrap();
+        let rate = BigDecimal::from_str("0.5").unwrap();
+        assert_eq!(super::checked_mul(&tiny, &rate), None);
+        assert_eq!(super::checked_mul_in_context(&tiny, &rate), None);
+        assert_eq!(super::checked_mul(&rate, &rate).unwrap().to_string(), "0.25");
     }
 
     #[test]
