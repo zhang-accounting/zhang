@@ -7,10 +7,11 @@ sidebar:
 
 :::note[Status on 2026-11-21]
 - **Merged:** P0, the contract and the baseline (#835, #836, the known-issue fixes #842, the baseline after
-  #840/#841 #851); P1.1 (#839); P1.2 (#837); P1.3 (#843 to #845); P1.4 (#848 to #850, and its follow-ups #855); the
-  prerequisites I1 (#840, #841, #846) and I2 (#838); the fingerprint fix #847.
-- **In progress:** P1.5 (default plugins and named queries) and P1.6 (Lua analyzers).
-- **Next:** the G1 gate, measured end to end (decision 16), then P3 to P5.
+  #840/#841 #851); P1.1 (#839); P1.2 (#837); P1.3 (#843 to #845); P1.4 (#848 to #850, and its follow-ups #855 and
+  #866); P1.5 (#859, #863); P1.6 (#864); the prerequisites I1 (#840, #841, #846) and I2 (#838), and `open_meta_has`
+  for G1 (#862); the fingerprint fix #847.
+- **In progress:** the G1 gate, measured end to end (decision 16), and the follow-ups of the P1.5 and P1.6 reviews.
+- **Next:** P3 to P5, once G1 passes.
 - **Release:** the owner decided that the whole migration ships in v0.3.0. Until then the `Analyzer` plugin type is
   experimental (§2).
 
