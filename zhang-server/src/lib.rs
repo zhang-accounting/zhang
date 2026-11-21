@@ -462,10 +462,10 @@ impl ReloadSender {
 pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("ZHANG_BUILD_VERSION"), env!("ZHANG_BUILD_DATE"));
     info!("{}", opts.plugins);
-    // the disk cache of compiled plugin code is set up now, so that where it is, or why there is none, shows with the
-    // settings above rather than at the first compilation
+    // the disk cache of compiled plugin code is set up now, before anything compiles, so that it is refused in the
+    // folder of a ledger on the local disk, and that where it is, or why there is none, shows with the settings above
     if opts.plugins.policy.level != PluginLevel::Off {
-        zhang_core::plugin::disk_cache::shared();
+        zhang_core::plugin::disk_cache::set_up_serving(opts.is_local().then_some(opts.path.as_path()));
     }
     // the official default plugins stop with the others: budgets are off, and the ledger says so once
     for stopped in zhang_core::extensions::stopped_by(&opts.plugins.policy) {
