@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use chrono::NaiveDate;
 use regex::{Regex, RegexBuilder};
-use rustc_hash::FxBuildHasher;
 
 pub(crate) use crate::ast::ArithOp;
 use crate::ast::{self, BinaryOp, Count, CountValue, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
@@ -172,9 +171,11 @@ pub(crate) struct ConstSet {
     items: Vec<Value>,
     /// whether the items are the elements of a set (`IN :tags`) rather than a list
     from_set: bool,
-    /// hashed with FxHash, as a row looks its value up in them: the items are the query's, the needles the ledger's
-    strings: HashSet<String, FxBuildHasher>,
-    others: HashSet<Value, FxBuildHasher>,
+    /// hashed with the standard library's SipHash, keyed per process, not FxHash like the engine's other per-row maps:
+    /// the items come from the query or a parameter, which a client writes, and FxHash has no key, so colliding items
+    /// could make building the set quadratic
+    strings: HashSet<String>,
+    others: HashSet<Value>,
     /// a NULL item: a needle that matches no other item is then NULL, not FALSE
     has_null: bool,
 }
@@ -185,8 +186,8 @@ impl ConstSet {
         let mut set = ConstSet {
             items: vec![],
             from_set: false,
-            strings: HashSet::default(),
-            others: HashSet::default(),
+            strings: HashSet::new(),
+            others: HashSet::new(),
             has_null: false,
         };
         for item in &items {
@@ -210,7 +211,7 @@ impl ConstSet {
             items: vec![],
             from_set: true,
             strings: elements.iter().cloned().collect(),
-            others: HashSet::default(),
+            others: HashSet::new(),
             has_null: false,
         }
     }
