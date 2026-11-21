@@ -12,7 +12,7 @@ The numbers were taken on a build machine shared with other jobs. They are given
 :::
 
 :::note[The comparison point]
-The numbers of [After #840/#841](#after-840841), taken on 2026-11-21 on `main` at `1e8bf3e6`, are the baseline for G1 and P4: the budget plugin will run on that server. The sections before it are the first baseline, taken with #836 on `main` at `9c156c7b`, kept as they were.
+The official comparison point of G1 and P4 is [End to end](#end-to-end), in [its results with mimalloc](#results-with-mimalloc-the-comparison-point), taken on 2026-11-21 on `main` at `19e68cfc` in valid runs: the time of a write, a reload or a start together with the first budget page or errors page after it, to which the budget plugin may add at most max(5%, 50 ms). Its results before mimalloc, taken on `main` at `fa8e8abb`, are kept as history. The per-request figures of [After #840/#841](#after-840841), taken on `main` at `1e8bf3e6`, describe the same server request by request. The sections before them are the first baseline, taken with #836 on `main` at `9c156c7b`, kept as they were.
 :::
 
 ## The ledgers
@@ -330,6 +330,145 @@ Against the first baseline (its two runs, A / B):
 - **mimalloc and jemalloc fix both**: the first request after a reload is about as fast as in a fresh process (136 to 190 ms), a write is a quarter faster (loading is), and the peak is 1.4 GiB instead of 4.4 to 5.4. After 60 s idle mimalloc holds 505 to 518 MiB, jemalloc 414 (97 to 99 MiB with 10,000 transactions, against 213 to 220 for mimalloc).
 - **mimalloc is the default**: jemalloc returns a little more memory, but it does not build for Windows (MSVC), and its page size is fixed at build time, so an aarch64 build for 4 KiB pages fails on the 16 KiB and 64 KiB page kernels some ARM hosts run. mimalloc builds for every release target, reads the page size at run time, and holds less memory after loading a large ledger (417 MiB, against 624 for jemalloc and 645 for glibc).
 
+## End to end
+
+**The official comparison point of G1 and P4 is [the results with mimalloc](#results-with-mimalloc-the-comparison-point)**, measured on 2026-11-21 on `main` at `19e68cfc` (with #858) with the bench's end-to-end mode (`ZHANG_BUDGET_BASELINE_ONLY=e2e`), in valid runs only. What the owner of RFC #698 accepts is end to end: the time of a load or a write together with the first budget page or errors page after it. With the budget plugin, each of the times below may grow by at most **max(5%, 50 ms)**, at 10,000 and at 100,000 transactions: at 10,000 transactions that is 50 ms, at 100,000 about 5%. Whether a build stays within it is decided by [the paired rule](#comparing-a-build-with-the-baseline), not by these tables: G1 needs all 12 timers to pass.
+
+:::note[History]
+The [results before mimalloc](#results-before-mimalloc-history), taken on `main` at `fa8e8abb` under glibc's allocator, at a load average of 5.4 to 38.0, before the bench loaded as `zhang serve` loads (with the analysis host) and checked its runs' conditions, are kept as a record. Their bands are informational, not acceptance thresholds.
+:::
+
+### The timers
+
+Each timer runs 2 rounds to warm up, then 20 timed rounds, one at a time, with no other request meanwhile, on the serve path of the sections above (`OpendalDataSource`, the reload listener and the file watcher running, the fixed clock). A round is timed from sending the write, asking for the reload or starting the load, until the page's answer is read whole.
+
+| Timer | Starts with | Then reads |
+|---|---|---|
+| (a) write → budgets | `POST /api/transactions`: groceries on `Expenses:Food:Groceries`, paid by card, on 2025-12-30 | `budgets.month` for 2025-12 |
+| (b) write → errors | `POST /api/transactions`: a purchase in GBP at an `@` price in USD on `Expenses:Travel:Japan`, paid by card (the `Japan` budget is in JPY, and no price converts GBP to JPY, so zhang reports a `BudgetCommodityMismatch`) | `journals.errors`, as the app's home page asks for it: `size` 100, `offset` 0, `count_total` |
+| (c) reload → budgets | an edit of the ledger on disk (the same groceries appended to the month's file, not timed), then a reload through the reload listener, waited for (`ReloadSender::reload_and_wait`, what `POST /api/reload` runs) | `budgets.month` |
+| (d) reload → errors | the same with the GBP purchase | `journals.errors` |
+| (e) start → budgets | a load of the files on a blocking thread, as `zhang serve` loads at start, and a new app on it (`create_server_app` and its router, without a reload listener or a file watcher) | `budgets.month` |
+| (f) start → errors | the same | `journals.errors` |
+
+- **The page answers from the ledger with the change.** A write answers once the ledger with its transaction is swapped in (#818), and a waited-for reload once its ledger is. Each round checks it: the generation of the served ledger moved on by one, and the page's figure moved by what the change adds, the activity of `Groceries` in the month by the amount written, or the number of errors by one. A start checks that its page gives the figure of the ledger served.
+- **Loaded as `zhang serve` loads.** Every load, the first, a start's, the reload listener's and a write's, runs with the server's load options (`zhang_server::analysis::load_options`: the host of the analyzers' analyses, the default plugins, the operator's plugin policy, here the default one), with the fixed clock instead of the system's; a plugin's analysis is therefore timed with the load it runs in. A run records the analyzers of the ledger and what each published after the first load and at the end (`zhang:budget: ok`, `failed (…)`, `skipped`), and the providers of the tables `GET /api/query/schema` lists.
+- **What it covers.** A write's or a reload's own time (the append, the load outside the write lock, the swap), then the page: the first query of a loaded ledger builds the query engine's cache of it and, for `budgets.month`, the budget snapshot, while the replaced ledger is being freed on another thread. A start covers a load and the app's construction, not the process start nor the reading of cold files (the files are in the OS cache).
+- **The file watcher.** It sees every write and edit; it gathers events until none came for 500 ms, then asks for a reload that loads nothing, as the files hold what the ledger was loaded from. The bench waits for that turn of the watcher, and 1 s more, before the next round. With 100,000 transactions the watcher's check may run while the page of (a) or (b) is read: readers do not wait for it, but it shares the machine, as under `zhang serve`. (c) and (d) ask for the reload right after the edit: an edit that only the watcher reloads adds its quiet period, at least 500 ms, before the reload.
+- **Rounds the watcher overlaps.** The bench tells from the server's log when the watcher gathered a batch of changes, asked for a reload, or had one skipped, and whether a reload that was not the round's own started. A round in which any of that happened before the round's own write or reload started (or at all, in a start) may have waited for the watcher: it is **excluded** and run again, up to twice the rounds in all, so that each timer keeps 20 clean rounds. A round in which it happened only once the round's own reload had started is the watcher looking at the round's own write or edit, as under `zhang serve`: it is **kept**. The report gives both counts per timer, and the watcher's state of every timed round. In sample runs on `main`, no round overlapped with 10,000 transactions, and with 100,000 every round of (a) to (d) did, during (the watcher's batch comes 500 ms after the write's or edit's file events, while the round's own load still runs). (The results before mimalloc were taken before these flags.)
+- **A valid run.** A run is pinned with `taskset` to the CPUs `ZHANG_BUDGET_BASELINE_CPUS` names (`8-15` by default; `none` pins nothing), server and client alike, as they are one process, and serves with `ZHANG_BUDGET_BASELINE_WORKERS` worker threads (8). It is **invalid** when a build ran in the machine when it started or when it ended (a `rustc`, `cargo`, `cc`, `ld` or similar process other than the bench and the `cargo run` that started it, zombies aside), when the cgroup it runs in was throttled during it (`cpu.stat`, `throttled_usec` moved), or when tasks of that cgroup waited for a CPU 2% of its time or more (`cpu.pressure`, the `some` total); a run whose cgroup files cannot be read is invalid too. The load average is only a warning, above half the machine's CPUs: in a pod, `/proc/loadavg` is the node's. The report gives every figure and the reasons of an invalid run.
+- The ledger grows by one transaction a round of (a) to (d), 88 in a run.
+
+### Results with mimalloc: the comparison point
+
+Measured on 2026-11-21 on `main` at `19e68cfc` (mimalloc, #858; zhang:budget as a default plugin, #863), with the bench at `00008aab` of this branch, in one `kbuild --bench` window. The e2e mode ran 12 times with 10,000 transactions (6 pairs of the same build, the self-comparison below) and 3 times with 100,000, each in a process of its own, one after the other, pinned to CPUs 8-15 with 8 worker threads. **Every run was valid**, at its first attempt: no build ran at its start or end, its cgroup was never throttled, and its tasks waited for a CPU 0.012% to 0.021% of the time; the node's load average, advisory only, was 8 to 22 over one minute. No analyzer published a snapshot (the native implementation; the tables of `zhang:budget` come from its native provider), the plugin level was `read`, the allocator mimalloc. No round had to be excluded for the file watcher; with 100,000 transactions every round of (a) to (d) had the watcher during its own reload, as expected. *p50* and *p95* are the medians of the runs' p50 and p95; the bands are the lowest and the highest of the runs' p50 and p95; *min – max* is over every sample of every run; *trigger + page* splits the median p50 into the write, reload or start and the page after it. *Allowed* is what the plugin may add: max(5% of the p50, 50 ms). Times in milliseconds.
+
+10,000 transactions (12 runs):
+
+| Timer | p50 | p95 | Run p50s | Run p95s | Min – max | Trigger + page | Allowed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| (a) write → budgets | 164.0 | 173.6 | 160.7 – 166.5 | 165.4 – 187.2 | 151.4 – 270.2 | 148.7 + 14.6 | 50 |
+| (b) write → errors | 155.6 | 167.5 | 153.4 – 159.6 | 158.0 – 176.4 | 145.2 – 180.9 | 155.4 + 0.3 | 50 |
+| (c) reload → budgets | 154.6 | 162.7 | 150.4 – 157.5 | 155.4 – 192.3 | 143.3 – 193.2 | 140.0 + 14.4 | 50 |
+| (d) reload → errors | 145.9 | 158.6 | 142.3 – 153.0 | 149.4 – 165.0 | 136.8 – 168.1 | 145.5 + 0.4 | 50 |
+| (e) start → budgets | 155.7 | 163.3 | 149.2 – 162.4 | 159.8 – 179.4 | 139.6 – 188.9 | 140.8 + 15.1 | 50 |
+| (f) start → errors | 140.8 | 148.1 | 132.1 – 145.3 | 142.7 – 154.0 | 129.4 – 167.7 | 140.1 + 0.6 | 50 |
+
+100,000 transactions (3 runs):
+
+| Timer | p50 | p95 | Run p50s | Run p95s | Min – max | Trigger + page | Allowed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| (a) write → budgets | 1,564 | 1,615 | 1,548 – 1,576 | 1,614 – 1,616 | 1,478 – 1,627 | 1,411 + 151 | 78 |
+| (b) write → errors | 1,413 | 1,445 | 1,403 – 1,422 | 1,442 – 1,469 | 1,357 – 1,489 | 1,413 + 0.4 | 71 |
+| (c) reload → budgets | 1,520 | 1,550 | 1,512 – 1,526 | 1,548 – 1,568 | 1,477 – 1,579 | 1,367 + 146 | 76 |
+| (d) reload → errors | 1,353 | 1,386 | 1,352 – 1,358 | 1,373 – 1,400 | 1,325 – 1,409 | 1,353 + 0.5 | 68 |
+| (e) start → budgets | 1,475 | 1,499 | 1,467 – 1,487 | 1,489 – 1,525 | 1,439 – 1,546 | 1,323 + 150 | 74 |
+| (f) start → errors | 1,334 | 1,370 | 1,332 – 1,348 | 1,361 – 1,375 | 1,298 – 1,378 | 1,334 + 0.7 | 67 |
+
+- With valid runs, the runs' p50s spread over 6 to 13 ms with 10,000 transactions and 6 to 28 ms with 100,000, well within the allowances; the earlier bands (25 to 200 ms) were the shared machine's.
+- Against the results before mimalloc, the p50s are 13 to 31 ms lower with 10,000 transactions and 25 to 29% lower with 100,000; the first budget page after a change still adds about 15 ms and 150 ms.
+- **A self-comparison** of this build, the 12 runs at 10,000 transactions as 6 pairs, by `budget_compare`: PASS for (a), (b), (d) and (f), with median differences of −0.4 to +5.4 ms and 95% intervals within [−2.8, +8.8] ms; INCONCLUSIVE for (c) and (e), which need 10 pairs; no FAIL. With `--expect-analyzer zhang:budget` the comparison is refused, as no candidate run shows that analyzer publishing.
+
+### Results before mimalloc (history)
+
+Measured on 2026-11-21 on `main` at `fa8e8abb`, under glibc's allocator. The e2e mode ran 5 times with 10,000 transactions and 3 times with 100,000, each in a process of its own, one after the other, with the node's load average at 5.4 to 38.0 over one minute. *p50* and *p95* are the medians of the runs' p50 and p95; the bands are the lowest and the highest of the runs' p50 and p95; *min – max* is over every sample of every run; *trigger + page* splits the median p50 into the write, reload or start and the page after it. *Allowed* is what the plugin may add: max(5% of the p50, 50 ms). Times in milliseconds.
+
+10,000 transactions:
+
+| Timer | p50 | p95 | Run p50s | Run p95s | Min – max | Trigger + page | Allowed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| (a) write → budgets | 192 | 283 | 183 – 208 | 215 – 405 | 168 – 406 | 175 + 16.9 | 50 |
+| (b) write → errors | 184 | 231 | 170 – 207 | 189 – 349 | 155 – 431 | 184 + 0.3 | 50 |
+| (c) reload → budgets | 183 | 234 | 173 – 229 | 205 – 339 | 156 – 340 | 166 + 15.4 | 50 |
+| (d) reload → errors | 159 | 196 | 157 – 165 | 174 – 206 | 144 – 441 | 159 + 0.4 | 50 |
+| (e) start → budgets | 176 | 219 | 169 – 269 | 184 – 337 | 161 – 343 | 162 + 14.4 | 50 |
+| (f) start → errors | 172 | 188 | 164 – 181 | 169 – 224 | 154 – 250 | 172 + 0.6 | 50 |
+
+100,000 transactions:
+
+| Timer | p50 | p95 | Run p50s | Run p95s | Min – max | Trigger + page | Allowed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| (a) write → budgets | 2,091 | 2,452 | 1,999 – 2,107 | 2,238 – 4,776 | 1,780 – 6,536 | 1,832 + 185 | 105 |
+| (b) write → errors | 1,885 | 1,962 | 1,811 – 1,887 | 1,924 – 2,446 | 1,712 – 2,931 | 1,857 + 36 | 94 |
+| (c) reload → budgets | 2,105 | 2,328 | 1,910 – 2,107 | 1,950 – 2,557 | 1,854 – 2,673 | 1,912 + 166 | 105 |
+| (d) reload → errors | 1,834 | 1,933 | 1,821 – 1,846 | 1,887 – 1,939 | 1,634 – 2,172 | 1,834 + 0.6 | 92 |
+| (e) start → budgets | 2,040 | 2,077 | 1,960 – 2,053 | 2,029 – 2,085 | 1,927 – 2,095 | 1,877 + 154 | 102 |
+| (f) start → errors | 1,882 | 1,959 | 1,832 – 1,911 | 1,885 – 1,960 | 1,794 – 1,980 | 1,881 + 1.0 | 94 |
+
+- The time is the load's: the first budget page after it adds 14 to 17 ms with 10,000 transactions and 154 to 185 ms with 100,000 (the query engine's cache and the budget snapshot of the new ledger); the errors page adds under 2 ms, and with 100,000 transactions 36 ms after a write.
+- **Noise against the allowance.** The runs' p50s moved by up to 25 ms for (a) and 100 ms for (e) with 10,000 transactions, and by up to 200 ms for (c) with 100,000; the p95s moved more. That is as wide as the allowance, or wider, so neither a single run against these tables nor a comparison with their bands can tell a regression: a build is compared with the native implementation in pairs, as the next section says.
+- The full bench (`cargo run --release -p zhang --example budget_baseline`) also runs these timers, after its other steps; its process has by then grown (to 0.9 GiB with 10,000 transactions and 4.3 GiB with 100,000) and its times are noisier, as (e) shows (290 ms at 10,000 in that run). The comparison point is the e2e mode.
+
+### Comparing a build with the baseline
+
+A build (the budget plugin) is compared with the native implementation run against run, on the same machine, in one session, with valid runs only:
+
+1. Run the e2e mode of each build in **pairs**, alternating them (native, candidate, native, candidate, …, or in a random order within each pair), each run writing its report to a directory of its own:
+   ```sh
+   ZHANG_BUDGET_BASELINE_ONLY=e2e ZHANG_BUDGET_BASELINE_OUT=/tmp/cmp/native/01 \
+     cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m      # on the native build
+   ZHANG_BUDGET_BASELINE_ONLY=e2e ZHANG_BUDGET_BASELINE_OUT=/tmp/cmp/candidate/01 \
+     cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m      # on the candidate build
+   # then 02, 03, ...
+   ```
+2. For each timer, take the difference of the two runs' p50 in each pair (candidate − native), and an interval of the **median difference** from the order statistics: with `n` pairs sorted, `[d(k), d(n+1−k)]` covers the median with probability `1 − 2·P(Binomial(n, ½) < k)`, whatever the distribution of the differences. Take the largest `k` with a coverage of at least **95%**:
+
+   | Pairs | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
+   |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+   | `k` | – | 1 | 1 | 1 | 2 | 2 | 2 | 3 | 3 | 3 | 4 |
+   | coverage | – | 96.9% | 98.4% | 99.2% | 96.1% | 97.9% | 98.8% | 96.1% | 97.8% | 98.7% | 96.5% |
+
+   No interval reaches 95% with 5 pairs; with 6 to 8 it is from the lowest to the highest difference.
+3. With the allowance max(5% of the median native p50, 50 ms): the timer **passes** when the interval's upper end is below the allowance, and **fails** when its lower end is above it. Otherwise it is **inconclusive**: add pairs, up to 15, and report it inconclusive if it still is. **False PASS ≤ 5% per timer, optional stopping included**: a timer whose true median difference is the allowance passes in at most 4.1% of comparisons that start looking at 5 pairs, and 2.8% of those that start at 10.
+4. A verdict needs at least **10 pairs** for (c) and (e) with 10,000 transactions and for (a) and (c) with 100,000, whose run p50s spread wider than the allowance in the results before mimalloc, and at least **5 pairs** for the others (so 6, the first with an interval); 10 also for any timer whose native runs in the comparison spread wider than the allowance.
+5. **G1 needs all 12 timers to pass**: the six timers with 10,000 and with 100,000 transactions. A single FAIL among the 12 is a reason to run that timer again (new pairs), not an immediate rejection.
+
+`budget_compare` applies the rule to the reports:
+
+```sh
+cargo run --release -p zhang --example budget_compare -- /tmp/cmp/native /tmp/cmp/candidate --expect-analyzer zhang:budget
+```
+
+It reads every report under each directory in the order of their paths and pairs the runs of each ledger by that order. It prints each side's setup (the build, the commit, the analyzers and what they published, the table providers, the ledger, the CPUs and worker threads) and **refuses** the comparison when the runs of a side disagree on any of them, when the sides ran on other CPUs, worker threads or ledgers, or when a candidate run does not show the analyzer `--expect-analyzer` names publishing (`zhang:budget: ok`) after its first load and at its end. It skips a pair with an invalid run and says why (`--include-invalid` keeps them, for a diagnosis only, never for a verdict). Per timer it prints the pairs, the median native p50, the median difference, its interval and coverage, the allowance, each side's rounds excluded and kept for the file watcher, and the verdict, with how many more pairs an inconclusive timer needs; a timer that a run measured with fewer than its 20 clean rounds is **refused**. It exits with a failure when a timer fails or is refused.
+
+On the build pod, run timed comparisons in a bench window, which waits until no build runs and holds every other build off until the command ends (one bench at a time): build the examples first, then run the built binaries under the window, so that it holds nobody off while compiling.
+
+```sh
+kbuild <lane> <worktree> 'CARGO_TARGET_DIR=/cache/target/<lane> cargo build --release -p zhang --examples'
+kbuild --bench <lane> --no-sync 'ZHANG_BUDGET_BASELINE_ONLY=e2e ZHANG_BUDGET_BASELINE_OUT=/tmp/cmp/native/01 \
+  /cache/target/<lane>/release/examples/budget_baseline 10000tx-30b-60m'
+```
+
+### The errors page among the requests
+
+`journals.errors` (as the app sends it, the first 100 errors with their total) is now one of the kinds of request the warm and cold requests time; the concurrent readers keep sending the five budget kinds, as before. In one full run on `fa8e8abb`:
+
+| | 10,000 transactions | 100,000 transactions |
+|---|---:|---:|
+| warm, min / p50 / p95 / max | 0.10 / 0.32 / 0.54 / 0.55 | 0.17 / 0.78 / 1.71 / 1.79 |
+| cold, min – max of 5 | 0.30 – 0.38 | 1.03 – 1.61 |
+| response bytes (the ledger's 2 errors) | 600 | 606 |
+
 ## Reproduce
 
 In a checkout of the commit to measure, with nothing else running if possible:
@@ -348,6 +487,13 @@ cargo run --release -p zhang --example budget_baseline -- 100000tx-30b-60m
 ZHANG_BUDGET_BASELINE_OUT=/tmp/budget-baseline ZHANG_BUDGET_BASELINE_KEEP=/tmp/budget-ledgers \
   cargo run --release -p zhang --example budget_baseline
 
+# the load and the end-to-end timers of one ledger only, the G1/P4 comparison point
+ZHANG_BUDGET_BASELINE_ONLY=e2e cargo run --release -p zhang --example budget_baseline -- 100000tx-30b-60m
+
+# two sets of such runs compared by the paired rule (on the build pod, run the runs in a bench window:
+# kbuild --bench, see "Comparing a build with the baseline")
+cargo run --release -p zhang --example budget_compare -- /tmp/cmp/native /tmp/cmp/candidate --expect-analyzer zhang:budget
+
 # the load and the writes of one ledger only, to repeat them
 ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m
 
@@ -355,6 +501,6 @@ ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_
 cd /tmp/budget-ledgers/100000tx-30b-60m && LC_ALL=C sha256sum *.zhang | sha256sum
 ```
 
-A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only. `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle at the end of the run. The bench uses the allocator of the binary: mimalloc, or the system's with `--no-default-features`.
+A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only, `ZHANG_BUDGET_BASELINE_ONLY=e2e` the load and the end-to-end timers only. Every run writes its report to `ZHANG_BUDGET_BASELINE_OUT` when it is set, a single ledger's too. A run is pinned to `ZHANG_BUDGET_BASELINE_CPUS` (`8-15`) with `ZHANG_BUDGET_BASELINE_WORKERS` worker threads (8), records the commit `ZHANG_BUDGET_BASELINE_COMMIT` names, and is marked invalid when a build, throttling or CPU pressure disturbed it. `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle at the end of the run. The bench uses the allocator of the binary: mimalloc, or the system's with `--no-default-features`.
 
 Run the whole bench at least twice, and compare the plugin with the native implementation in the same session, alternating them.

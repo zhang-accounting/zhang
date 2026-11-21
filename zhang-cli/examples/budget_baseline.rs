@@ -1,8 +1,9 @@
 //! The performance baseline of the native budget implementation, which #698 P4 compares the budget plugin against: on
 //! generated ledgers of 10,000 and 100,000 transactions ([`zhang_testkit::budget_ledger`]), with budgets and without,
 //! the load and reload times, the budget pages' requests (cold after a reload, and warm), the writes of transactions,
-//! what the file watcher does after each, readers during and after a write, readers concurrent with writes, the peak
-//! RSS, and the bytes of the responses and of what the budget computation reads. The method, the numbers and how to
+//! what the file watcher does after each, readers during and after a write, readers concurrent with writes, the
+//! end-to-end time of a write, a reload or a start and the first budget page or errors page after it, the peak RSS,
+//! and the bytes of the responses and of what the budget computation reads. The method, the numbers and how to
 //! read them are on the "Budget Baseline" page of the developer docs
 //! (`docs/src/content/docs/developers/budget-baseline.md`).
 //!
@@ -20,15 +21,19 @@
 //! router in the process, without a socket.
 //!
 //! Without an argument the example runs each ledger in a process of its own, itself again, so that the peak RSS of a
-//! ledger is its own. A run prints its figures on stderr and a `BASELINE {...}` JSON line on stdout; with
+//! ledger is its own. A run is pinned with `taskset` to `ZHANG_BUDGET_BASELINE_CPUS` (`8-15` by default, `none` for no
+//! pinning) and serves with `ZHANG_BUDGET_BASELINE_WORKERS` worker threads (8). It is marked invalid ([`Conditions`])
+//! when a build ran on the machine when it started or ended, when its cgroup was throttled, or when its cgroup's tasks
+//! waited for a CPU for 2% of its time or more: run it again. `budget_compare` compares two sets of runs
+//! (`examples/budget_compare.rs`). `ZHANG_BUDGET_BASELINE_COMMIT` names the commit measured in the report. A run prints its figures on stderr and a `BASELINE {...}` JSON line on stdout; with
 //! `ZHANG_BUDGET_BASELINE_OUT=<dir>` the JSON is also written to `<dir>/<ledger>.json`, and with
 //! `ZHANG_BUDGET_BASELINE_KEEP=<dir>` the ledger, as generated, to `<dir>/<ledger>/`. `ZHANG_BUDGET_BASELINE_ONLY=writes`
-//! measures the load and the writes only, to repeat them cheaply, and `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the
-//! resident memory again after that long idle at the end, to see how much the allocator gives back to the system. The
-//! bench uses the allocator of the binary (`src/allocator.rs`): mimalloc, or the system's with
-//! `--no-default-features`. A debug build refuses to run.
+//! measures the load and the writes only, and `ZHANG_BUDGET_BASELINE_ONLY=e2e` the load and the end-to-end timers only,
+//! to repeat them cheaply; `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle
+//! at the end, to see how much the allocator gives back to the system. The bench uses the allocator of the binary
+//! (`src/allocator.rs`): mimalloc, or the system's with `--no-default-features`. A debug build refuses to run.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -45,7 +50,9 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::Directive;
 use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
+use zhang_core::extensions::SnapshotStatus;
 use zhang_core::ledger::Ledger;
+use zhang_core::plugin_policy::{PluginPolicy, LEVEL_ENV};
 use zhang_server::broadcast::Broadcaster;
 use zhang_server::{create_server_app, start_fs_event_listener, start_reload_listener, ReloadSender};
 use zhang_testkit::budget_ledger::{Spec, MAIN};
@@ -98,6 +105,10 @@ const READERS: usize = 8;
 const READER_ROUNDS: usize = 10;
 /// the transactions written while the concurrent readers read
 const CONCURRENT_WRITES: usize = 10;
+/// the rounds of each end-to-end timer before the timed ones
+const E2E_WARM_UP: usize = 2;
+/// the timed rounds of each end-to-end timer
+const E2E_ROUNDS: usize = 20;
 /// the budget of the detail and interval requests: the one with the most postings
 const DETAIL_BUDGET: &str = "Groceries";
 
@@ -126,14 +137,57 @@ fn main() -> ExitCode {
         [] => run_all(),
         [name] => match specs().iter().copied().find(|spec| spec.name() == *name) {
             Some(spec) => {
+                if let Some(status) = pinned(&args) {
+                    return status;
+                }
                 let report = baseline(spec);
                 println!("BASELINE {report}");
+                if let Some(dir) = std::env::var_os("ZHANG_BUDGET_BASELINE_OUT") {
+                    let path = PathBuf::from(dir).join(format!("{}.json", spec.name()));
+                    std::fs::create_dir_all(path.parent().expect("a parent")).expect("the output directory");
+                    std::fs::write(&path, serde_json::to_string_pretty(&report).expect("JSON") + "\n")
+                        .unwrap_or_else(|error| panic!("{}: {}", path.display(), error));
+                }
                 ExitCode::SUCCESS
             }
             None => usage(),
         },
         _ => usage(),
     }
+}
+
+/// the CPUs a run is pinned to with `taskset -c`: `ZHANG_BUDGET_BASELINE_CPUS`, `8-15` by default; `none` pins nothing
+fn cpus() -> Option<String> {
+    let cpus = std::env::var("ZHANG_BUDGET_BASELINE_CPUS").unwrap_or_else(|_| "8-15".to_owned());
+    (cpus != "none").then_some(cpus)
+}
+
+/// the worker threads of the runtime that serves the ledger: `ZHANG_BUDGET_BASELINE_WORKERS`, 8 by default
+fn workers() -> usize {
+    std::env::var("ZHANG_BUDGET_BASELINE_WORKERS")
+        .ok()
+        .and_then(|it| it.parse().ok())
+        .filter(|it| *it > 0)
+        .unwrap_or(8)
+}
+
+/// Run this ledger again pinned to [`cpus`] with `taskset`, server and client alike (they are this process), unless it
+/// is pinned already: the exit status of the pinned run, or `None` to run here.
+fn pinned(args: &[String]) -> Option<ExitCode> {
+    let cpus = cpus()?;
+    if std::env::var_os("ZHANG_BUDGET_BASELINE_PINNED").is_some() {
+        return None;
+    }
+    let exe = std::env::current_exe().expect("the example's path");
+    let status = Command::new("taskset")
+        .arg("-c")
+        .arg(&cpus)
+        .arg(exe)
+        .args(args)
+        .env("ZHANG_BUDGET_BASELINE_PINNED", &cpus)
+        .status()
+        .unwrap_or_else(|error| panic!("taskset -c {}: {}", cpus, error));
+    Some(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 fn usage() -> ExitCode {
@@ -158,13 +212,8 @@ fn run_all() -> ExitCode {
             eprintln!("{name}: no report ({})", output.status);
             return ExitCode::FAILURE;
         };
+        // the run of the ledger wrote its report to ZHANG_BUDGET_BASELINE_OUT itself
         println!("{line}");
-        if let Some(dir) = std::env::var_os("ZHANG_BUDGET_BASELINE_OUT") {
-            let report: Value = serde_json::from_str(&line["BASELINE ".len()..]).expect("the report is JSON");
-            let path = PathBuf::from(dir).join(format!("{name}.json"));
-            std::fs::create_dir_all(path.parent().expect("a parent")).expect("the output directory");
-            std::fs::write(&path, serde_json::to_string_pretty(&report).expect("JSON") + "\n").unwrap_or_else(|error| panic!("{}: {}", path.display(), error));
-        }
     }
     ExitCode::SUCCESS
 }
@@ -181,6 +230,8 @@ enum Reload {
     Asked,
     /// the reload listener found the ledger's files as the ledger served was loaded from, and loaded nothing
     Skipped,
+    /// the file watcher gathered a batch of changes and looks at them: "receive all file changes: ..." (trace)
+    Batch,
 }
 
 /// The logger of the bench. It keeps when the server's reloads start and end, as `LedgerWriter::reload` logs them
@@ -229,7 +280,7 @@ impl log::Log for Reloads {
                     .skip(1)
                     .map(|kind| kind.split(", paths").next().unwrap_or_default().to_owned());
                 self.batches.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).push(kinds.collect());
-                return;
+                Reload::Batch
             }
             _ => return,
         };
@@ -283,7 +334,8 @@ fn nth(events: &[(Instant, Reload)], kind: Reload, nth: usize) -> Option<Instant
 // ---- the requests -----------------------------------------------------------------------------------------------
 
 /// The requests the budget pages send, through the built-in queries that replaced the retired `/api/budgets`
-/// endpoints, and a year of `#budgets` in BQL.
+/// endpoints, a year of `#budgets` in BQL, and the first page of the ledger's errors, which the app's home page asks for
+/// on every refresh and where a budget plugin's diagnostics land.
 #[derive(Debug, Clone, Copy)]
 enum Scenario {
     /// the budget list of the current month: `budgets.month`
@@ -296,9 +348,23 @@ enum Scenario {
     Interval,
     /// a year of every budget: `SELECT name, date, assigned, activity, available FROM #budgets WHERE year = <year>`
     Bql,
+    /// the first page of the ledger's errors, as the app's home page asks for it: `journals.errors` with `size` 100,
+    /// `offset` 0 and `count_total`
+    Errors,
 }
 
-const SCENARIOS: [Scenario; 5] = [Scenario::Month, Scenario::MonthFirst, Scenario::Detail, Scenario::Interval, Scenario::Bql];
+/// the kinds of request the warm and cold requests time
+const SCENARIOS: [Scenario; 6] = [
+    Scenario::Month,
+    Scenario::MonthFirst,
+    Scenario::Detail,
+    Scenario::Interval,
+    Scenario::Bql,
+    Scenario::Errors,
+];
+
+/// the kinds of request the concurrent readers send: the budget pages', as the first baselines measured them
+const READ_MIX: [Scenario; 5] = [Scenario::Month, Scenario::MonthFirst, Scenario::Detail, Scenario::Interval, Scenario::Bql];
 
 impl Scenario {
     fn name(self) -> &'static str {
@@ -308,6 +374,7 @@ impl Scenario {
             Scenario::Detail => "detail",
             Scenario::Interval => "interval",
             Scenario::Bql => "bql_year",
+            Scenario::Errors => "errors",
         }
     }
 
@@ -335,6 +402,10 @@ impl Scenario {
             Scenario::Bql => (
                 "/api/query",
                 json!({"query": format!("SELECT name, date, assigned, activity, available FROM #budgets WHERE year = {}", spec.current_month().year())}),
+            ),
+            Scenario::Errors => (
+                "/api/query/builtins/journals.errors",
+                json!({"params": {"size": 100, "offset": 0}, "count_total": true}),
             ),
         }
     }
@@ -512,13 +583,209 @@ fn input_counts(ledger: &Ledger) -> Value {
     json!(counts)
 }
 
+// ---- how the ledger is loaded, and what analyzed it -------------------------------------------------------------
+
+/// The operator's plugin policy, as `zhang serve` reads it: the default one, at the level `ZHANG_PLUGINS` sets
+/// (`off`, `read`, `write`), which also starts and stops the default plugins such as `zhang:budget`.
+fn plugin_policy() -> PluginPolicy {
+    let mut policy = Settings::default().plugins.policy;
+    if let Ok(level) = std::env::var(LEVEL_ENV) {
+        policy.level = level.parse().unwrap_or_else(|error| panic!("{}: {}", LEVEL_ENV, error));
+    }
+    policy
+}
+
+/// Load the ledger of `dir` as `zhang serve` loads it (`load_served_ledger`): with the server's load options (the
+/// host of the analyzers' analyses, the default plugins, the operator's plugin policy, [`plugin_policy`]), on a
+/// blocking thread; and with the fixed clock of `spec`, where `zhang serve` reads the system's. Its reloads, the
+/// reload listener's and the writes', keep the options.
+async fn load_as_served(dir: &Path, source: &Arc<dyn DataSource>, spec: &Spec) -> Ledger {
+    let (root, data_source, clock) = (dir.to_path_buf(), source.clone(), spec.clock());
+    let options = zhang_server::analysis::load_options(Arc::new(plugin_policy()));
+    tokio::task::spawn_blocking(move || Ledger::load_with_options(root, MAIN.to_owned(), data_source, clock, options))
+        .await
+        .expect("the load runs")
+        .unwrap_or_else(|error| panic!("{}", error))
+}
+
+/// The analyzers of `ledger`, each with what it published: `zhang:budget: ok`, `...: failed (reason)`, `...: skipped`
+/// or `...: not published`.
+fn analyzers(ledger: &Ledger) -> Vec<String> {
+    ledger
+        .extensions
+        .analyzers
+        .iter()
+        .map(|slot| {
+            let status = match slot.snapshot.get().map(|it| &it.status) {
+                Some(SnapshotStatus::Ok) => "ok".to_owned(),
+                Some(SnapshotStatus::Failed { reason }) => format!("failed ({reason})"),
+                Some(SnapshotStatus::Skipped) => "skipped".to_owned(),
+                None => "not published".to_owned(),
+            };
+            format!("{}: {}", slot.provider, status)
+        })
+        .collect()
+}
+
+/// What was measured: the SHA-256 of the bench's executable, the build; the commit `ZHANG_BUDGET_BASELINE_COMMIT`
+/// names, if any; and the plugin level.
+fn identity() -> Value {
+    use sha2::{Digest, Sha256};
+    let build = std::env::current_exe()
+        .ok()
+        .and_then(|exe| std::fs::read(exe).ok())
+        .map(|bytes| Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>());
+    json!({
+        "build": build,
+        "commit": std::env::var("ZHANG_BUDGET_BASELINE_COMMIT").ok(),
+        "plugins": format!("{:?}", plugin_policy().level).to_lowercase(),
+    })
+}
+
+// ---- the conditions of a run ------------------------------------------------------------------------------------
+
+/// the processes of a build on the machine, by name, as `pgrep` matches them
+const BUILD_PROCESSES: &[&str] = &["rustc", "cargo", "cc", "ld", "cc1", "cc1plus", "collect2", "ld.lld", "rust-lld", "clang"];
+/// the share of a run's time the tasks of its cgroup may have waited for a CPU (`cpu.pressure`, `some`)
+const MAX_CPU_PRESSURE: f64 = 0.02;
+
+/// What a run reads of the machine when it starts and when it ends: the builds running besides the bench (and the
+/// `cargo run` that started it), and from the cgroup the run is in (cgroup v2), the time its tasks were throttled
+/// (`cpu.stat`, `throttled_usec`) and the time some of its tasks waited for a CPU (`cpu.pressure`, `some` total).
+struct Conditions {
+    at: Instant,
+    builds: Vec<String>,
+    throttled_usec: Option<u64>,
+    pressure_usec: Option<u64>,
+    load_average: Option<String>,
+}
+
+impl Conditions {
+    fn now() -> Conditions {
+        let cgroup = |file: &str, line: &str, key: &str| -> Option<u64> {
+            let text = std::fs::read_to_string(format!("/sys/fs/cgroup/{file}")).ok()?;
+            let line = text.lines().find(|it| it.starts_with(line))?;
+            line.split_whitespace()
+                .find_map(|field| field.strip_prefix(key))
+                .or_else(|| line.split_whitespace().nth(1))?
+                .parse()
+                .ok()
+        };
+        Conditions {
+            at: Instant::now(),
+            builds: builds_running(),
+            throttled_usec: cgroup("cpu.stat", "throttled_usec ", "throttled_usec="),
+            pressure_usec: cgroup("cpu.pressure", "some ", "total="),
+            load_average: load_average(),
+        }
+    }
+
+    /// The conditions of the run that started with `start` and ends with these: the report, and whether the run is
+    /// valid. A run is invalid when a build ran when it started or ended, when its cgroup was throttled, or when tasks
+    /// of its cgroup waited for a CPU for [`MAX_CPU_PRESSURE`] of its time or more; when the cgroup's files cannot be
+    /// read, the run cannot be checked, and is invalid too. The load average only warns, above half the CPUs.
+    fn validity(&self, start: &Conditions) -> (Value, bool) {
+        let wall = self.at - start.at;
+        let mut reasons = vec![];
+        for (when, builds) in [("start", &start.builds), ("end", &self.builds)] {
+            if !builds.is_empty() {
+                reasons.push(format!("a build ran at the {when}: {}", builds.join(", ")));
+            }
+        }
+        let delta = |start: Option<u64>, end: Option<u64>| Some(end?.saturating_sub(start?));
+        let throttled = delta(start.throttled_usec, self.throttled_usec);
+        match throttled {
+            Some(0) => {}
+            Some(usec) => reasons.push(format!("the cgroup was throttled for {} ms", usec / 1000)),
+            None => reasons.push("the cgroup's cpu.stat is not readable".to_owned()),
+        }
+        let pressure = delta(start.pressure_usec, self.pressure_usec);
+        let share = pressure.map(|usec| usec as f64 / wall.as_micros().max(1) as f64);
+        match share {
+            Some(share) if share < MAX_CPU_PRESSURE => {}
+            Some(share) => reasons.push(format!("tasks of the cgroup waited for a CPU {:.1}% of the time", 100.0 * share)),
+            None => reasons.push("the cgroup's cpu.pressure is not readable".to_owned()),
+        }
+        // the machine's CPUs, not the run's: the run is pinned to a few of them
+        let online = std::fs::read_to_string("/proc/cpuinfo")
+            .map(|cpuinfo| cpuinfo.lines().filter(|line| line.starts_with("processor")).count())
+            .unwrap_or(1)
+            .max(1);
+        let one_minute = |it: &Option<String>| it.as_deref().and_then(|it| it.split_whitespace().next()).and_then(|it| it.parse::<f64>().ok());
+        let highest = one_minute(&start.load_average)
+            .into_iter()
+            .chain(one_minute(&self.load_average))
+            .fold(0.0_f64, f64::max);
+        let advisory = 0.5 * online as f64;
+        let allowed = std::fs::read_to_string("/proc/self/status").ok().and_then(|status| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix("Cpus_allowed_list:").map(|it| it.trim().to_owned()))
+        });
+        let report = json!({
+            "valid": reasons.is_empty(),
+            "reasons": reasons,
+            "wall_ms": ms(wall),
+            "builds_at_start": start.builds,
+            "builds_at_end": self.builds,
+            "throttled_usec": throttled,
+            "cpu_pressure_some_usec": pressure,
+            "cpu_pressure_share": share,
+            "cpus": cpus(),
+            "cpus_allowed": allowed,
+            "workers": workers(),
+            "cpus_online": online,
+            "load_average": {
+                "before": start.load_average,
+                "after": self.load_average,
+                "highest_1min": highest,
+                "advisory_limit": advisory,
+                "warning": highest > advisory,
+            },
+        });
+        let valid = report["valid"] == true;
+        (report, valid)
+    }
+}
+
+/// The processes of a build running on the machine, but the bench and its ancestors (`cargo run`) and zombies:
+/// `name (pid)`.
+fn builds_running() -> Vec<String> {
+    let parent = |pid: u32| -> Option<u32> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        stat[stat.rfind(')')? + 1..].split_whitespace().nth(1)?.parse().ok()
+    };
+    let mut ours = vec![std::process::id()];
+    while let Some(next) = parent(*ours.last().expect("a pid")).filter(|it| *it > 1 && !ours.contains(it)) {
+        ours.push(next);
+    }
+    let Ok(entries) = std::fs::read_dir("/proc") else { return vec![] };
+    let mut builds = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|pid| !ours.contains(pid))
+        .filter_map(|pid| {
+            // a zombie (state `Z`) uses no CPU: the pod's first process does not reap them
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+            if stat[stat.rfind(')')? + 1..].split_whitespace().next()? == "Z" {
+                return None;
+            }
+            let name = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+            let name = name.trim();
+            BUILD_PROCESSES.contains(&name).then(|| format!("{name} ({pid})"))
+        })
+        .collect::<Vec<_>>();
+    builds.sort();
+    builds
+}
+
 // ---- the bench --------------------------------------------------------------------------------------------------
 
 fn baseline(spec: Spec) -> Value {
     log::set_logger(&RELOAD_LOG).expect("the bench's logger");
     log::set_max_level(log::LevelFilter::Info);
     let name = spec.name();
-    let load_average_before = load_average();
+    let conditions_before = Conditions::now();
 
     // the ledger, checked to be the one the baseline page measured
     let started = Instant::now();
@@ -536,7 +803,11 @@ fn baseline(spec: Spec) -> Value {
 
     let peak_reset = reset_peak_rss();
     let rss_before = status_mib("VmRSS");
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a runtime");
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(workers())
+        .enable_all()
+        .build()
+        .expect("a runtime");
     let mut report = runtime.block_on(async {
         // the data source of `zhang serve` for a local ledger; `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files
         // with zhang-core's `LocalFileSystemDataSource` instead, to compare
@@ -552,12 +823,9 @@ fn baseline(spec: Spec) -> Value {
 
         // the first load, as `zhang serve` loads (`load_served_ledger`), on a blocking thread, with the fixed clock
         let started = Instant::now();
-        let (root, data_source, clock) = (dir.clone(), source.clone(), spec.clock());
-        let ledger = tokio::task::spawn_blocking(move || Ledger::load_with_clock(root, MAIN.to_owned(), data_source, clock))
-            .await
-            .expect("the load runs")
-            .unwrap_or_else(|error| panic!("{}: {}", name, error));
+        let ledger = load_as_served(&dir, &source, &spec).await;
         let first_load = started.elapsed();
+        let analyzers_after_load = analyzers(&ledger);
         let (peak_load, rss_loaded) = (status_mib("VmHWM"), status_mib("VmRSS"));
         // the two reopened accounts close with a balance; nothing else is wrong, budgets included
         let errors = ledger.errors.iter().map(|it| it.error_type.clone()).collect::<Vec<_>>();
@@ -585,7 +853,9 @@ fn baseline(spec: Spec) -> Value {
                 .await
                 .unwrap_or_else(|failure| panic!("{}: {}", name, failure.message));
         };
-        let only_writes = std::env::var("ZHANG_BUDGET_BASELINE_ONLY").is_ok_and(|it| it == "writes");
+        let only = std::env::var("ZHANG_BUDGET_BASELINE_ONLY").unwrap_or_default();
+        let (only_writes, only_e2e) = (only == "writes", only == "e2e");
+        let only_writes = only_writes || only_e2e;
         reload().await;
         let (mut back_to_back, since) = (vec![], Instant::now());
         for _ in 0..if only_writes { 0 } else { RELOADS } {
@@ -611,6 +881,7 @@ fn baseline(spec: Spec) -> Value {
             "sha256": digest,
             "data_source": if local { "LocalFileSystemDataSource" } else { "OpendalDataSource (Fs)" },
             "allocator": allocator::NAME,
+            "identity": identity(),
             "generate_ms": ms(generate),
             "load_ms": ms(first_load),
             "reload": if only_writes { Value::Null } else { summary(&back_to_back) },
@@ -626,7 +897,9 @@ fn baseline(spec: Spec) -> Value {
             "rss_after_load": rss_loaded,
             "peak_after_reloads": peak_reloads,
         });
-        if spec.with_budgets && only_writes {
+        if spec.with_budgets && only_e2e {
+            report["end_to_end"] = end_to_end(&router, &spec, &reload_sender, &dir, &source).await;
+        } else if spec.with_budgets && only_writes {
             report["writes"] = writes(&router, &spec).await;
         } else if spec.with_budgets {
             // the first request of each kind after a reload, the kinds in turn
@@ -656,6 +929,8 @@ fn baseline(spec: Spec) -> Value {
             let after = transactions(&*shared.read().await);
             assert_eq!(after, before + WRITE_WARM_UP + WRITES + CONCURRENT_WRITES, "one transaction a write");
             report["transactions_written"] = json!(after - before);
+            report["end_to_end"] = end_to_end(&router, &spec, &reload_sender, &dir, &source).await;
+            memory["peak_after_end_to_end"] = json!(status_mib("VmHWM"));
         }
         memory["peak_final"] = json!(status_mib("VmHWM"));
         memory["rss_final"] = json!(status_mib("VmRSS"));
@@ -670,12 +945,33 @@ fn baseline(spec: Spec) -> Value {
             memory["idle_s"] = json!(idle);
         }
         report["memory_mib"] = memory;
+        // what analyzed the ledger: the analyzers' snapshots when it was first loaded and at the end, and the providers
+        // of the tables the server describes
+        let schema = timed(&router, json_request(Method::GET, "/api/query/schema", &[], None)).await.json();
+        let mut providers = schema["data"]["tables"]
+            .as_array()
+            .map(|tables| {
+                tables
+                    .iter()
+                    .filter_map(|table| table["provided_by"].as_str().map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        providers.sort();
+        providers.dedup();
+        report["analyzers"] = json!({
+            "after_load": analyzers_after_load,
+            "at_end": analyzers(&*shared.read().await),
+            "schema_providers": providers,
+        });
         report
     });
     // the runtime stays: dropped, it would drop the file watcher's channel, whose sender, on notify's thread, panics
     std::mem::forget(runtime);
     report["machine"] = machine();
-    report["load_average"] = json!({"before": load_average_before, "after": load_average()});
+    let (validity, valid) = Conditions::now().validity(&conditions_before);
+    report["validity"] = validity;
+    report["valid"] = json!(valid);
     print(&report);
     report
 }
@@ -847,8 +1143,8 @@ async fn concurrent(router: &Router, spec: &Spec) -> Value {
                 tokio::spawn(async move {
                     let mut samples = vec![];
                     let mut index = reader;
-                    while rounds.is_none_or(|rounds| samples.len() < rounds * SCENARIOS.len()) && !stop.load(Ordering::SeqCst) {
-                        samples.push(send(&router, &spec, SCENARIOS[index % SCENARIOS.len()]).await.elapsed);
+                    while rounds.is_none_or(|rounds| samples.len() < rounds * READ_MIX.len()) && !stop.load(Ordering::SeqCst) {
+                        samples.push(send(&router, &spec, READ_MIX[index % READ_MIX.len()]).await.elapsed);
                         index += 1;
                     }
                     samples
@@ -889,9 +1185,290 @@ async fn concurrent(router: &Router, spec: &Spec) -> Value {
     })
 }
 
+// ---- end to end -------------------------------------------------------------------------------------------------
+
+/// The page an end-to-end timer reads after its write, reload or start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Page {
+    /// the budget list of the current month: `budgets.month`
+    Budgets,
+    /// the first page of the ledger's errors: `journals.errors`
+    Errors,
+}
+
+impl Page {
+    fn scenario(self) -> Scenario {
+        match self {
+            Page::Budgets => Scenario::Month,
+            Page::Errors => Scenario::Errors,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Page::Budgets => "budgets",
+            Page::Errors => "errors",
+        }
+    }
+
+    /// What the page answered that tells which ledger answered it: the activity of [`DETAIL_BUDGET`] in the current
+    /// month, or the number of the ledger's errors (`count_total`).
+    fn figure(self, answer: &Timed) -> f64 {
+        let json = answer.json();
+        let data = &json["data"];
+        match self {
+            Page::Errors => data["total"].as_f64().unwrap_or_else(|| panic!("the total of journals.errors: {}", data)),
+            Page::Budgets => {
+                let columns = data["columns"].as_array().expect("the columns");
+                let at = |name: &str| columns.iter().position(|it| it["name"] == name).unwrap_or_else(|| panic!("no column {}", name));
+                let (name, activity) = (at("name"), at("activity"));
+                let rows = data["rows"].as_array().expect("the rows");
+                let row = rows.iter().find(|row| row[name] == DETAIL_BUDGET).expect("the budget's row");
+                let cell = &row[activity];
+                cell.as_f64()
+                    .or_else(|| cell.as_str().and_then(|it| it.parse().ok()))
+                    .unwrap_or_else(|| panic!("an activity, got {}", cell))
+            }
+        }
+    }
+
+    /// The transaction a write or an edit of the page's timer adds, in the API's JSON and as text, and how much it
+    /// moves the page's figure: groceries of [`DETAIL_BUDGET`] paid by card, which add to its activity, or a purchase
+    /// in GBP on the account of the `Japan` budget, which is in JPY and has no GBP price, so zhang reports a
+    /// `BudgetCommodityMismatch`, a budget diagnostic of the errors page.
+    fn transaction(self, spec: &Spec, round: usize) -> (Value, String, f64) {
+        let date = spec.last_day().pred_opt().expect("a date");
+        let (account, units, price, payee, narration, moves) = match self {
+            Page::Budgets => {
+                let cents = 5000 + round as i64;
+                let units = format!("{}.{:02} USD", cents / 100, cents % 100);
+                ("Expenses:Food:Groceries", units, None, "Corner Store", "groceries", cents as f64 / 100.0)
+            }
+            Page::Errors => ("Expenses:Travel:Japan", "12.00 GBP".to_owned(), Some("@ 1.2700 USD"), "Lawson", "japan", 1.0),
+        };
+        let body = json!({
+            "datetime": format!("{date}T12:00:00"),
+            "payee": payee,
+            "narration": narration,
+            "postings": [
+                {"account": account, "unit": units, "price": price},
+                {"account": "Liabilities:CreditCard", "unit": null},
+            ],
+            "metas": [],
+            "tags": [],
+            "links": [],
+        });
+        let price = price.map(|it| format!(" {it}")).unwrap_or_default();
+        let text = format!("\n{date} 12:00:00 * \"{payee}\" \"{narration}\"\n  {account} {units}{price}\n  Liabilities:CreditCard\n");
+        (body, text, moves)
+    }
+}
+
+/// What starts an end-to-end round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Trigger {
+    /// `POST /api/transactions`, which answers once the ledger with the transaction is swapped in
+    Write,
+    /// an edit of a file of the ledger on disk, then a reload through the reload listener, waited for
+    /// (`ReloadSender::reload_and_wait`, what `POST /api/reload` runs); the edit is not timed
+    Reload,
+    /// a load of the files and a new app on it, as `zhang serve` starts
+    Start,
+}
+
+impl Trigger {
+    fn name(self) -> &'static str {
+        match self {
+            Trigger::Write => "write",
+            Trigger::Reload => "reload",
+            Trigger::Start => "start",
+        }
+    }
+}
+
+/// The end-to-end timers: for each trigger (a write, an edit and a reload, a start) and each page (the budget list,
+/// the errors page), [`E2E_WARM_UP`] and then [`E2E_ROUNDS`] timed rounds, one at a time and with no other request
+/// meanwhile. A round is timed from sending the write (or asking for the reload, or starting the load) until the
+/// page's answer is read whole, and checks that the page answered from the ledger with the change: the generation of
+/// the served ledger moved on by one (for a write and a reload) and the page's figure moved by what the change adds.
+/// After a write or a reload the bench waits for the file watcher's turn, which sees the files written and loads
+/// nothing, and then [`QUIET`], so that the watcher never runs into the next round.
+///
+/// The file watcher's activity in a round is told from the server's log ([`Overlap`]). A round in which the watcher
+/// gathered, asked or was answered before the round's own write or reload started (or at all, in a start) is
+/// excluded and run again, up to twice the rounds in all, so that each timer has [`E2E_ROUNDS`] clean rounds. A round
+/// in which it did so once the round's own reload had started is kept and counted: that is the watcher looking at
+/// the round's own write or edit, as under `zhang serve`.
+async fn end_to_end(router: &Router, spec: &Spec, reload_sender: &ReloadSender, dir: &Path, source: &Arc<dyn DataSource>) -> Value {
+    // the reload listener logs a skipped reload at the debug level, the watcher its batches at the trace level
+    log::set_max_level(log::LevelFilter::Trace);
+    let mut report = serde_json::Map::new();
+    for trigger in [Trigger::Write, Trigger::Reload, Trigger::Start] {
+        for page in [Page::Budgets, Page::Errors] {
+            let (mut totals, mut triggers, mut pages, mut rounds) = (vec![], vec![], vec![], vec![]);
+            let (mut excluded, mut during) = (0, 0);
+            let mut round = 0;
+            while totals.len() < E2E_ROUNDS && round < 2 * (E2E_WARM_UP + E2E_ROUNDS) {
+                let figure = page.figure(&send(router, spec, page.scenario()).await);
+                let generation = reload_sender.generation();
+                let (body, text, moves) = page.transaction(spec, round);
+                let since = Instant::now();
+                let (started, total, triggered, answer) = match trigger {
+                    Trigger::Write => {
+                        let started = Instant::now();
+                        let answer = timed(router, json_request(Method::POST, "/api/transactions", &[], Some(&body))).await;
+                        assert_eq!(answer.status, StatusCode::OK, "{}", String::from_utf8_lossy(&answer.bytes));
+                        let triggered = started.elapsed();
+                        let page_answer = send(router, spec, page.scenario()).await;
+                        (started, started.elapsed(), triggered, page_answer)
+                    }
+                    Trigger::Reload => {
+                        edit(dir, &text);
+                        let started = Instant::now();
+                        reload_sender.reload_and_wait().await.unwrap_or_else(|failure| panic!("{}", failure.message));
+                        let triggered = started.elapsed();
+                        let page_answer = send(router, spec, page.scenario()).await;
+                        (started, started.elapsed(), triggered, page_answer)
+                    }
+                    Trigger::Start => {
+                        let started = Instant::now();
+                        let ledger = Arc::new(RwLock::new(load_as_served(dir, source, spec).await));
+                        let (sender, _receiver) = tokio::sync::mpsc::channel(1);
+                        let config = serve_config(dir, MAIN, source.clone(), &Settings::default());
+                        let app = create_server_app(config, ledger.clone(), Broadcaster::create(), Arc::new(ReloadSender::new(sender)));
+                        let started_router = router_of(app).await;
+                        let triggered = started.elapsed();
+                        let page_answer = send(&started_router, spec, page.scenario()).await;
+                        let total = started.elapsed();
+                        // the started ledger is freed off the clock, before the next round
+                        tokio::task::spawn_blocking(move || drop((started_router, ledger))).await.expect("freed");
+                        (started, total, triggered, page_answer)
+                    }
+                };
+                let overlap = Overlap::of(&reloads_since(started), started + total, trigger != Trigger::Start);
+                let answered = page.figure(&answer);
+                match trigger {
+                    Trigger::Start => assert!((answered - figure).abs() < 1e-6, "a start answered {}, the ledger served {}", answered, figure),
+                    _ => {
+                        assert_eq!(
+                            reload_sender.generation(),
+                            generation + 1,
+                            "the page did not answer from the ledger with the change"
+                        );
+                        assert!(
+                            (answered - figure - moves).abs() < 1e-6,
+                            "{} then {}: {figure} became {answered}, not {}",
+                            trigger.name(),
+                            page.name(),
+                            figure + moves
+                        );
+                        watcher_turn(since, Duration::from_secs(60)).await;
+                        tokio::time::sleep(QUIET).await;
+                    }
+                }
+                if round >= E2E_WARM_UP {
+                    rounds.push(json!({"ms": ms(total), "watcher": overlap.name()}));
+                    match overlap {
+                        Overlap::Before => excluded += 1,
+                        Overlap::None | Overlap::During => {
+                            if overlap == Overlap::During {
+                                during += 1;
+                            }
+                            totals.push(total);
+                            triggers.push(triggered);
+                            pages.push(total - triggered);
+                        }
+                    }
+                }
+                round += 1;
+            }
+            report.insert(
+                format!("{}_then_{}", trigger.name(), page.name()),
+                json!({
+                    "total": summary(&totals),
+                    "trigger": summary(&triggers),
+                    "page": summary(&pages),
+                    "rounds_run": rounds.len(),
+                    "clean_rounds": totals.len(),
+                    "valid": totals.len() >= E2E_ROUNDS,
+                    "watcher_before_excluded": excluded,
+                    "watcher_during_kept": during,
+                    "rounds": rounds,
+                }),
+            );
+        }
+    }
+    log::set_max_level(log::LevelFilter::Info);
+    Value::Object(report)
+}
+
+/// The file watcher's activity in a timed round, told from the server's log: a batch it gathered, a reload it asked
+/// for, a reload the reload listener skipped, or a reload that was not the round's own, between the round's start and
+/// its end.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Overlap {
+    /// none
+    None,
+    /// only once the round's own reload had started: the watcher looking at the round's own write or edit
+    During,
+    /// before the round's own reload started, or in a round without a reload of its own (a start): the round may have
+    /// waited for it, so it is excluded and run again
+    Before,
+}
+
+impl Overlap {
+    /// what `events`, the reload events since the round started, tell of the round that ended at `end`; `own` when
+    /// the round runs a reload of its own (a write, or a waited-for reload), whose start is the first `Started`
+    fn of(events: &[(Instant, Reload)], end: Instant, own: bool) -> Overlap {
+        let window = events.iter().filter(|(at, _)| *at <= end).copied().collect::<Vec<_>>();
+        let own_start = own.then(|| nth(&window, Reload::Started, 0)).flatten();
+        let watcher = window
+            .iter()
+            .enumerate()
+            .filter(|(index, (_, kind))| match kind {
+                Reload::Batch | Reload::Asked | Reload::Skipped => true,
+                // a reload that is not the round's own
+                Reload::Started => !own || window[..*index].iter().any(|(_, it)| *it == Reload::Started),
+                Reload::Done => false,
+            })
+            .map(|(_, (at, _))| *at)
+            .collect::<Vec<_>>();
+        match (watcher.is_empty(), own_start) {
+            (true, _) => Overlap::None,
+            (false, Some(own_start)) if watcher.iter().all(|at| *at >= own_start) => Overlap::During,
+            _ => Overlap::Before,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Overlap::None => "none",
+            Overlap::During => "during",
+            Overlap::Before => "before (excluded)",
+        }
+    }
+}
+
+/// Append `text` to the file of the current month the writes go to (`data/<year>/<month>.zhang`), as an editor would
+fn edit(dir: &Path, text: &str) {
+    use std::io::Write as _;
+    let months = dir.join("data");
+    let file = std::fs::read_dir(&months)
+        .ok()
+        .and_then(|years| years.filter_map(Result::ok).map(|it| it.path()).max())
+        .and_then(|year| std::fs::read_dir(year).ok()?.filter_map(Result::ok).map(|it| it.path()).max())
+        .unwrap_or_else(|| panic!("no file of a month under {}: the writes create it", months.display()));
+    let mut file = std::fs::OpenOptions::new().append(true).open(&file).expect("the month's file");
+    file.write_all(text.as_bytes()).expect("the edit");
+    file.sync_all().expect("the edit on disk");
+}
+
 /// the report, as a table on stderr
 fn print(report: &Value) {
     let line = |name: &str, stats: &Value, extra: String| {
+        if stats.is_null() {
+            return;
+        }
         eprintln!(
             "{:<22} {:>5} {:>10} {:>10} {:>10} {:>10} {}",
             name, stats["n"], stats["min_ms"], stats["p50_ms"], stats["p95_ms"], stats["max_ms"], extra
@@ -950,7 +1527,24 @@ fn print(report: &Value) {
         line("writes, 8 readers", &concurrent["writes"], String::new());
         eprintln!("reads   {}", report["reads"]);
     }
+    if let Some(end_to_end) = report["end_to_end"].as_object() {
+        for (name, timers) in end_to_end {
+            line(
+                name,
+                &timers["total"],
+                format!(
+                    "trigger p50 {}, page p50 {}; watcher before (excluded) {}, during (kept) {}",
+                    timers["trigger"]["p50_ms"], timers["page"]["p50_ms"], timers["watcher_before_excluded"], timers["watcher_during_kept"]
+                ),
+            );
+        }
+    }
     eprintln!("input   {}", report["input"]);
     eprintln!("memory  {}", report["memory_mib"]);
-    eprintln!("machine {}; load average {}", report["machine"], report["load_average"]);
+    eprintln!("machine {}", report["machine"]);
+    eprintln!("analyzers {}; build {}", report["analyzers"], report["identity"]);
+    eprintln!("validity {}", report["validity"]);
+    if report["valid"] == false {
+        eprintln!("INVALID RUN: {}; run it again", report["validity"]["reasons"]);
+    }
 }

@@ -42,6 +42,8 @@ mimalloc = { version = "0.1", optional = true }
 [dev-dependencies]
 # the generated ledgers and the HTTP harness of the budget baseline (`examples/budget_baseline.rs`)
 zhang-testkit = { path = "../zhang-testkit", features = ["server"] }
+# the build identity in the reports of the budget baseline
+sha2 = "0.11"
 gotcha = { workspace = true }
 axum = { workspace = true }
 jsonpath-rust = "0.5"
