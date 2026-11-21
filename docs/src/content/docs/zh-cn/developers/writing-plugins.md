@@ -85,7 +85,7 @@ plugin "plugins/receipts.wasm"
 | `Processor` | `processor` | 每次加载一次 | 整个指令流 → 新的指令流 |
 | `Mapper` | `mapper` | 每条指令一次，整个指令流共用一个插件实例 | 一条指令 → 替换它的指令（零条、它自己或多条） |
 | `Router` | `router` | 每个 HTTP 请求一次，每次都在新的实例中 | 请求 → 响应 |
-| `Analyzer` | `manifest`、`analyze` | 每次加载一次，在张记账的检查之后（[分析器](#分析器)） | 它读取的记录和查询 → 诊断和它的表的行 |
+| `Analyzer`（实验性） | `manifest`、`analyze` | 每次加载一次，在张记账的检查之后（[分析器](#分析器)） | 它读取的记录和查询 → 诊断和它的表的行 |
 
 同时是 processor 和 mapper 的插件会先运行 processor。张记账不认识的类型会被忽略并给出警告，所以为更新版本的张记账编写的插件仍然可以加载。
 
@@ -343,6 +343,10 @@ fn route(request: Request) -> Result<Response, Error> {
 [Router 插件](/zh-cn/guides/router-plugins/)介绍了请求和响应的 JSON、错误状态码以及更多细节。
 
 ## 分析器
+
+:::caution[实验性]
+`Analyzer` 类型是实验性的。在 RFC #698 的预算迁移完成之前，它的 ABI 可能在任何发布版中改变：清单、记录、输出、`zhang_convert` 以及 SDK 的 `analysis` 模块。P1.6 会加入用 Lua 编写的分析器和新的 Lua `api_version`。在此之前可能会有发布版，为它编写的分析器在下一个发布版中可能需要修改才能加载。
+:::
 
 分析器在账本加载完成后读取账本，并发布它的发现：**诊断**，会加入账本的错误列表；以及**表**的行，查询读取它们就像读取张记账自己的表一样（`SELECT * FROM #shop_items`）。它不修改账本中的任何内容。这是用于派生数据的插件类型，例如预算：[RFC #698](/developers/rfc-698-budget-plugin/) 把预算迁移到官方插件 `zhang:budget` 中。
 
@@ -612,4 +616,4 @@ fn route(request: Request) -> Result<Response, Error> {
 | `processor` 和 `mapper` 导出函数、扁平配置（选项和元数据）、`allowed_hosts` | 0.2.0 |
 | 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、`zhang.allowed_hosts`、`zhang.timeout_ms`、上面除写入函数之外的所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
 | `zhang_write_preview`、`zhang_write_commit`、`capabilities` 导出函数、`allowed_writes`、`zhang.allowed_writes` | 0.2.0 之后带有写入能力的发布版 |
-| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert` | 带有分析器的发布版（RFC #698） |
+| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert`，在 RFC #698 完成之前是实验性的 | 带有分析器的发布版（RFC #698） |

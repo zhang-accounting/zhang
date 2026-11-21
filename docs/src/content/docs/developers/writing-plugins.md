@@ -85,7 +85,7 @@ A plugin declares what it is in its `supported_type` export, and can be several 
 | `Processor` | `processor` | once per load | the whole directive stream → the new stream |
 | `Mapper` | `mapper` | once per directive, in one plugin instance for the whole stream | one directive → the directives replacing it (none, itself, or several) |
 | `Router` | `router` | once per HTTP request, each in a fresh instance | the request → the response |
-| `Analyzer` | `manifest`, `analyze` | once per load, after Zhang's checks ([Analyzers](#analyzers)) | the records it consumes, and queries → diagnostics and the rows of its tables |
+| `Analyzer` (experimental) | `manifest`, `analyze` | once per load, after Zhang's checks ([Analyzers](#analyzers)) | the records it consumes, and queries → diagnostics and the rows of its tables |
 
 A plugin that is both a processor and a mapper runs its processor first. A type Zhang does not know is ignored with a warning, so a plugin written for a newer Zhang still loads.
 
@@ -343,6 +343,13 @@ fn route(request: Request) -> Result<Response, Error> {
 [Router Plugins](/guides/router-plugins/) has the request and response JSON, the error statuses and the details.
 
 ## Analyzers
+
+:::caution[Experimental]
+The `Analyzer` type is experimental. Until the budget migration of RFC #698 is complete, its ABI may change in any
+release: the manifest, the records, the output, `zhang_convert` and the SDK's `analysis` module. P1.6 adds analyzers
+written in Lua and a new Lua `api_version`. A release may ship before then, and an analyzer written for it may need
+changes to load in the next one.
+:::
 
 An analyzer reads the ledger once it is loaded and publishes what it finds: **diagnostics**, which join the ledger's
 errors, and the rows of **tables** that queries read like Zhang's own (`SELECT * FROM #shop_items`). It changes nothing
@@ -724,4 +731,4 @@ Where they work:
 | `processor` and `mapper` exports, flat config (options and meta), `allowed_hosts` | 0.2.0 |
 | `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, `zhang.allowed_hosts`, `zhang.timeout_ms`, every host function above but the write functions, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |
 | `zhang_write_preview`, `zhang_write_commit`, the `capabilities` export, `allowed_writes`, `zhang.allowed_writes` | the release after 0.2.0 with the write capability |
-| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert` | the release with analyzers (RFC #698) |
+| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, experimental until RFC #698 is complete | the release with analyzers (RFC #698) |

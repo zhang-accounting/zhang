@@ -175,6 +175,13 @@ fixed rule.
 
 ## 2. The Analyzer extension point
 
+:::caution[Experimental until the migration is complete]
+As built in P1.4, the `Analyzer` plugin type is experimental, and
+[Writing Plugins](/developers/writing-plugins/#analyzers) says so. Its ABI (the manifest, the records, the output,
+`zhang_convert`, the SDK's `analysis` module) may change in any release before the budget migration completes: P1.6
+adds Lua analyzers and a new Lua `api_version`. A release may ship before #698 is done.
+:::
+
 ### 2.1 Where it runs
 
 ```text
