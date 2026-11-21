@@ -219,6 +219,12 @@ GROUP BY tag
 ORDER BY tag
 ```
 
+:::caution[What unnest changes]
+- **A posting is counted once per element.** A posting with two tags is in two groups, so adding up a `sum` or a `count` across the groups counts it twice: the totals of the groups are not the total of the postings.
+- **Only one `unnest` per query.** A second one is a compile error.
+- **The order of the groups without `ORDER BY`:** the order of their first rows, in ledger order, and within a row the set's order, which is sorted. Write `ORDER BY` when the order matters.
+:::
+
 - `unnest` is only allowed as a whole target, or a `GROUP BY` item, that is a group key; a query has at most one. Anywhere else, inside another expression or in `WHERE`, `ORDER BY` or an aggregate's argument, it is an error. `HAVING` and `ORDER BY` can read the key like any other one.
 - Its argument is any per-row `set` expression: `tags`, `links`, `open_meta_values(account, 'budget', date, time)` or a parameter.
 - The key's values are `str`. The other keys and the aggregates are the same for each element, so a group holds exactly what a query per element filtering on `:element IN set` holds.
