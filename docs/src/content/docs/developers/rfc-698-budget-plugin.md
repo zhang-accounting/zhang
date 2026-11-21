@@ -400,7 +400,7 @@ it:
 | Limit | Value (proposal) | Why |
 | --- | --- | --- |
 | Call time | The plugin's `timeout`, capped by `ZHANG_PLUGIN_MAX_TIMEOUT` (30 s) | After I1 a reload no longer stalls readers, but a write still waits for its reload: analysis time is write latency, gated in G1 and P4 |
-| Analyses of one load | `ZHANG_PLUGIN_MAX_TIMEOUT` together (as built in P1.4); an analyzer whose turn comes after it fails with `timeout` without running | A load's analyses cannot add more than one time limit to a write |
+| Analyses of one load | `ZHANG_PLUGIN_MAX_TIMEOUT` together (as built in P1.4): each runs at most what the analyses before it left, and one whose turn comes after it fails with `timeout` without running | A load's analyses cannot add more than one time limit to a write |
 | Memory | `ZHANG_PLUGIN_MAX_MEMORY` (256 MiB per instance); Lua's 64 MiB of values | Unchanged |
 | Each query | `POST /api/query` limits: 10 s and 1,000,000 values | Unchanged |
 | Queries per analysis | 10,000 | Keeps a looping script finite before the timeout |

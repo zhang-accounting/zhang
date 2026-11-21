@@ -560,6 +560,45 @@ fn the_analyses_of_a_load_share_one_time_limit() {
     );
 }
 
+/// An analysis runs at most what the analyses before it left of the load's time limit, not its own timeout in full: a
+/// load spends at most the limit on its analyses.
+#[test]
+fn an_analysis_runs_at_most_what_the_analyses_before_it_left() {
+    let namespaced = |namespace: &str| {
+        let mut manifest = shop_manifest();
+        manifest["namespace"] = json!(namespace);
+        manifest
+    };
+    let scratch = scratch(&[
+        (
+            "first.wat",
+            &analyzer("first", Some(namespaced("first")), Analyze::Loops),
+            "  timeout: \"1500ms\"\n",
+        ),
+        ("second.wat", &analyzer("second", Some(namespaced("second")), Analyze::Loops), ""),
+        ("third.wat", &analyzer("third", Some(namespaced("third")), Analyze::Output(json!({}))), ""),
+    ]);
+    let policy = PluginPolicy {
+        max_timeout: std::time::Duration::from_secs(2),
+        ..PluginPolicy::default()
+    };
+    let started = std::time::Instant::now();
+    let ledger = load_with(&scratch, load_options(Arc::new(policy)), Clock::System);
+    let took = started.elapsed();
+    let failed = failures(&ledger);
+    assert_eq!(failed.len(), 3, "{failed:?}");
+    assert!(failed.iter().all(|(reason, _)| reason == "timeout"), "{failed:?}");
+    assert!(failed[0].1.starts_with("its analysis ran longer than 1.5s;"), "{}", failed[0].1);
+    assert!(
+        failed[1].1.starts_with("its analysis ran longer than the ") && failed[1].1.contains("the analyses before it left of the 2s"),
+        "{}",
+        failed[1].1
+    );
+    assert!(failed[2].1.starts_with("it did not run"), "{}", failed[2].1);
+    // its own timeout in full would have made it 1.5 s and 2 s
+    assert!(took < std::time::Duration::from_secs(3), "the load took {took:?}");
+}
+
 /// An analysis that read the time and then failed made the ledger depend on the date all the same.
 #[test]
 fn a_failed_analysis_that_read_the_time_makes_the_ledger_depend_on_the_date() {

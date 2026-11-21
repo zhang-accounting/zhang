@@ -228,6 +228,15 @@ impl PluginInstance {
         self.plugin.function_exists(name)
     }
 
+    /// let each later call of this instance run at most `at_most`, when that is less than the timeout of its settings:
+    /// a shorter timeout for one instance, without compiling the module for other settings
+    pub fn limit_timeout(&mut self, at_most: Duration) {
+        if self.lease.timeout.is_none_or(|timeout| at_most < timeout) {
+            self.plugin.set_timeout(Some(at_most));
+            self.lease.timeout = Some(at_most);
+        }
+    }
+
     /// call the export `name` with `input`
     pub fn call<'a, 'b, T: extism::ToBytes<'a>, U: extism::FromBytes<'b>>(&'b mut self, name: impl AsRef<str>, input: T) -> Result<U, extism::Error> {
         // the lease is spent unless the call returns in time: a call that panics (in a host function
@@ -309,6 +318,35 @@ mod tests {
             generation += 1;
             assert_eq!(pool_state(&runtime), (1, generation), "capabilities are part of the settings");
         }
+    }
+
+    #[test]
+    fn an_instance_may_get_less_time_than_its_settings_without_compiling_again() {
+        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/loop.wat").to_vec());
+        let settings = Manifest::default().with_timeout(Duration::from_secs(30));
+        drop(runtime.instantiate(settings.clone(), host("2026-10-05T00:00:00Z")).unwrap());
+        assert_eq!(pool_state(&runtime), (1, 1));
+        let mut plugin = runtime.instantiate(settings.clone(), host("2026-10-05T00:00:00Z")).unwrap();
+        // more time than the settings give is no limit
+        plugin.limit_timeout(Duration::from_secs(60));
+        plugin.limit_timeout(Duration::from_millis(200));
+        let started = Instant::now();
+        let error = plugin.call::<&str, &str>("processor", "[]").unwrap_err();
+        assert_eq!(error.to_string(), "timeout");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "stopped at the shorter timeout: {:?}",
+            started.elapsed()
+        );
+        drop(plugin);
+        // the settings are the same, so the compiled plugins are; the one stopped at its deadline is not returned
+        assert_eq!(pool_state(&runtime), (0, 1));
+        let plugin = runtime.instantiate(settings, host("2026-10-05T00:00:00Z")).unwrap();
+        assert_eq!(
+            plugin.lease.timeout,
+            Some(Duration::from_secs(30)),
+            "the next instance has the settings' timeout"
+        );
     }
 
     #[test]

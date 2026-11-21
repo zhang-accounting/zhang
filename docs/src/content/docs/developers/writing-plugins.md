@@ -355,8 +355,8 @@ moves into the official plugin `zhang:budget`.
   aggregates in Zhang, exactly, and only the answer crosses the boundary.
 - **What it may do:** nothing else. It reads no file and reaches no network, whatever its directive grants; its
   `timeout` (within `ZHANG_PLUGIN_MAX_TIMEOUT`) and the server's memory limit apply. It may run up to 10,000 queries.
-  The analyses of one load share `ZHANG_PLUGIN_MAX_TIMEOUT`: an analyzer whose turn comes once it has passed fails
-  with the reason `timeout` without running.
+  The analyses of one load share `ZHANG_PLUGIN_MAX_TIMEOUT`: each runs at most what the analyses before it left, and
+  an analyzer whose turn comes once it has passed fails with the reason `timeout` without running.
 - **When it fails** (a trap, its timeout, its memory, an output that does not hold, a manifest that does not), the
   ledger still loads, unlike with a failing processor: the plugin's directive gets one
   [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error, and a query of its tables or of its

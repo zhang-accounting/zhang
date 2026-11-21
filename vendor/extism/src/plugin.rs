@@ -1202,6 +1202,14 @@ impl Plugin {
             .and_then(move |_| self.output().map_err(|e| (e, -1)))
     }
 
+    /// zhang patch: set how long each later call of this instance may run, in place of the
+    /// `timeout_ms` of the manifest it was compiled with (`None`: no limit), so that a host can
+    /// give one instance less time than its compiled plugin's settings without compiling again
+    pub fn set_timeout(&mut self, timeout: Option<std::time::Duration>) {
+        self.current_plugin_mut().manifest.timeout_ms =
+            timeout.map(|timeout| u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX));
+    }
+
     /// Get a `CancelHandle`, which can be used from another thread to cancel a running plugin
     pub fn cancel_handle(&self) -> CancelHandle {
         self.cancel_handle.clone()
