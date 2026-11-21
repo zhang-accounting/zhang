@@ -56,7 +56,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 
 
 
-# extism 1.30.0 with zhang's patches, see vendor/extism/Cargo.toml. zhang-core pins `extism = "=1.30.0"`: bumping it
+# extism 1.41.0 with zhang's patches, see vendor/extism/Cargo.toml. zhang-core pins `extism = "=1.41.0"`: bumping it
 # means vendoring the new version and carrying the patches over (or dropping those upstream has made)
 [patch.crates-io]
 extism = { path = "vendor/extism" }

@@ -529,6 +529,22 @@ plugin "plugins/fx-rates.wasm"
 
 **修正方法**：如果服务器由你运行并且你信任这个插件，用错误中指出的设置允许它需要的能力，例如 `ZHANG_PLUGIN_ALLOWED_HOSTS=api.frankfurter.dev`，然后重启服务器。否则在指令中减少对插件的授予。
 
+## PluginAnalysisFailed
+
+*插件 `<plugin>` 未能分析账本（`<reason>`）：`<message>`*
+
+分析器插件（见[编写插件](/zh-cn/developers/writing-plugins/#分析器)）在账本加载后读取账本，发布表和诊断；这一次它什么都没有发布。账本照常加载，只是缺少这个插件的表，查询其中一张表时会得到“不可用”的错误。元数据：`plugin`（插件的名称）、`reason` 和 `message`（发生了什么）。原因有：
+
+- `manifest`：插件声明的内容不成立，或者它的某个表名、列名已被占用（被张记账或在它之前声明的插件占用），或者会超出上限（每张表 64 列，每个账本 16 个标签列）。它的表根本不会出现在账本中；
+- `timeout` 和 `memory`：分析运行超过了它的 `timeout`，或者需要的内存超过服务器允许的大小；
+- `trap`：分析失败；
+- `output`：它返回的内容不成立：声明之外的诊断类型、指向账本中不存在的条目的诊断、类型不符的单元格，超过一百万个值或 64 MiB；
+- `unavailable`：这个张记账不分析账本（在没有分析宿主的情况下加载账本的库）。
+
+错误报告在插件的指令上。下一次加载会重新分析账本。
+
+**修正方法**：在指令上写 `timeout` 元数据可以给较慢的分析更多时间，但不超过服务器的上限。其他情况按消息修正插件，或者联系插件作者。
+
 ## 账本无法加载的情况
 
 以下问题会让张记账无法加载账本。`zhang serve` 会在标准错误输出中打印原因并以退出码 1 退出。服务器已在运行时，失败的重新加载会保持账本原样，在日志中记录原因，并在网页界面中显示原因，直到某次重新加载成功为止。
@@ -537,4 +553,4 @@ plugin "plugins/fx-rates.wasm"
 - **扩展名无法确定格式的主文件**，例如 `main.txt` 或 `main`。消息会指出主文件以及能确定格式的扩展名：`.zhang`，或者 Beancount 的 `.bean`、`.beancount` 和 `.bc`。
 - **不是 UTF-8 文本的文件**，例如以 Latin-1 或 GBK 保存的文件。消息会指出该文件以及第一个非 UTF-8 字节所在的行，例如 `the file data/2024.zhang is not UTF-8 text: line 3 holds a byte that is not UTF-8. Save the file with the UTF-8 encoding`。以字节顺序标记开头的文件仍是 UTF-8 文本。
 - [`default_rounding`](/zh-cn/reference/directives/options/#default_rounding) 或 [`directive_output_path`](/zh-cn/reference/directives/options/#directive_output_path) 选项的**无效值**，或者[商品](/zh-cn/reference/directives/commodity/#舍入)的 `rounding` 元数据的无效值。消息为 `option value is invalid`。
-- 启用插件时，**插件**的模块缺失或无法加载，或者插件调用失败或运行超过 `timeout`。见[插件](/zh-cn/reference/directives/plugin/#加载与顺序)。
+- 启用插件时，**插件**的模块缺失或无法加载，或者插件调用失败或运行超过 `timeout`。见[插件](/zh-cn/reference/directives/plugin/#加载与顺序)。分析器失败是例外：账本照常加载，并带有一个 [`PluginAnalysisFailed`](#pluginanalysisfailed) 错误。

@@ -32,12 +32,12 @@ mod amount;
 mod date_range;
 
 use std::collections::{BTreeSet, HashMap};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use chrono::{Datelike, NaiveDateTime};
 use zhang_core::ledger::Ledger;
 use zhang_query::params::from_json;
-use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, Query, QueryResult, Value};
+use zhang_query::{Catalog, CatalogDigest, DataType, ExecuteOptions, ParamTypes, Params, Query, QueryError, QueryResult, Value};
 
 pub use self::amount::calculated_amount;
 pub use self::date_range::{ledger_date, LedgerDateRange};
@@ -439,28 +439,90 @@ pub fn get(name: &str) -> Option<&'static BuiltinQuery> {
     BUILTINS.iter().find(|query| query.name == name)
 }
 
-/// Every built-in query, compiled once, on first use.
-// TODO(P1.4/P1.5): one map per catalog digest (`Catalog::of_ledger`), holding the plugins' named queries too (RFC §3.5)
-static COMPILED: LazyLock<HashMap<&'static str, Query>> = LazyLock::new(|| {
-    BUILTINS
-        .iter()
-        .map(|builtin| {
-            // the tests compile every built-in query, so this cannot fail in a release
-            let query = Query::compile_with_params(builtin.bql, &builtin.param_types())
-                .unwrap_or_else(|err| panic!("the built-in query {} does not compile: {}", builtin.name, err));
-            (builtin.name, query)
-        })
-        .collect()
-});
-
-/// The compiled built-in query named `name`.
-pub fn compiled(name: &str) -> ServerResult<&'static Query> {
-    COMPILED.get(name).ok_or_else(|| ServerError::UnknownBuiltinQuery(name.to_owned()))
+/// The built-in queries compiled against one catalog: a query to run on a ledger compiles against the ledger's catalog
+/// ([`Catalog::of_ledger`]), which holds the tables of its analyzers too.
+pub struct Compiled {
+    digest: CatalogDigest,
+    /// every built-in query by name, or why it does not compile against the catalog
+    queries: HashMap<&'static str, Result<Query, QueryError>>,
 }
 
-/// Execute the built-in query `name` on `ledger`, with the limits of every query the server
-/// runs (the time limit and the result size limit of `POST /api/query`). With `count_total`
-/// the result's `total` is the number of rows before `LIMIT` and `OFFSET`.
+impl Compiled {
+    /// Every built-in query compiled against `catalog`.
+    fn of(catalog: &Catalog) -> Compiled {
+        let queries = BUILTINS
+            .iter()
+            .map(|builtin| (builtin.name, Query::compile_in(catalog, builtin.bql, &builtin.param_types())))
+            .collect();
+        Compiled {
+            digest: catalog.digest(),
+            queries,
+        }
+    }
+
+    /// The compiled built-in query named `name`; a query error when it does not compile against the catalog.
+    pub fn get(&self, name: &str) -> ServerResult<&Query> {
+        match self.queries.get(name) {
+            Some(Ok(query)) => Ok(query),
+            Some(Err(error)) => Err(error.clone().into()),
+            None => Err(ServerError::UnknownBuiltinQuery(name.to_owned())),
+        }
+    }
+}
+
+/// How many catalogs other than the standard one the built-in queries are kept compiled for. A ledger keeps one catalog
+/// across reloads (its analyzers' manifests change only with their modules), so this is the catalogs of the ledgers a
+/// server served lately.
+const COMPILED_CATALOGS: usize = 8;
+
+/// The built-in queries compiled against the standard catalog ([`Catalog::standard`]), once, on first use.
+static STANDARD: LazyLock<Arc<Compiled>> = LazyLock::new(|| {
+    let compiled = Compiled::of(Catalog::standard());
+    for (name, query) in &compiled.queries {
+        // the tests compile every built-in query, so this cannot fail in a release
+        if let Err(err) = query {
+            panic!("the built-in query {} does not compile: {}", name, err);
+        }
+    }
+    Arc::new(compiled)
+});
+
+/// The built-in queries compiled against other catalogs, the latest last.
+static COMPILED: Mutex<Vec<Arc<Compiled>>> = Mutex::new(Vec::new());
+
+/// The built-in query named `name` compiled against the standard catalog: its parameters, columns and text, which are
+/// the same for every catalog it compiles against.
+pub fn compiled(name: &str) -> ServerResult<&'static Query> {
+    STANDARD.get(name)
+}
+
+/// The built-in queries compiled against the catalog of `ledger` ([`Catalog::of_ledger`]): compiled once per catalog,
+/// so a reload of the ledger, which keeps its catalog, compiles nothing again, and a query never runs on a ledger whose
+/// tables it was not compiled for.
+pub fn compiled_for(ledger: &Ledger) -> Arc<Compiled> {
+    let catalog = Catalog::of_ledger(ledger);
+    if catalog.digest() == STANDARD.digest {
+        return STANDARD.clone();
+    }
+    let lock = || COMPILED.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(compiled) = lock().iter().find(|compiled| compiled.digest == catalog.digest()) {
+        return compiled.clone();
+    }
+    // compiled outside the lock: another catalog's queries never wait for these
+    let compiled = Arc::new(Compiled::of(&catalog));
+    let mut cached = lock();
+    if !cached.iter().any(|it| it.digest == compiled.digest) {
+        if cached.len() == COMPILED_CATALOGS {
+            cached.remove(0);
+        }
+        cached.push(compiled.clone());
+    }
+    compiled
+}
+
+/// Execute the built-in query `name` on `ledger`, compiled against its catalog, with the limits of every query the
+/// server runs (the time limit and the result size limit of `POST /api/query`). With `count_total` the result's
+/// `total` is the number of rows before `LIMIT` and `OFFSET`.
 ///
 /// This blocks: call it inside [`with_ledger`], which also runs several queries under one read
 /// lock, or use [`run`].
@@ -469,7 +531,7 @@ pub fn execute(ledger: &Ledger, name: &str, params: &Params, count_total: bool) 
         count_total,
         ..execute_options(max_result_values())
     };
-    Ok(compiled(name)?.execute_with_options(ledger, params, &options)?)
+    Ok(compiled_for(ledger).get(name)?.execute_with_options(ledger, params, &options)?)
 }
 
 /// Now by the ledger's clock, as a wall-clock date and time of its timezone.

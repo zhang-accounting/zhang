@@ -7,8 +7,9 @@
 //! later query reads the same part, whichever query built it.
 //!
 //! - [`Entries`]: the rows of `#entries` in the order zhang processed the ledger, which the
-//!   `seq` column numbers, the rows of `#transactions`, and for every transaction its id and the
-//!   kinds of the errors recorded for it. The load decides all of it for each directive
+//!   `seq` column numbers, the rows of `#transactions`, and for every transaction its id, and apart
+//!   from them the kinds of the errors recorded for it ([`LedgerCache::entry_errors`], the one part
+//!   that depends on the ledger's errors). The load decides all of it for each directive
 //!   ([`Ledger::outcomes`]), so directives sharing a source position, such as the padding
 //!   transactions of a `pad`, one for each commodity it pads, or the copies a plugin emits, each
 //!   have their own.
@@ -31,13 +32,14 @@ use std::sync::{Arc, OnceLock};
 use chrono::{DateTime, FixedOffset, NaiveDate};
 use uuid::Uuid;
 use zhang_ast::{written_groups, Directive, Transaction};
+use zhang_core::derived::DerivedData;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
 use zhang_core::utils::id::FromSpan;
 
 use super::lookups::Lookups;
 use super::postings;
-use crate::extension::Snapshot;
+use crate::extension::NativeSnapshot;
 use crate::prices::PriceMap;
 use crate::value::Cost;
 use crate::Amount;
@@ -56,8 +58,21 @@ pub(crate) struct LedgerCache {
     documented: OnceLock<Vec<u32>>,
     /// the account and commodity directives by name
     lookups: OnceLock<Lookups>,
-    /// the snapshots of the ledger's providers ([`crate::extension`])
-    snapshots: OnceLock<Vec<Snapshot>>,
+    /// the snapshots of the native providers of the ledger ([`crate::extension`])
+    snapshots: OnceLock<Vec<NativeSnapshot>>,
+    /// for every `#entries` row, by `seq`, the kinds of the errors recorded for its transaction, when there are any:
+    /// the one part of the cache that depends on the ledger's errors ([`DerivedData::errors_changed`])
+    entry_errors: OnceLock<Vec<Option<BTreeSet<String>>>>,
+}
+
+/// The ledger's analyzers may query it while it loads, before its errors are placed: the load then drops the error
+/// kinds of the entries, and keeps everything else, the booked postings first, so the first query after a load does
+/// not book the ledger's rows again. The native providers' snapshots are kept too, so a native provider must not read
+/// the ledger's errors.
+impl DerivedData for LedgerCache {
+    fn errors_changed(&mut self) {
+        self.entry_errors = OnceLock::new();
+    }
 }
 
 impl LedgerCache {
@@ -99,9 +114,27 @@ impl LedgerCache {
         })
     }
 
-    /// The snapshots of the ledger's providers, each part built on first use.
-    pub fn snapshots(&self) -> &[Snapshot] {
-        self.snapshots.get_or_init(crate::extension::snapshots)
+    /// The kinds of the errors recorded for the transaction of every `#entries` row, by `seq`; `None` for a row
+    /// without any, or that is no transaction.
+    pub fn entry_errors(&self, ledger: &Ledger) -> &[Option<BTreeSet<String>>] {
+        self.entry_errors.get_or_init(|| {
+            self.entries(ledger)
+                .rows
+                .iter()
+                .map(|row| match &ledger.outcomes[row.directive as usize].detail {
+                    Detail::Transaction { errors, .. } => {
+                        let kinds = errors.iter().map(|error| ledger.errors[*error].error_type.to_string());
+                        Some(kinds.collect::<BTreeSet<_>>()).filter(|kinds| !kinds.is_empty())
+                    }
+                    _ => None,
+                })
+                .collect()
+        })
+    }
+
+    /// The snapshots of the ledger's native providers, each part built on first use.
+    pub fn native_snapshots(&self) -> &[NativeSnapshot] {
+        self.snapshots.get_or_init(crate::extension::native_snapshots)
     }
 
     /// The account and commodity directives of the ledger by name.
@@ -159,8 +192,6 @@ pub(crate) struct EntryInfo {
     pub seq: u32,
     /// for a transaction, its id
     pub txn: Option<Uuid>,
-    /// for a transaction, the kinds of the errors zhang recorded for it, when there are any
-    pub errors: Option<BTreeSet<String>>,
 }
 
 impl Entries {
@@ -171,12 +202,9 @@ impl Entries {
         let mut transactions = vec![];
         for (idx, directive, outcome) in ledger.entries() {
             let seq = outcome.seq.expect("an entry has its place");
-            let (txn, errors) = match &outcome.detail {
-                Detail::Transaction { id, errors } => {
-                    let kinds = errors.iter().map(|error| ledger.errors[*error].error_type.to_string());
-                    (Some(*id), Some(kinds.collect::<BTreeSet<_>>()).filter(|kinds| !kinds.is_empty()))
-                }
-                _ => (None, None),
+            let txn = match &outcome.detail {
+                Detail::Transaction { id, .. } => Some(*id),
+                _ => None,
             };
             if matches!(directive.data, Directive::Transaction(_)) {
                 transactions.push(seq);
@@ -185,7 +213,6 @@ impl Entries {
                 directive: idx as u32,
                 seq,
                 txn,
-                errors,
             });
         }
         Entries { rows, transactions }
@@ -244,7 +271,7 @@ pub(crate) struct CachedEntry {
     /// its directive (its index in [`Ledger::directives`]): its metadata, costs and prices are
     /// read from it
     pub parsed: u32,
-    /// its row of `#entries` (an index into [`Entries::rows`]): its `seq` and errors
+    /// its row of `#entries` (an index into [`Entries::rows`]): its `seq`, which its errors are found by
     pub entry: Option<u32>,
     /// its postings as written, by `posting_index`
     pub heads: Box<[Head]>,

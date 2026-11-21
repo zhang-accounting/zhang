@@ -12,7 +12,8 @@
 //! - [`errors`] reports problems in the ledger's error list;
 //! - [`prices`] gives exchange rates from the stream's `price` directives, as zhang computes them;
 //! - [`realization`] accumulates booked quantities and costs for selected accounts or subtrees;
-//! - [`router`] serves HTTP requests, queries the ledger, and appends to it when granted `allowed_writes`.
+//! - [`router`] serves HTTP requests, queries the ledger, and appends to it when granted `allowed_writes`;
+//! - [`analysis`] analyses the loaded ledger and publishes diagnostics and tables ([`decimal`] adds up exactly).
 //!
 //! ```no_run
 //! use zhang_plugin_sdk::{plugin, Directive, Error, Stream};
@@ -61,6 +62,7 @@
 //! [`prices`], which work since 0.2.0.
 
 mod abi;
+pub mod analysis;
 pub mod clock;
 pub mod config;
 pub mod custom;
@@ -80,6 +82,9 @@ pub use extism_pdk;
 pub use serde_json;
 pub use zhang_ast as ast;
 pub use zhang_ast::{Directive, Meta, PluginType, SpanInfo, Spanned};
+/// Zhang's exact decimal arithmetic, as the host computes: sums and products are exact, a division keeps 28
+/// significant digits ([`decimal::div`]); for analyzers adding up what the host converted.
+pub use zhang_shared::decimal;
 
 pub use crate::error::{Error, HostError, HostErrorKind};
 
@@ -145,6 +150,9 @@ pub mod prelude {
 /// fn route(request: Request) -> Result<Response, Error> { Ok(Response::text(request.path)) }
 /// ```
 ///
+/// An analyzer gives its `analyze` function and its manifest after the other handlers, `analyzer: analyze, manifest:
+/// manifest`: see [`analysis`].
+///
 /// The handler signatures are checked on every target. The exports exist only on `wasm32`, so a native build of
 /// the plugin crate (e.g. for `cargo test`) links nothing from zhang.
 #[macro_export]
@@ -156,12 +164,17 @@ macro_rules! plugin {
         $(, mapper: $mapper:path)?
         $(, router: $router:path)?
         $(, writes: [$($write:expr),* $(,)?])?
+        $(, analyzer: $analyzer:path, manifest: $manifest:path)?
         $(,)?
     ) => {
         $(const _: fn($crate::Stream) -> ::core::result::Result<$crate::Stream, $crate::Error> = $processor;)?
         $(const _: fn($crate::Spanned<$crate::Directive>) -> ::core::result::Result<$crate::Stream, $crate::Error> = $mapper;)?
         $(const _: fn($crate::router::Request) -> ::core::result::Result<$crate::router::Response, $crate::Error> = $router;)?
         $(const _: &[$crate::router::WriteKind] = &[$($write),*];)?
+        $(
+            const _: fn($crate::analysis::Input) -> ::core::result::Result<$crate::analysis::Output, $crate::Error> = $analyzer;
+            const _: fn() -> $crate::analysis::Manifest = $manifest;
+        )?
 
         #[cfg(not(target_arch = "wasm32"))]
         const _: () = {
@@ -190,6 +203,7 @@ macro_rules! plugin {
                 $(let _ = stringify!($processor); types.push($crate::PluginType::Processor);)?
                 $(let _ = stringify!($mapper); types.push($crate::PluginType::Mapper);)?
                 $(let _ = stringify!($router); types.push($crate::PluginType::Router);)?
+                $(let _ = stringify!($analyzer); types.push($crate::PluginType::Analyzer);)?
                 $crate::__private::export(|| ::core::result::Result::Ok(types))
             }
 
@@ -211,6 +225,18 @@ macro_rules! plugin {
                 #[export_name = "router"]
                 pub extern "C" fn __zhang_plugin_router() -> i32 {
                     $crate::__private::export_with_input("router", $router)
+                }
+            )?
+
+            $(
+                #[export_name = "manifest"]
+                pub extern "C" fn __zhang_plugin_manifest() -> i32 {
+                    $crate::__private::export(|| ::core::result::Result::Ok($manifest()))
+                }
+
+                #[export_name = "analyze"]
+                pub extern "C" fn __zhang_plugin_analyze() -> i32 {
+                    $crate::__private::export_with_input("analyze", $analyzer)
                 }
             )?
 

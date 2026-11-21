@@ -50,10 +50,10 @@ use tokio::sync::{OwnedRwLockReadGuard, OwnedSemaphorePermit, Semaphore};
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::http::PluginRequest;
 use zhang_core::plugin::log_safe;
-use zhang_core::plugin::router::{QueryFailure, RawQueryParam, RouterError, RouterHost, WriteBatch, WriteCommitted, WritePreview};
+use zhang_core::plugin::router::{Conversion, ConvertedAmount, QueryFailure, RawQueryParam, RouterError, RouterHost, WriteBatch, WriteCommitted, WritePreview};
 use zhang_core::plugin_policy::{PluginPolicy, Size};
 use zhang_query::params::bind_json;
-use zhang_query::{Params, Query, QueryError};
+use zhang_query::{Catalog, ParamTypes, Params, Query, QueryError};
 use zhang_shared::plugin_abi::HostError;
 
 use crate::error::error_response;
@@ -360,6 +360,11 @@ fn unlocated(message: String) -> QueryFailure {
 }
 
 impl ServerRouterHost {
+    /// `bql` with parameters of `types` compiled against the tables of the ledger served ([`Catalog::of_ledger`])
+    fn compile(&self, bql: &str, types: &ParamTypes) -> Result<Query, QueryFailure> {
+        Query::compile_in(&Catalog::of_ledger(&self.ledger), bql, types).map_err(failure)
+    }
+
     /// run `query` with `params` bound, with the limits of `POST /api/query`, and encode the
     /// result as that endpoint does
     fn run(&self, query: &Query, params: &Params) -> Result<Value, QueryFailure> {
@@ -371,16 +376,16 @@ impl ServerRouterHost {
 }
 
 impl RouterHost for ServerRouterHost {
-    /// compiled and run like `POST /api/query`, with the same limits
+    /// compiled against the ledger's tables and run like `POST /api/query`, with the same limits
     fn query(&self, bql: &str) -> Result<Value, QueryFailure> {
-        self.run(&Query::compile(bql).map_err(failure)?, &Params::new())
+        self.run(&self.compile(bql, &ParamTypes::default())?, &Params::new())
     }
 
     /// the parameters bound as the built-in queries bind theirs (`builtin::json_params`), then
     /// compiled with their declared types and run like [`RouterHost::query`]
     fn query_with_params(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Value, QueryFailure> {
         let (types, values) = bind_json(params.iter().map(|(name, param)| (name.as_str(), param.ty.as_str(), &param.value))).map_err(unlocated)?;
-        self.run(&Query::compile_with_params(bql, &types).map_err(failure)?, &values)
+        self.run(&self.compile(bql, &types)?, &values)
     }
 
     /// the schema as `GET /api/query/schema` answers it
@@ -405,7 +410,13 @@ impl RouterHost for ServerRouterHost {
             })
             .collect::<Result<HashMap<_, _>, _>>()?;
         let bound = builtin::json_params(query, values).map_err(|e| unlocated(e.to_string()))?;
-        self.run(builtin::compiled(name).map_err(|e| unlocated(e.to_string()))?, &bound)
+        let compiled = builtin::compiled_for(&self.ledger);
+        self.run(compiled.get(name).map_err(|e| unlocated(e.to_string()))?, &bound)
+    }
+
+    /// with the prices of the ledger served, as an analysis converts ([`crate::analysis::convert`])
+    fn convert(&self, conversions: &[Conversion]) -> Result<Vec<Option<ConvertedAmount>>, HostError> {
+        crate::analysis::convert(&self.ledger, conversions)
     }
 
     /// as `POST /api/transactions/preview` previews, see [`plugin_writes::preview`]

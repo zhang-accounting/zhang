@@ -12,6 +12,8 @@ use base64::Engine;
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+pub mod analysis;
+
 /// The plugin ABI version, which the host passes to every plugin as the config [`config::ABI`]. Additions a plugin
 /// can ignore (a new config key, a new host function) keep the version.
 pub const ABI_VERSION: u32 = 1;

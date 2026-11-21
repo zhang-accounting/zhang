@@ -5,13 +5,19 @@ sidebar:
   order: 5
 ---
 
-:::note[Status: every decision recorded on 2026-11-20]
-Nothing on this page is implemented. It answers the questions RFC
-[#698](https://github.com/zhang-accounting/zhang/issues/698) leaves to P1, against `main` at `9c156c7b`. File
-references are `path:line` at that commit.
+:::note[Status on 2026-11-21]
+- **Merged:** P0, the contract and the baseline (#835, #836, the known-issue fixes #842, the baseline after
+  #840/#841 #851); P1.1 (#839); P1.2 (#837); P1.3 (#843 to #845); P1.4 (#848 to #850, and its follow-ups #855); the
+  prerequisites I1 (#840, #841, #846) and I2 (#838); the fingerprint fix #847.
+- **In progress:** P1.5 (default plugins and named queries) and P1.6 (Lua analyzers).
+- **Next:** the G1 gate, measured end to end (decision 16), then P3 to P5.
+- **Release:** the owner decided that the whole migration ships in v0.3.0. Until then the `Analyzer` plugin type is
+  experimental (§2).
 
-The owner recorded every decision of [§11](#11-decisions) on 2026-11-20. The page applies them and the findings of an
-independent critique of its first version.
+The page answers the questions RFC [#698](https://github.com/zhang-accounting/zhang/issues/698) leaves to P1,
+against `main` at `9c156c7b`, where its `path:line` references point. The owner recorded every decision of
+[§11](#11-decisions) on 2026-11-20; the page applies them and the findings of an independent critique of its first
+version, and notes what the merged steps built where it differs ("as built").
 :::
 
 ## Summary
@@ -52,8 +58,8 @@ independent critique of its first version.
 10. **The plan is twelve pull requests,** after four prerequisites: I1, I2, P0's fixtures and baseline, and the
     known-issue fixes.
     - The generic mechanisms are proven first by re-hosting today's native budget code on them.
-    - The gates are G1 (Lua prototype) and P4, each measured on load p95 and `POST /api/transactions` p95, with
-      parity at every step.
+    - The gates are G1 (Lua prototype) and P4, each measured end to end: a load or a `POST /api/transactions`, then
+      the first budget page and the errors page after it (decision 16), with parity at every step.
 
 ## Terms
 
@@ -129,8 +135,9 @@ independent critique of its first version.
     - the ledger's errors *id-exact in report order* (`error_list`: `Ledger::errors` with id, place, kind, `n`, span
       and every meta);
     - exports and round trips in both formats.
-  - **Still to come.** A performance-baseline PR follows from lane P0. It holds load, query and write p95, memory and
-    the bench harness.
+  - **The performance baseline** came next from lane P0 (#836): load, query and write p95, memory and the bench
+    harness ([Budget Baseline](/developers/budget-baseline/)). It was measured again after #840/#841 (#851); those
+    numbers are the baseline of G1 and P4.
   - **Its notes for P1.** They are folded in below:
     - mismatches are reported after the fold;
     - a transfer reports `from` before `to`;
@@ -143,7 +150,7 @@ independent critique of its first version.
 A throwaway measurement taken while writing this page. It ran on the builder (Linux x86_64, release build) over
 generated ledgers with 10 budgets and 20% foreign-currency postings. The harness is not committed (Appendix B), so the
 figures are **indicative only**. They motivate decision 9, nothing else. G1 and P4 measure with the harness that P0's
-performance-baseline PR commits.
+performance-baseline PR commits, against its numbers after #840/#841.
 
 | Ledger | Load, no plugin | Load with a Rust→wasm processor returning the stream unchanged | Same, summing every posting per account and month with `BigDecimal` and `PriceMap::convert` | `#budgets` query today (warm cache) |
 | ---: | ---: | ---: | ---: | ---: |
@@ -173,6 +180,13 @@ fixed rule.
 | K5 | A `month` parameter that is not a first day is accepted | `zhang-server/src/builtin.rs:105-114,364-381` | The named queries move with the fix |
 
 ## 2. The Analyzer extension point
+
+:::caution[Experimental until the migration is complete]
+As built in P1.4, the `Analyzer` plugin type is experimental, and
+[Writing Plugins](/developers/writing-plugins/#analyzers) says so. Its ABI (the manifest, the records, the output,
+`zhang_convert`, the SDK's `analysis` module) may change in any release before the budget migration completes: P1.6
+adds Lua analyzers and a new Lua `api_version`. A release may ship before #698 is done.
+:::
 
 ### 2.1 Where it runs
 
@@ -316,16 +330,22 @@ fill.
     generation.
   - It now hashes each plugin's code (`RegisteredPlugin::hash_code`): a wasm module's bytes, a Lua script's source
     with the interpreter's identity, a bundled plugin's embedded file. P1.5's default plugins are covered by it.
+  - **As built in P1.4:** analyzers, default plugins included, are among the plugins hashed. What they publish is
+    still not hashed, with two exceptions. When an analyzer read the time (`zhang_now`), the date of the load is
+    hashed too, since an analysis is a function of the hashed inputs and, then, of the date; an analysis that read
+    the time and then failed counts as one that read it. And each analyzer's status is hashed (published, skipped,
+    or failed with its reason), so a load whose analysis failed, for a time limit or memory, is never the same
+    generation as one whose analysis published.
 - **Atomic publish.** The output is decoded, type-checked against the manifest, size-checked and converted to host
   values in full, and only then stored. Any failure stores `failed` with no data, never half a snapshot.
-- **The query cache is reset after the merge.** The analyzer's queries build the query engine's per-ledger cache
-  (`LedgerCache`, in `derived`, a `OnceLock`). Its `#entries` rows copy each transaction's error kinds from
-  `Detail::Transaction { errors }` (`zhang-query/src/table/cache.rs:161-170`), but `place_errors` fills that list only
-  after the merge (`zhang-core/src/ledger.rs:408`). So:
-  - the core replaces `derived` with a fresh one after the merge;
+- **What the query cache computed from the errors is dropped after the merge.** The analyzer's queries build the
+  query engine's per-ledger cache (`LedgerCache`, in `derived`, a `OnceLock`). Its `#entries` rows copy each
+  transaction's error kinds from `Detail::Transaction { errors }` (`zhang-query/src/table/cache.rs:161-170`), but
+  `place_errors` fills that list only after the merge (`zhang-core/src/ledger.rs:408`). So:
+  - **as built in P1.4,** the cache keeps those error kinds apart, computed on first use, and the core tells the
+    cache the errors changed after the merge (`DerivedData::errors_changed`): it drops them and keeps the rest, the
+    booked postings first of all, which the first query after the load then reads warm;
   - error-dependent tables and columns are refused during analysis (§2.2).
-
-  The first query after a load rebuilds the cache, as today. There is no warm cache to gain.
 - **Reuse (optional, P4).** A reload of unchanged content may reuse a snapshot whose digests match. It must be an `ok`
   snapshot: **a failed snapshot is never reused**, so the next load always retries. Reuse does not help writes, whose
   content always changes.
@@ -334,7 +354,7 @@ fill.
 
 | Failure | Effect |
 | --- | --- |
-| Trap, Lua error, timeout, out of memory, invalid or oversized output, an undeclared diagnostic kind, a value of the wrong type | **The ledger loads**, unlike a failing processor, which aborts the load. The snapshot is `failed`, and there is one diagnostic, `PluginAnalysisFailed`, a new generic kind with metas `plugin`, `reason` and `message`. It goes on the plugin's directive, or for a default plugin on the first directive it consumes. The tables answer the query error `table #budgets is unavailable: plugin zhang:budget failed (see the ledger errors)`. Label columns read empty, with the same error once per query. Other plugins are unaffected. |
+| Trap, Lua error, timeout, out of memory, invalid or oversized output, an undeclared diagnostic kind, a value of the wrong type | **The ledger loads**, unlike a failing processor, which aborts the load. The snapshot is `failed`, and there is one diagnostic, `PluginAnalysisFailed`, a new generic kind with metas `plugin`, `reason` and `message`. It goes on the plugin's directive, or for a default plugin on the first directive it consumes. The tables answer the query error `table #budgets is unavailable: plugin zhang:budget failed (see the ledger errors)`. A query that reads one of its label columns fails alike (`column postings.budgets is unavailable: …`). Other plugins are unaffected. Until P5, when `zhang:budget` fails, the native budget checks run after it and stand in for its diagnostics (§2.6). |
 | A query inside `analyze` fails | The plugin gets the error as a value, as routers do. Uncaught, the row above applies. |
 | An analyzer queries another's failed table | That query fails with the "unavailable" error. |
 
@@ -352,6 +372,18 @@ fill.
 
 - `{"seq": n}`, `{"txn": "uuid"}` or `{"plugin": true}`.
 - The host resolves it to the directive's `SpanInfo`; plugins never send spans.
+- **As built in P1.4:** the host also names the transaction itself. A plugin's `txn_id` meta is dropped (the load
+  sets it from the target), and so is its `account_name`, but on the legacy budget kinds, whose messages name the
+  account. A diagnostic has at most 32 metas; a meta's key and value, its kind and its message are each cut at
+  4 KiB.
+
+**Native fallback until P5 (as built in P1.4).** When the default `zhang:budget` declares the legacy budget kinds,
+the fold does not run the native budget checks: its diagnostics report those errors. When its analysis does not
+publish, the load runs the native checks after it, over the folded directives, and merges their errors where the fold
+reports its own: those of a budget directive or a transaction at it, those of the amounts no price converts after
+the fold. They are the only fold errors at those directives and after the fold's loop, so they keep the places and ids
+of a native fold, next to the `PluginAnalysisFailed`. A load whose analysis publishes runs no native budget code. P5
+deletes the native checks and this fallback with them.
 
 **Placement, which fixes the report order and with it the ids.** #835 pins `Ledger::errors` id-exact in *report
 order*, and ids are `of_error(place, kind, n)` with `n` counted in that order (`identify_errors`,
@@ -384,10 +416,14 @@ it:
 | Limit | Value (proposal) | Why |
 | --- | --- | --- |
 | Call time | The plugin's `timeout`, capped by `ZHANG_PLUGIN_MAX_TIMEOUT` (30 s) | After I1 a reload no longer stalls readers, but a write still waits for its reload: analysis time is write latency, gated in G1 and P4 |
+| Analyses of one load | `ZHANG_PLUGIN_MAX_TIMEOUT` together (as built in P1.4): each runs at most what the analyses before it left, and one whose turn comes after it fails with `timeout` without running | A load's analyses cannot add more than one time limit to a write |
 | Memory | `ZHANG_PLUGIN_MAX_MEMORY` (256 MiB per instance); Lua's 64 MiB of values | Unchanged |
 | Each query | `POST /api/query` limits: 10 s and 1,000,000 values | Unchanged |
 | Queries per analysis | 10,000 | Keeps a looping script finite before the timeout |
-| Output | 1,000,000 values and 64 MiB of JSON | Bounds the host's copy |
+| Output | 1,000,000 values and 64 MiB of JSON (as built in P1.4: 32 MiB, 4,000,000 JSON values and 400,000 objects, counted before anything is decoded) | Bounds the host's copy |
+| Manifest | 1 MiB of JSON (as built in P1.4) | Read on every load |
+| `zhang_convert` | 10,000 conversions a call; each number at most 1,000 digits written out, refused before it is parsed; each result at most 2,000 (as built in P1.4) | A number such as `1e999999999999999999` would otherwise exhaust the host |
+| Diagnostic metas | 32 a diagnostic, each key and value cut at 4 KiB, as are the kind and the message (as built in P1.4) | §2.6 |
 | Series rows at publish | Sparse facts only, within the output cap | Dense months are generated per query (§3.7) |
 | Diagnostics | 10,000 | §2.6 |
 
@@ -758,9 +794,18 @@ the optional item #805 deferred.
   It also settles the review's "dkjson is slow" item for `zhang:mcp`.
 - **Load-outside-the-lock is a prerequisite** (lane I1, §2.1).
 - **Gate G1** (after P1.6): a Lua prototype of the budget analyzer runs on P0's baseline ledgers, measuring:
-  - the **added load p95** and the **added `POST /api/transactions` p95**, at 10,000 and 100,000 transactions,
-    each at most 5% of P0's baseline or 50 ms, whichever is larger (decision 16);
+  - the **added end-to-end time**, at 10,000 and 100,000 transactions, at most 5% of the baseline or 50 ms,
+    whichever is larger (decision 16): from a load, or from a `POST /api/transactions`, to the answers of the first
+    budget page and the errors page that follow it;
+  - the **named-query p95**, at most 1.1× the baseline's, and **memory**, at most 10% more;
   - **parity** with #835's golden files.
+
+  The baseline is P0's after #840/#841
+  ([Budget Baseline, After #840/#841](/developers/budget-baseline/#after-840841)). The time is measured end to end
+  because, since #843 to #845, the native provider builds its snapshot of a ledger on the first budget query (36 to
+  61 ms at 10,000 transactions, 283 to 529 ms at 100,000), while an analyzer does that work in the load: a load-only
+  bar would count against the plugin what native does after the load, and a user waits for both, the write and the
+  budget page after it. The baseline has no errors-page time yet: the gate's harness measures it on both sides.
 
   **The bar is tight.** The estimate above for a budget-heavy ledger of 10,000 transactions is about 0.15 s, over
   50 ms, so G1 is a real test. The levers before any fallback are fewer, grouped host queries and a compact encoding
@@ -820,9 +865,9 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 
 | Risk | Mitigation |
 | --- | --- |
-| **Write latency**: every write reloads, and analysis is part of the reload | • G1 and P4 gate on `POST /api/transactions` p95, not only load. <br>• Host-side aggregation keeps the analysis small. <br>• The C JSON codec (I2). |
+| **Write latency**: every write reloads, and analysis is part of the reload | • G1 and P4 gate end to end: the load or the `POST /api/transactions`, then the first budget page and errors page after it. <br>• Host-side aggregation keeps the analysis small. <br>• The C JSON codec (I2). |
 | **Parity drift**, in report order and ids (placement, transfer `from`/`to`, after-fold mismatches), tie rules, booked legs against written postings, zero foreign amounts, the sign rule (K4) | • #835's golden files, ids and report order included. <br>• The dual run (`native\|plugin\|both`) in P3. <br>• **Differential fuzzing** over generated ledgers: native against plugin on the full `Ledger::errors` (id, kind, span, metas, order) and every table and named query. <br>• The `budget_reference` oracle. |
-| **The query cache built during analysis** | `derived` is reset after the merge; error-dependent tables, columns and queries are refused during analysis (§2.4) |
+| **The query cache built during analysis** | What it computed from the errors is dropped after the merge; error-dependent tables, columns and queries are refused during analysis (§2.4) |
 | **The catalog refactor** reaches `CExpr::Column`, the projector's 64-column bitmask and every `&'static Table` | P1.1 is byte-identical by construction and guarded by the equivalence and oracle suites |
 | **The fingerprint missed script edits** (§2.4) | Fixed ahead of P1.5: it hashes every plugin's code, script sources and bundled plugins included |
 | **Reusing a bad snapshot** | Only `ok` snapshots are ever reused; a failed one is retried on the next load |
@@ -869,7 +914,7 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | **I1** Reload: load outside the write lock, swap under it (decided) | lane I1, in progress | P1.4 |
 | **I2** C JSON codec replacing dkjson in the Lua interpreter (decided) | lane I2, in progress | P1.6 |
 | **P0** Contract fixtures: [#835](https://github.com/zhang-accounting/zhang/pull/835) | lane P0, open | P1.3 onwards |
-| **P0b** Performance baseline: load, query and write p95, memory, committed bench harness | lane P0, next PR | G1, P4 |
+| **P0b** Performance baseline: load, query and write p95, memory, committed bench harness | lane P0: #836, measured again after #840/#841 in #851 (the baseline of G1 and P4) | G1, P4 |
 | **K1–K5** Known-issue fixes (§1.4), one PR each after the owner confirms it is a bug, each updating #835's golden files | the owner, then a lane | P3.1 |
 
 ### 10.2 The twelve pull requests
@@ -882,14 +927,14 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | **P1.1** `refactor(query)` table and column references | `TableRef`, `ColumnRef`, `CExpr::Column(ColumnRef)`, a projection bitset without the 64-column cap, `Query::compile_in` over the core catalog only | Byte-identical: every engine, oracle, API and golden suite, `GET /api/query/schema`, the OpenAPI document and `schemas.ts`; a test with a 65-column table |
 | **P1.2** `feat(core)` open metadata at a time | The lifecycle keeps open metas; `open_meta_values`; `account_budgets` as an alias | #835 unchanged; reopen and same-day tests |
 | **P1.3** `feat(query)` extension tables | Record tables with row metadata. Series tables with `carry`, `zero` and `previous`, the generic `{seq}` causes, the tie rules, and the `#budgets` wording in the compat allowlist. Label columns with the `:x IN column` fast path. Catalog digest, `provided_by` (OpenAPI and `schemas.ts` regenerated). Today's native budget code re-hosted on them through an in-process provider. | #835 byte-identical; engine budget suites unchanged; tie-rule tests; no slower than P0b |
-| **P1.4** `feat(plugin)` Analyzer (after I1) | ABI module (manifest, records, output). `AnalysisHost` hook. Snapshots; never reuse a failed one. Diagnostic placement by phase and target. Reset of `derived`; refusal of error-dependent tables. `zhang_convert`, limits, recursion guard, failure isolation. SDK `analyzer:` and `decimal`. **The lifecycle and isolation tests:** module and config swap, clock change at midnight, concurrent reload and query, timeout, OOM, trap, invalid output, missing plugin. | Every failure mode loads the ledger with one diagnostic and no partial snapshot; an SDK fixture analyzer's diagnostics land at the places and ids the native fold gives |
+| **P1.4** `feat(plugin)` Analyzer (after I1) | ABI module (manifest, records, output). `AnalysisHost` hook. Snapshots; never reuse a failed one. Diagnostic placement by phase and target. Reset of what `derived` computed from the errors; refusal of error-dependent tables. `zhang_convert`, limits, recursion guard, failure isolation. SDK `analyzer:` and `decimal`. **The lifecycle and isolation tests:** module and config swap, clock change at midnight, concurrent reload and query, timeout, OOM, trap, invalid output, missing plugin. | Every failure mode loads the ledger with one diagnostic and no partial snapshot; an SDK fixture analyzer's diagnostics land at the places and ids the native fold gives |
 | **P1.5** `feat(plugin)` default plugins and named queries (absorbs P2) | Plugin-declared named queries per catalog digest. Default bundled plugins and `zhang:budget` (Lua, queries only) serving the five `budgets.*` queries moved from `builtin.rs`, still over native tables. `ZHANG_PLUGINS=off` stops defaults, with `ExtensionUnavailable` and the upgrade note. `GET /api/plugins` fields. (The fingerprint already hashes script sources and bundled plugins, §2.4.) | #835 and `builtins.ts` byte-identical; the matrix `features.plugin` × `ZHANG_PLUGINS` × runtime present or absent |
 | **P1.6** `feat(plugin)` Lua analyzers (after I2) | Interpreter: the `Analyzer` type, the manifest in the module table, `zhang.decimal` (pure Lua, §4), `zhang.convert`, `api_version` 2 | Decimal parity property tests; Lua and MCP tests unchanged; reproducible module |
-| ⛳ **G1** gate, not a PR | A Lua budget-analyzer prototype on P0b's ledgers | Added load p95 **and** added `POST /api/transactions` p95 each ≤ max(5% of P0b, 50 ms) at 10,000 and 100,000 transactions; parity with #835. On failure, the Rust→wasm fallback only with the owner's go-ahead |
+| ⛳ **G1** gate, not a PR | A Lua budget-analyzer prototype on P0b's ledgers | Added end-to-end time (a load or a `POST /api/transactions`, then the first budget page and errors page after it) ≤ max(5% of P0b after #840/#841, 50 ms) at 10,000 and 100,000 transactions; named-query p95 ≤ 1.1×; memory ≤ +10%; parity with #835. On failure, the Rust→wasm fallback only with the owner's go-ahead |
 | **P3.1** `feat(budget)` definitions and events | `budget.lua` publishes `#budget_definitions`, `#budget_events` and the directive diagnostics. Test switch `native\|plugin\|both`. The differential fuzzing harness (seeded generated ledgers; full `Ledger::errors` and every table and named query) | `both` and the fuzzer report no difference |
 | **P3.2** `feat(budget)` activity, series and labels | Activity by host BQL per budget, carry-over facts, `#budgets` as a series, `postings.budgets` labels, posting diagnostics, the after-fold mismatches | `both`, the fuzzer and the `budget_reference` oracle report no difference |
 | ⛳ **P3.3** `feat(budget)!` switch | The plugin is the only runtime implementation; native code remains only behind the test switch. A playground regression test (`bindings/wasm`: `ExtensionUnavailable` on a budget ledger, unchanged otherwise) | #835 identical, ids and report order included; ⛳ the owner confirms |
-| ⛳ **P4** `test(budget)` performance and release | Paired native and plugin runs at 10,000 and 100,000 transactions: many budgets, currencies and months, typo dates, concurrent requests. Load, named-query and write p95; memory. Container first start and upgrade canary. | ⛳ Added load and write p95 each ≤ max(5% of P0b, 50 ms) at 10,000 and 100,000; named-query p95 ≤ 1.1×; memory ≤ +10% |
+| ⛳ **P4** `test(budget)` performance and release | Paired native and plugin runs at 10,000 and 100,000 transactions: many budgets, currencies and months, typo dates, concurrent requests. Load, named-query and write p95; memory. Container first start and upgrade canary. | ⛳ Added end-to-end time (a load or a write, then the first budget page and errors page after it) ≤ max(5% of P0b after #840/#841, 50 ms) at 10,000 and 100,000; named-query p95 ≤ 1.1×; memory ≤ +10% |
 | **P5** `refactor(core)!` delete native, and docs | Removes `process/budget.rs`, the `Ledger` budget fields, `check_budgets`, `table/budgets.rs`, `Record::Budget*`, `posting_budgets`, `as_budget_interval`, the in-process provider and the switch. Keeps the compat mapping. Docs: budgets guide, query reference, plugin development, upgrading (en and zh-cn). | `rg -i budget` in `zhang-core/src` and `zhang-query/src` finds only the compat mapping; every suite green; the docs build |
 
 ## 11. Decisions
@@ -911,7 +956,7 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | 13 | `postings.budgets` | **Decided (2026-11-20)** | Label column from a predicate template | No per-posting data across the boundary |
 | 14 | Known issues K1–K5 | **Decided (2026-11-20)** | Fixed on `main` before the migration, one PR each after the owner confirms the bug | The migration is a pure move |
 | 15 | Scope cuts | **Decided (2026-11-20)** (lead) | No `replaces`, no router LRU, no release asset for the script, P2 folded into P1.5, P4.2's tests folded into P1.4 | Twelve PRs |
-| 16 | Pass bars for G1 and P4 | **Decided (2026-11-20)** | Added load p95 **and** added `POST /api/transactions` p95 each ≤ max(5% of P0b, 50 ms) at 10,000 and 100,000 transactions; named-query p95 ≤ 1.1×; memory ≤ +10% | Stricter than proposed: they decide G1's outcome (a failure needs the owner's go-ahead for the Rust→wasm fallback) and the P5 go |
+| 16 | Pass bars for G1 and P4 | **Decided (2026-11-20), revised (2026-11-21)** | End to end: the time a load or a `POST /api/transactions` takes, followed by the first budget page and the errors page, added by the plugin ≤ max(5%, 50 ms) at 10,000 and 100,000 transactions; named-query p95 ≤ 1.1×; memory ≤ +10%. The baseline is P0b's numbers after #840/#841 (#851). It was load p95 and `POST /api/transactions` p95 alone | Stricter than proposed: they decide G1's outcome (a failure needs the owner's go-ahead for the Rust→wasm fallback) and the P5 go. End to end because the native provider builds its budget snapshot on the first query after a load (#843 to #845), which an analyzer does in the load (§7) |
 
 ## Appendix A: the budget analysis, step by step
 
@@ -965,4 +1010,5 @@ What `budget.lua`'s `analyze` does. Every step marked *host* is exact in Rust.
   a 600 s timeout. The default 256 MiB was not tested.
 - **Samples.** The median of 5 runs at 10,000 transactions and of 3 at 50,000. Queries: the median of 7 executions;
   the first builds the per-ledger cache.
-- **Status.** Not committed, hence indicative. P0b's committed harness is where G1 and P4 measure.
+- **Status.** Not committed, hence indicative. P0b's committed harness is where G1 and P4 measure, end to end
+  (decision 16).

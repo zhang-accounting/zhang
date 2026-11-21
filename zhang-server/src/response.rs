@@ -480,6 +480,7 @@ pub enum PluginTypeEntity {
     Processor,
     Mapper,
     Router,
+    Analyzer,
 }
 
 impl PluginTypeEntity {
@@ -489,6 +490,7 @@ impl PluginTypeEntity {
             PluginType::Processor => Some(PluginTypeEntity::Processor),
             PluginType::Mapper => Some(PluginTypeEntity::Mapper),
             PluginType::Router => Some(PluginTypeEntity::Router),
+            PluginType::Analyzer => Some(PluginTypeEntity::Analyzer),
             PluginType::Unknown => None,
         }
     }
@@ -1094,10 +1096,13 @@ pub struct SavedQueryEntity {
     pub error: Nullable<String>,
 }
 
-impl From<QueryDomain> for SavedQueryEntity {
-    fn from(value: QueryDomain) -> Self {
-        // TODO(P1.4): check against the catalog of the ledger the query is saved in (`Catalog::of_ledger`)
-        let error = zhang_query::Query::compile(&value.query).err().map(|error| error.to_string());
+impl SavedQueryEntity {
+    /// The query `value`, saved in a ledger whose tables are those of `catalog` ([`zhang_query::Catalog::of_ledger`]),
+    /// which it is checked against.
+    pub fn of(value: QueryDomain, catalog: &zhang_query::Catalog) -> Self {
+        let error = zhang_query::Query::compile_in(catalog, &value.query, &zhang_query::ParamTypes::default())
+            .err()
+            .map(|error| error.to_string());
         SavedQueryEntity {
             name: value.name,
             query: value.query,

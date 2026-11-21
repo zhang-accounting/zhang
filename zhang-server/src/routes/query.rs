@@ -6,7 +6,7 @@ use axum::Json;
 use gotcha::api;
 use log::{info, warn};
 use zhang_core::ledger::Ledger;
-use zhang_query::{ExecuteOptions, Params, Query, QueryResult, DEFAULT_MAX_RESULT_VALUES};
+use zhang_query::{Catalog, ExecuteOptions, ParamTypes, Params, Query, QueryResult, DEFAULT_MAX_RESULT_VALUES};
 
 use crate::builtin::{self, BUILTINS};
 use crate::error::ServerError;
@@ -115,14 +115,17 @@ pub async fn with_ledger<T: Send + 'static>(ledger: &LedgerState, work: impl FnO
 /// Compile and run a query off the async workers, under the ledger read lock, the time
 /// limit and the result size limit. The query length is capped by the parser.
 async fn execute(ledger: &LedgerState, text: String, max_result_values: u64, count_total: bool) -> ServerResult<QueryResult> {
-    // compiling needs no ledger; run it, and the CPU-bound execution, off the async workers
-    // TODO(P1.4): compile inside `with_ledger` against `Catalog::of_ledger`, once plugins give a ledger tables of its own
-    let query = tokio::task::spawn_blocking(move || Query::compile(&text)).await??;
     let options = ExecuteOptions {
         count_total,
         ..execute_options(max_result_values)
     };
-    with_ledger(ledger, move |ledger| Ok(query.execute_with_options(ledger, &Params::new(), &options)?)).await
+    // compiled against the tables of the ledger it runs on, its analyzers' included, under the same lock: a reload
+    // between compiling and running cannot change them
+    with_ledger(ledger, move |ledger| {
+        let query = Query::compile_in(&Catalog::of_ledger(ledger), &text, &ParamTypes::default())?;
+        Ok(query.execute_with_options(ledger, &Params::new(), &options)?)
+    })
+    .await
 }
 
 /// The built-in queries: the named BQL behind the figures the app shows, which the Query page
@@ -221,8 +224,16 @@ pub async fn get_query_schema(ledger: State<SharedLedger>) -> ApiResult<QuerySch
 /// invalid one is still listed, with its `error`.
 #[api(group = "query")]
 pub async fn get_saved_queries(ledger: State<SharedLedger>) -> ApiResult<Vec<SavedQueryEntity>> {
-    let queries = ledger.read().await.queries();
-    let saved = tokio::task::spawn_blocking(move || queries.into_iter().map(SavedQueryEntity::from).collect::<Vec<_>>()).await?;
+    // each compiled against the tables of the ledger it is saved in
+    let saved = with_ledger(&ledger, |ledger| {
+        let catalog = Catalog::of_ledger(ledger);
+        Ok(ledger
+            .queries()
+            .into_iter()
+            .map(|query| SavedQueryEntity::of(query, &catalog))
+            .collect::<Vec<_>>())
+    })
+    .await?;
     ResponseWrapper::json(saved)
 }
 
@@ -1000,5 +1011,108 @@ mod builtin_test {
             let (_, body) = query(&ledger, "SELECT date, account ORDER BY seq LIMIT 2 OFFSET 1", count_total).await;
             assert_eq!(body["data"].as_object().unwrap().keys().collect::<Vec<_>>(), ["columns", "rows"]);
         }
+    }
+}
+
+/// A ledger with tables of its own: what its analyzers provide, in a catalog built while it loads. Every query to run on
+/// it compiles against that catalog, under the lock it runs under.
+#[cfg(test)]
+mod ledger_catalog_test {
+    use std::any::Any;
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    use axum::extract::State;
+    use axum::response::IntoResponse;
+    use serde_json::{json, Value};
+    use zhang_core::clock::Clock;
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::data_type::DataType;
+    use zhang_core::extensions::{AnalyzerSlot, Snapshot};
+    use zhang_core::ledger::{Ledger, LedgerProcessContext};
+    use zhang_query::analysis::{ledger_catalog, publish, AnalyzerTables};
+    use zhang_query::Catalog;
+
+    use super::{get_saved_queries, run, run_builtin};
+    use crate::builtin;
+    use crate::request::{BuiltinParamValue, BuiltinQueryRunRequest};
+    use crate::state::SharedLedger;
+
+    /// A ledger whose analyzer `shop` published an item, with saved queries of its table.
+    fn ledger() -> Ledger {
+        let text = "1970-01-01 open Assets:Cash\n\
+                    2024-01-01 query \"items\" \"SELECT item FROM #shop_items\"\n\
+                    2024-01-01 query \"typo\" \"SELECT nope FROM #shop_items\"\n";
+        let directives = ZhangDataType {}.transform(text.to_owned(), None).unwrap();
+        let mut ledger = Ledger::process(LedgerProcessContext {
+            directives,
+            entry: (PathBuf::from("."), "main.zhang".to_owned()),
+            dialect: zhang_core::data_type::Dialect::Zhang,
+            visited_files: vec![],
+            data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+            clock: Clock::System,
+        })
+        .unwrap();
+        let manifest = serde_json::from_value(json!({
+            "analysis_abi": 1,
+            "tables": [{"name": "items", "kind": "records", "columns": [{"name": "item", "type": "str"}]}]
+        }))
+        .unwrap();
+        let catalog = ledger_catalog(&[AnalyzerTables {
+            provider: "shop",
+            manifest: &manifest,
+            legacy: false,
+        }]);
+        ledger.extensions.catalog = Some(catalog.catalog.clone() as Arc<dyn Any + Send + Sync>);
+        ledger.extensions.analyzers = catalog.analyzers().map(AnalyzerSlot::new).collect();
+        let output = serde_json::from_value(json!({"tables": {"items": [{"item": "apple"}]}})).unwrap();
+        let data = publish(&ledger, "shop", &output).unwrap();
+        ledger.extensions.analyzers[0].snapshot.set(Snapshot::ok(data)).unwrap();
+        ledger
+    }
+
+    async fn body(response: impl IntoResponse) -> Value {
+        let bytes = axum::body::to_bytes(response.into_response().into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn queries_compile_against_the_tables_of_the_ledger_they_run_on() {
+        let shared = SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger())));
+        let rows = body(run(&shared, "SELECT item FROM #shop_items".to_owned(), 100, false).await).await;
+        assert_eq!(rows["data"]["rows"], json!([["apple"]]));
+        // the built-in queries too: those reading the native tables run, compiled once for the ledger's catalog
+        let month = HashMap::from([("month".to_owned(), Some(BuiltinParamValue::Text("2024-01-01".to_owned())))]);
+        let request = BuiltinQueryRunRequest {
+            params: month,
+            count_total: None,
+        };
+        let budgets = body(run_builtin(&shared, "budgets.month", request).await).await;
+        assert_eq!(budgets["data"]["rows"], json!([]), "{budgets}");
+        let served = shared.read().await;
+        let compiled = builtin::compiled_for(&served);
+        assert!(Arc::ptr_eq(&compiled, &builtin::compiled_for(&served)), "compiled once per catalog");
+        assert!(!Arc::ptr_eq(&compiled, &builtin::compiled_for(&ledger_without_tables())));
+        assert_ne!(Catalog::of_ledger(&served).digest(), Catalog::standard().digest());
+        drop(served);
+        // the saved queries are checked against the ledger's tables
+        let saved = body(get_saved_queries(State(shared)).await).await;
+        assert_eq!(saved["data"][0]["valid"], json!(true), "{saved}");
+        assert_eq!(saved["data"][1]["valid"], json!(false), "{saved}");
+    }
+
+    fn ledger_without_tables() -> Ledger {
+        let directives = ZhangDataType {}.transform("1970-01-01 open Assets:Cash\n".to_owned(), None).unwrap();
+        Ledger::process(LedgerProcessContext {
+            directives,
+            entry: (PathBuf::from("."), "main.zhang".to_owned()),
+            dialect: zhang_core::data_type::Dialect::Zhang,
+            visited_files: vec![],
+            data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+            clock: Clock::System,
+        })
+        .unwrap()
     }
 }

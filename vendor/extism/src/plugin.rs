@@ -51,6 +51,10 @@ pub struct CompiledPlugin {
 impl CompiledPlugin {
     /// Create a new pre-compiled plugin
     pub fn new(builder: PluginBuilder) -> Result<CompiledPlugin, Error> {
+        if builder.options.initialization_fuel.is_some() && builder.options.fuel.is_none() {
+            anyhow::bail!("an initialization fuel limit requires a call fuel limit");
+        }
+
         let mut config = builder.config.unwrap_or_default();
         config
             .epoch_interruption(true)
@@ -175,6 +179,8 @@ pub struct Plugin {
     pub(crate) error_msg: Option<Vec<u8>>,
 
     pub(crate) fuel: Option<u64>,
+
+    pub(crate) initialization_fuel: Option<u64>,
 
     pub(crate) host_context: Rooted<ExternRef>,
 }
@@ -369,7 +375,7 @@ fn relink(
                     .is_none()
                 && linker
                     .get(&mut store, EXTISM_ENV_MODULE, import.name())
-                    .is_none()
+                    .is_err()
             {
                 let (kind, ty) = match import.ty() {
                     ExternType::Func(t) => ("function", t.to_string()),
@@ -394,7 +400,7 @@ fn relink(
 
     // If wasi is enabled then add it to the linker
     if with_wasi {
-        wasi_common::sync::add_to_linker(&mut linker, |x: &mut CurrentPlugin| {
+        wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |x: &mut CurrentPlugin| {
             &mut x.wasi.as_mut().unwrap().ctx
         })?;
     }
@@ -461,9 +467,10 @@ impl Plugin {
             )?,
         );
         store.set_epoch_deadline(1);
-        if let Some(fuel) = compiled.options.fuel {
-            store.set_fuel(fuel)?;
-        }
+        // Reactor modules can execute initialization during linking. Use the
+        // initialization override when configured, otherwise preserve the
+        // existing behavior by falling back to the call fuel limit.
+        Self::apply_fuel_limit(&mut store, compiled.options.effective_initialization_fuel())?;
 
         let imports: Vec<Function> = compiled.options.functions.to_vec();
         let (instance_pre, linker, host_context) = relink(
@@ -491,6 +498,7 @@ impl Plugin {
             _functions: imports,
             error_msg: None,
             fuel: compiled.options.fuel,
+            initialization_fuel: compiled.options.effective_initialization_fuel(),
             host_context,
         };
 
@@ -526,9 +534,9 @@ impl Plugin {
             );
             self.store.set_epoch_deadline(1);
 
-            if let Some(fuel) = self.fuel {
-                self.store.set_fuel(fuel)?;
-            }
+            // A new store starts with no fuel. Restore the effective
+            // initialization budget before relinking can execute WebAssembly.
+            Self::apply_fuel_limit(&mut self.store, self.initialization_fuel)?;
 
             let (instance_pre, linker, host_context) = relink(
                 &engine,
@@ -644,7 +652,7 @@ impl Plugin {
         self.reset()?;
         let handle = self.current_plugin_mut().memory_new(bytes)?;
 
-        if let Some(f) = self
+        if let Ok(f) = self
             .linker
             .get(&mut self.store, EXTISM_ENV_MODULE, "input_set")
         {
@@ -661,7 +669,7 @@ impl Plugin {
             )?;
         }
 
-        if let Some(Extern::Global(ctxt)) =
+        if let Ok(Extern::Global(ctxt)) =
             self.linker
                 .get(&mut self.store, EXTISM_ENV_MODULE, "extism_context")
         {
@@ -676,7 +684,7 @@ impl Plugin {
     pub fn reset(&mut self) -> Result<(), Error> {
         let id = self.id.to_string();
 
-        if let Some(f) = self.linker.get(&mut self.store, EXTISM_ENV_MODULE, "reset") {
+        if let Ok(f) = self.linker.get(&mut self.store, EXTISM_ENV_MODULE, "reset") {
             catch_out_of_fuel!(
                 &self.store,
                 f.into_func()
@@ -806,34 +814,30 @@ impl Plugin {
         let out = &mut [Val::I64(0)];
         let out_len = &mut [Val::I64(0)];
         let store = &mut self.store;
-        if let Some(f) = self
+
+        let f = self
             .linker
             .get(&mut *store, EXTISM_ENV_MODULE, "output_offset")
-        {
-            catch_out_of_fuel!(
-                &store,
-                f.into_func()
-                    .unwrap()
-                    .call(&mut *store, &[], out)
-                    .context("call to set extism output offset failed")
-            )?;
-        } else {
-            anyhow::bail!("unable to set output")
-        }
-        if let Some(f) = self
+            .context("unable to set output")?;
+        catch_out_of_fuel!(
+            &store,
+            f.into_func()
+                .unwrap()
+                .call(&mut *store, &[], out)
+                .context("call to set extism output offset failed")
+        )?;
+
+        let f = self
             .linker
             .get(&mut *store, EXTISM_ENV_MODULE, "output_length")
-        {
-            catch_out_of_fuel!(
-                &store,
-                f.into_func()
-                    .unwrap()
-                    .call(&mut *store, &[], out_len)
-                    .context("call to set extism output length failed")
-            )?;
-        } else {
-            anyhow::bail!("unable to set output length")
-        }
+            .context("unable to set output length")?;
+        catch_out_of_fuel!(
+            &store,
+            f.into_func()
+                .unwrap()
+                .call(&mut *store, &[], out_len)
+                .context("call to set extism output length failed")
+        )?;
 
         let offs = out[0].unwrap_i64() as u64;
         let len = out_len[0].unwrap_i64() as u64;
@@ -882,17 +886,18 @@ impl Plugin {
         let name = name.as_ref();
         let input = input.as_ref();
 
-        if let Some(fuel) = self.fuel {
-            self.store.set_fuel(fuel).map_err(|x| (x.into(), -1))?;
-        }
+        // Apply the effective initialization budget before reset, relinking,
+        // instantiation, or guest initialization can execute WebAssembly.
+        Self::apply_fuel_limit(&mut self.store, self.initialization_fuel).map_err(|x| (x, -1))?;
 
-        catch_out_of_fuel!(
-            &self.store,
-            self.reset_store(lock).map_err(wasmtime::Error::from_anyhow)
-        )
-        .map_err(|x| (x.into(), -1))?;
+        self.reset_store(lock).map_err(|x| (x, -1))?;
 
         self.instantiate(lock).map_err(|e| (e, -1))?;
+
+        // Initialization has finished. Refill the normal call budget before
+        // input marshalling so Extism kernel operations retain their upstream
+        // fuel accounting behavior.
+        Self::apply_fuel_limit(&mut self.store, self.fuel).map_err(|x| (x, -1))?;
 
         // Set host context
         let r = if let Some(host_context) = host_context {
@@ -1065,7 +1070,7 @@ impl Plugin {
                     }
                 }
 
-                let wasi_exit_code = e.downcast_ref::<wasi_common::I32Exit>().map(|e| e.0);
+                let wasi_exit_code = e.downcast_ref::<wasmtime_wasi::I32Exit>().map(|e| e.0);
                 if let Some(exit_code) = wasi_exit_code {
                     debug!(
                         plugin = self.id.to_string(),
@@ -1202,6 +1207,14 @@ impl Plugin {
             .and_then(move |_| self.output().map_err(|e| (e, -1)))
     }
 
+    /// zhang patch: set how long each later call of this instance may run, in place of the
+    /// `timeout_ms` of the manifest it was compiled with (`None`: no limit), so that a host can
+    /// give one instance less time than its compiled plugin's settings without compiling again
+    pub fn set_timeout(&mut self, timeout: Option<std::time::Duration>) {
+        self.current_plugin_mut().manifest.timeout_ms =
+            timeout.map(|timeout| u64::try_from(timeout.as_millis()).unwrap_or(u64::MAX));
+    }
+
     /// Get a `CancelHandle`, which can be used from another thread to cancel a running plugin
     pub fn cancel_handle(&self) -> CancelHandle {
         self.cancel_handle.clone()
@@ -1212,7 +1225,7 @@ impl Plugin {
         self.error_msg = None;
         let (linker, mut store) = self.linker_and_store();
         #[allow(clippy::needless_borrows_for_generic_args)]
-        if let Some(f) = linker.get(&mut *store, EXTISM_ENV_MODULE, "error_set") {
+        if let Ok(f) = linker.get(&mut *store, EXTISM_ENV_MODULE, "error_set") {
             let x = f
                 .into_func()
                 .unwrap()
@@ -1223,6 +1236,16 @@ impl Plugin {
         } else {
             anyhow::bail!("Plugin::clear_error failed, extism:host/env::error_set not found")
         }
+    }
+
+    /// Apply the configured fuel limit before WebAssembly can execute. This
+    /// bounds module instantiation, guest initialization, and exported calls.
+    /// No-op when fuel limiting is disabled.
+    fn apply_fuel_limit(store: &mut Store<CurrentPlugin>, fuel: Option<u64>) -> Result<(), Error> {
+        if let Some(fuel) = fuel {
+            store.set_fuel(fuel)?;
+        }
+        Ok(())
     }
 
     /// Returns the amount of fuel consumed by the plugin.

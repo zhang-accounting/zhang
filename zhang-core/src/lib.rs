@@ -3,6 +3,7 @@ pub use error::ZhangError;
 #[macro_use]
 pub mod utils;
 
+pub mod analysis;
 pub(crate) mod booking;
 pub mod clock;
 pub mod constants;
@@ -11,6 +12,7 @@ pub mod data_type;
 pub mod derived;
 pub mod domains;
 pub mod error;
+pub mod extensions;
 pub mod inputs;
 pub mod inventory;
 pub mod ledger;

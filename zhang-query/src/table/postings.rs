@@ -149,7 +149,7 @@ impl<'a> Dataset<'a> {
         debug_assert!(projection.table().is_postings(), "{:?} has no postings", projection.table());
         let today = now.date();
         let postings = cache.postings(ledger);
-        let table = cache.entries(ledger);
+        let entry_errors = cache.entry_errors(ledger);
         let selected = scope.rows(postings);
 
         let count = selected.as_ref().map_or(postings.rows.len(), |rows| rows.len());
@@ -173,7 +173,7 @@ impl<'a> Dataset<'a> {
                     heads: Cow::Borrowed(&cached_entry.heads),
                     date: cached_entry.date,
                     seq: cached_entry.entry,
-                    errors: cached_entry.entry.and_then(|seq| table.rows[seq as usize].errors.as_ref()),
+                    errors: cached_entry.entry.and_then(|seq| entry_errors[seq as usize].as_ref()),
                 });
                 current = Some(cached.entry);
             }

@@ -108,8 +108,8 @@ use zhang_ast::{Account, Date, Directive, Meta, Spanned};
 use zhang_core::ledger::Ledger;
 
 use super::{
-    Cause, ColumnDecl, DatePart, FactRow, Fill, Label, LabelDecl, Manifest, NativeProvider, Partition, PeriodUnit, RecordRow, SeriesDecl, TableData, TableDecl,
-    TableKind,
+    Cause, ColumnDecl, DatePart, FactRow, Fill, Label, LabelDecl, Manifest, NativeProvider, Partition, PeriodUnit, RecordOrder, RecordRow, SeriesDecl,
+    TableData, TableDecl, TableKind,
 };
 use crate::params::Params;
 use crate::prices::PriceMap;
@@ -148,6 +148,7 @@ fn manifest() -> Manifest {
     let carry = || Some(Fill::Carry);
     let budgets = TableDecl {
         name: "budgets".to_owned(),
+        published_as: "budgets".to_owned(),
         description: "One row per budget per month, from the budget's first month through its last entry, the ledger's last month with a transaction or the current month, whichever is latest, with the assigned, activity and available amounts the budget pages show, in the budget's commodity; ordered by name, then month.".to_owned(),
         kind: TableKind::Series(SeriesDecl {
             period: "date".to_owned(),
@@ -200,10 +201,11 @@ fn manifest() -> Manifest {
     };
     let events = TableDecl {
         name: "budget_events".to_owned(),
+        published_as: "budget_events".to_owned(),
         description: "One row per effect of a budget directive, in ledger order: the amount a budget-add assigns, the amount a \
                       budget-transfer moves out of one budget and into another, and a budget-close."
             .to_owned(),
-        kind: TableKind::Records,
+        kind: TableKind::Records(RecordOrder::Published),
         columns: vec![
             column("name", Str, "Name of the budget.", None),
             column("date", Date, "Date of the budget directive.", None),
@@ -236,8 +238,9 @@ fn manifest() -> Manifest {
     };
     let definitions = TableDecl {
         name: "budget_definitions".to_owned(),
+        published_as: "budget_definitions".to_owned(),
         description: "One row per budget, as its directives define it: its commodity, display name, category, the accounts of its activity and the date and time it is closed; ordered by name. It has no months, so it reads no transaction.".to_owned(),
-        kind: TableKind::Records,
+        kind: TableKind::Records(RecordOrder::Columns(names(&["name"]))),
         columns: vec![
             column("name", Str, "Name of the budget, as written in its directives.", None),
             column("date", Date, "Date of the budget directive, from which the budget exists.", None),
@@ -268,6 +271,7 @@ fn manifest() -> Manifest {
     let postings_budgets = LabelDecl {
         table: "postings".to_owned(),
         name: "budgets".to_owned(),
+        published_as: "budgets".to_owned(),
         description: "The budgets the posting counts toward, as the budget pages count it: those the budget metadata of its \
         account's open in effect at its date and time names, defined before it and not closed by then, into \
         whose commodity a price converts it. The postings of a budget in a month add up to its activity in \
@@ -876,8 +880,14 @@ mod tests {
 
     #[test]
     fn the_budgets_column_is_indexed_by_the_budgets_accounts() {
-        let manifest = manifest();
-        let column = crate::extension::LabelColumn::compile(&std::sync::Arc::from(manifest.provider.as_str()), &manifest.labels[0]).unwrap();
+        let provider = &crate::extension::native_providers()[0];
+        let column = crate::extension::LabelColumn::compile(
+            &std::sync::Arc::from(provider.manifest.provider.as_str()),
+            provider.digest(),
+            provider.source,
+            &provider.manifest.labels[0],
+        )
+        .unwrap();
         let (indexed, param) = column.index.as_ref().expect("an index");
         assert_eq!((indexed.name(), param.to_string()), ("account", ":accounts".to_owned()));
     }
@@ -904,4 +914,112 @@ mod tests {
         assert_eq!(cells(0)[..4], ["Food", "Groceries", "NULL", "CNY"]);
         assert!(facts.iter().all(|fact| fact.meta.as_ref().is_some_and(|meta| meta.get_one("alias").is_some())));
     }
+}
+
+/// The manifest of the native provider as an analyzer declares it, which the example analyzer of `zhang-plugin-sdk`
+/// standing in for `zhang:budget` reads (`zhang-plugin-sdk/examples/budget/manifest.json`): the same tables, columns,
+/// descriptions and predicate, so that the catalog it gives a ledger is the native one, served from its snapshot.
+#[cfg(test)]
+mod as_an_analyzer {
+    use serde_json::{json, Value};
+
+    use super::*;
+
+    fn fill(fill: &Option<Fill>) -> Value {
+        match fill {
+            None => Value::Null,
+            Some(Fill::Carry) => json!("carry"),
+            Some(Fill::Zero) => json!("zero"),
+            Some(Fill::Previous(column)) => json!({ "previous": column }),
+        }
+    }
+
+    fn table(decl: &TableDecl) -> Value {
+        let columns = decl
+            .columns
+            .iter()
+            .map(|column| {
+                let mut value = json!({"name": column.name, "type": column.ty.name(), "description": column.description});
+                if column.fill.is_some() {
+                    value["fill"] = fill(&column.fill);
+                }
+                value
+            })
+            .collect::<Vec<_>>();
+        let mut value = json!({
+            "name": decl.published_as, "kind": "records", "description": decl.description, "columns": columns, "wildcard": decl.wildcard,
+        });
+        match &decl.kind {
+            TableKind::Records(RecordOrder::Published) => value["order"] = json!("published"),
+            TableKind::Records(RecordOrder::Columns(columns)) => value["order"] = json!(columns),
+            TableKind::Series(series) => {
+                value["kind"] = json!("series");
+                let derive = series
+                    .derive
+                    .iter()
+                    .map(|(column, part)| {
+                        let part = match part {
+                            DatePart::Year => "year",
+                            DatePart::Month => "month",
+                        };
+                        (column.clone(), json!(part))
+                    })
+                    .collect::<serde_json::Map<_, _>>();
+                value["period"] = json!({"column": series.period, "unit": "month", "derive": derive});
+                value["partition"] = json!(series.partition);
+                value["extend_to_today"] = json!(series.extend_to_today);
+            }
+        }
+        value
+    }
+
+    #[test]
+    fn the_budget_analyzer_example_declares_the_native_tables() {
+        let manifest = manifest();
+        let labels = manifest
+            .labels
+            .iter()
+            .map(|label| {
+                let params = label
+                    .params
+                    .iter()
+                    .map(|(name, ty)| (name.clone(), json!(ty.name())))
+                    .collect::<serde_json::Map<_, _>>();
+                json!({"table": label.table, "name": label.published_as, "description": label.description, "predicate": label.predicate, "params": params})
+            })
+            .collect::<Vec<_>>();
+        let declared = json!({
+            "analysis_abi": 1,
+            "consumes": ["budget", "budget-add", "budget-transfer", "budget-close"],
+            "open_meta": ["budget"],
+            "diagnostics": [
+                {"kind": "BudgetDoesNotExist"}, {"kind": "DefineDuplicatedBudget"}, {"kind": "BudgetClosed"},
+                {"kind": "BudgetCommodityMismatch", "phase": "after_fold"}
+            ],
+            "tables": manifest.tables.iter().map(table).collect::<Vec<_>>(),
+            "columns": labels,
+        });
+        let text = format!("{}\n", serde_json::to_string_pretty(&declared).unwrap());
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../zhang-plugin-sdk/examples/budget/manifest.json");
+        if matches!(std::env::var("UPDATE_GOLDEN").as_deref(), Ok("1" | "true")) {
+            std::fs::write(path, &text).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(path).unwrap_or_default(), text, "UPDATE_GOLDEN=1 rewrites {path}");
+        // and it reads back as the native manifest, but for the order of the parts of a period and of the parameters
+        // of a label, which a JSON object does not keep
+        let read: zhang_shared::plugin_abi::analysis::Manifest = serde_json::from_str(&text).unwrap();
+        let converted = super::super::abi::manifest(BUDGET_PROVIDER, &read, true).unwrap();
+        let mut native = manifest.clone();
+        for table in &mut native.tables {
+            if let TableKind::Series(series) = &mut table.kind {
+                series.derive.sort_by(|a, b| a.0.cmp(&b.0));
+            }
+        }
+        for label in &mut native.labels {
+            label.params.sort_by(|a, b| a.0.cmp(&b.0));
+        }
+        assert_eq!(format!("{:?}", converted), format!("{:?}", native));
+    }
+
+    const BUDGET_PROVIDER: &str = super::super::compat::BUDGET;
 }

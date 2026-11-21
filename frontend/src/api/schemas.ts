@@ -1698,7 +1698,7 @@ export interface operations {
               };
               name: string;
               /** @description the types the plugin runs as; a declared type this zhang does not know is left out */
-              plugin_type: ('Processor' | 'Mapper' | 'Router')[];
+              plugin_type: ('Processor' | 'Mapper' | 'Router' | 'Analyzer')[];
               /**
                * @description where a router plugin serves requests, `/api/plugins/{name}`; null for a plugin that is not a
                * router, and for a router whose name an earlier router plugin already serves
@@ -2534,7 +2534,8 @@ export interface operations {
                   | 'CostMergingNotSupported'
                   | 'PluginError'
                   | 'PluginsDisabled'
-                  | 'PluginCapabilityReduced';
+                  | 'PluginCapabilityReduced'
+                  | 'PluginAnalysisFailed';
                 metas: {
                   [key: string]: string;
                 };
@@ -2894,7 +2895,8 @@ export interface operations {
                   | 'CostMergingNotSupported'
                   | 'PluginError'
                   | 'PluginsDisabled'
-                  | 'PluginCapabilityReduced';
+                  | 'PluginCapabilityReduced'
+                  | 'PluginAnalysisFailed';
                 metas: {
                   [key: string]: string;
                 };

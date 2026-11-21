@@ -73,6 +73,25 @@ pub(crate) fn convert_units(units: &Amount, target: &str, via: Option<&str>, pri
     }
 }
 
+/// `amount` converted to `target` at the market rates of `ledger`'s prices on `date`, as BQL's `convert(position,
+/// target, date)` converts a position held at a cost in `via`: `None` when no price converts it. An amount in `target`
+/// is itself. What `zhang_convert` answers a plugin.
+///
+/// The products are checked ([`zhang_shared::decimal::checked_mul_in_context`]): a plugin's number is bounded before it
+/// gets here, and a product whose scale would leave an `i64` converts to nothing rather than to a wrong number.
+pub fn convert_at(ledger: &zhang_core::ledger::Ledger, amount: &Amount, target: &str, via: Option<&str>, date: NaiveDate) -> Option<Amount> {
+    use zhang_shared::decimal::checked_mul_in_context as mul;
+    if amount.commodity == target {
+        return Some(amount.clone());
+    }
+    let number = match PriceMap::cached(ledger).0.conversion(&amount.commodity, target, via, Some(date))? {
+        Conversion::Rate(rate) => mul(&amount.number, &rate)?,
+        // two roundings, like beancount's `number * rate1 * rate2`, as `convert_units`
+        Conversion::Via(rate1, rate2) => mul(&mul(&amount.number, &rate1)?, &rate2)?,
+    };
+    Some(Amount::new(number, target))
+}
+
 impl Position {
     /// The units converted to `target` at the market rates of `prices` as of `date` (the latest
     /// rates when `None`), as BQL's `convert(position, target, date)` does: a direct or inverse

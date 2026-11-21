@@ -1,6 +1,6 @@
 ---
 title: Writing Plugins
-description: How to write WASM plugins for Zhang with the Rust SDK, and the plugin ABI v1 reference — the plugin directive and its capabilities, the stage order, config keys, host functions, determinism, custom-directive config and router plugins.
+description: How to write WASM plugins for Zhang with the Rust SDK, and the plugin ABI v1 reference — the plugin directive and its capabilities, the stage order, config keys, host functions, determinism, custom-directive config, router plugins and analyzers with their tables.
 sidebar:
   order: 1
 ---
@@ -9,7 +9,8 @@ A plugin is a WebAssembly module that Zhang runs while it loads a ledger, or whe
 
 - **transform** the ledger: add, change or remove directives, e.g. generate recurring transactions, split expenses or tag entries;
 - **validate** it: report problems in the ledger's error list without changing anything;
-- **serve** pages and data: answer HTTP requests under `/api/plugins/{name}`, e.g. a custom report.
+- **serve** pages and data: answer HTTP requests under `/api/plugins/{name}`, e.g. a custom report;
+- **analyse** it: publish tables that queries read, and diagnostics, computed from the loaded ledger.
 
 Plugins are built with [Extism](https://extism.org/), so any language with an Extism plug-in kit works. This guide uses the Rust SDK, `zhang-plugin-sdk`, and documents the ABI underneath it for everyone else.
 
@@ -84,6 +85,7 @@ A plugin declares what it is in its `supported_type` export, and can be several 
 | `Processor` | `processor` | once per load | the whole directive stream → the new stream |
 | `Mapper` | `mapper` | once per directive, in one plugin instance for the whole stream | one directive → the directives replacing it (none, itself, or several) |
 | `Router` | `router` | once per HTTP request, each in a fresh instance | the request → the response |
+| `Analyzer` (experimental) | `manifest`, `analyze` | once per load, after Zhang's checks ([Analyzers](#analyzers)) | the records it consumes, and queries → diagnostics and the rows of its tables |
 
 A plugin that is both a processor and a mapper runs its processor first. A type Zhang does not know is ignored with a warning, so a plugin written for a newer Zhang still loads.
 
@@ -340,6 +342,180 @@ fn route(request: Request) -> Result<Response, Error> {
 
 [Router Plugins](/guides/router-plugins/) has the request and response JSON, the error statuses and the details.
 
+## Analyzers
+
+:::caution[Experimental]
+The `Analyzer` type is experimental. Until the budget migration of RFC #698 is complete, its ABI may change in any
+release: the manifest, the records, the output, `zhang_convert` and the SDK's `analysis` module. P1.6 adds analyzers
+written in Lua and a new Lua `api_version`. A release may ship before then, and an analyzer written for it may need
+changes to load in the next one.
+:::
+
+An analyzer reads the ledger once it is loaded and publishes what it finds: **diagnostics**, which join the ledger's
+errors, and the rows of **tables** that queries read like Zhang's own (`SELECT * FROM #shop_items`). It changes nothing
+in the ledger. It is the plugin type for derived data, such as budgets, which [RFC #698](/developers/rfc-698-budget-plugin/)
+moves into the official plugin `zhang:budget`.
+
+- **When:** at every load, and so at every write, which reloads the ledger: after booking and Zhang's own checks, before
+  the errors are numbered. Analyzers run one after the other, in the order of their `plugin` directives.
+- **What it reads:** the *records* of the directive kinds it consumes, and BQL. Not the directive stream: a query
+  aggregates in Zhang, exactly, and only the answer crosses the boundary.
+- **What it may do:** nothing else. It reads no file and reaches no network, whatever its directive grants; its
+  `timeout` (within `ZHANG_PLUGIN_MAX_TIMEOUT`) and the server's memory limit apply. It may run up to 10,000 queries.
+  The analyses of one load share `ZHANG_PLUGIN_MAX_TIMEOUT`: each runs at most what the analyses before it left, and
+  an analyzer whose turn comes once it has passed fails with the reason `timeout` without running.
+- **When it fails** (a trap, its timeout, its memory, an output that does not hold, a manifest that does not), the
+  ledger still loads, unlike with a failing processor: the plugin's directive gets one
+  [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error, and a query of its tables or of its
+  label columns answers that they are unavailable. The other analyzers are unaffected, and the next load tries again.
+
+### The manifest
+
+An analyzer declares `Analyzer` in `supported_type` and exports `manifest`, at most 1 MiB of JSON, read once while it
+registers, so the tables are known before any analysis runs:
+
+```json
+{"analysis_abi": 1,
+ "namespace": "shop",
+ "consumes": ["custom:shop"],
+ "open_meta": ["shop"],
+ "diagnostics": [{"kind": "UnknownItem"}, {"kind": "Unpriced", "phase": "after_fold"}],
+ "tables": [
+   {"name": "items", "kind": "records", "description": "Items of the shop.",
+    "columns": [{"name": "item", "type": "str"}, {"name": "price", "type": "amount"}], "order": ["item"]},
+   {"name": "stock", "kind": "series", "description": "Stock per month.",
+    "columns": [{"name": "item", "type": "str", "fill": "carry"}, {"name": "date", "type": "date"},
+                {"name": "year", "type": "int"}, {"name": "opening", "type": "decimal", "fill": {"previous": "closing"}},
+                {"name": "sold", "type": "decimal", "fill": "zero"}, {"name": "closing", "type": "decimal", "fill": "carry"}],
+    "period": {"column": "date", "unit": "month", "derive": {"year": "year"}}, "partition": ["item"],
+    "extend_to_today": true}],
+ "columns": [
+   {"table": "postings", "name": "items", "description": "The items of a posting.",
+    "predicate": "account IN :accounts AND number >= :min", "params": {"accounts": "set", "min": "decimal"}}]}
+```
+
+- **`consumes`**: the record kinds it reads, `budget`, `budget-add`, `budget-transfer`, `budget-close`, or
+  `custom:<type>` for `custom "<type>"` directives. **`open_meta`**: metadata keys of `open` directives it reads through
+  queries. With no record to read and no `open` with one of those keys, the plugin is not called and its tables are
+  empty.
+- **`diagnostics`**: the kinds it may report. Any other kind fails the analysis.
+- **Tables.** A *record table* (`"kind": "records"`) holds every row of the output, in the order published or sorted by
+  the columns of `order`, which Zhang checks. A *series table* (`"kind": "series"`) holds per partition only the periods
+  that have something, its facts, and Zhang fills the periods between and after them in every query, up to the
+  partition's `until`, the current month with `extend_to_today`, and never past what the query's date filter keeps:
+  `carry` copies the previous row's value, `zero` is zero in its commodity, `{"previous": "<column>"}` is the previous
+  row's value of another column filled with `carry`. The period column holds the first day of each month, and the
+  columns of `derive` its year or month. A column's type is one of `str`, `int`, `decimal`, `date`, `bool`, `amount`,
+  `set` and `metas`; `wildcard` lists the columns `SELECT *` expands to (all of them by default).
+- **Label columns** (`columns`): a `set` column of `postings` whose value, for a posting, is the labels whose
+  predicate holds for it. The predicate is BQL over a posting, reading `:label` and the declared parameters, which each
+  label binds in the output. It reads no running balance, no aggregate and no plugin table.
+- **Names.** A table `items` of the namespace `shop` is `#shop_items`, a label column `items` is `postings.shop_items`.
+  The namespace is the manifest's `namespace`, `[a-z][a-z0-9_]*`, or the plugin's name with every other character
+  written `_`. Zhang's own names always win, and of two plugins declaring one name the first declared keeps it: the
+  later plugin gets none of its tables, and is reported. The budget tables (`#budgets`, `#budget_events`,
+  `#budget_definitions`, `postings.budgets`) are kept for `zhang:budget`.
+- **Limits.** A table has at most **64 columns**, and a ledger at most **16 label columns**, shared by all the plugins
+  of the ledger, `zhang:budget` included (it has one). A plugin that would pass either limit gets none of its tables and
+  columns, and is reported; the others keep theirs.
+
+### `analyze`
+
+The `analyze` export reads the records, in the order Zhang processed the ledger:
+
+```json
+{"records": [{"kind": "custom:shop", "seq": 41, "date": "2024-03-01", "time": "00:00:00", "has_time": false,
+              "timestamp": 1709251200, "fields": {"values": ["apple", "1.50 CNY"]}, "meta": {"note": ["fresh"]},
+              "file": "shop.zhang", "line": 12}],
+ "ledger": {"title": null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}}
+```
+
+`seq` is the record's row of `#entries`, which `#postings` numbers its transactions with too. The fields of the budget
+kinds are `name` and `commodity` (`budget`), `name` and `amount` (`budget-add`), `from`, `to` and `amount`
+(`budget-transfer`) and `name` (`budget-close`), an amount being `{"number": "500.00", "currency": "CNY"}`.
+
+It answers the diagnostics and the rows of its tables, by their names in the manifest:
+
+```json
+{"diagnostics": [{"kind": "UnknownItem", "target": {"seq": 41}, "metas": {"item": "pear"}, "message": "pear is no item"}],
+ "tables": {"items": [{"item": "apple", "price": {"number": "1.50", "currency": "CNY"}, "$meta": {"origin": ["Fuji"]}}]},
+ "series": {"stock": {"partitions": [{"key": {"item": "apple"}, "until": "2024-11-01", "until_cause": {"seq": 980},
+                                      "first_cause": {"seq": 41},
+                                      "rows": [{"date": "2024-03-01", "opening": "0", "sold": "4", "closing": "6"}]}]}},
+ "labels": {"items": [{"label": "apple", "params": {"accounts": ["Expenses:Food"], "min": "0"}}]}}
+```
+
+- **A cell** is JSON as the query API writes one: a string, an integer, a boolean, a date `YYYY-MM-DD`, an amount
+  `{"number": "1.50", "currency": "CNY"}`, a set as a list of strings, metadata as `[{"key", "value"}]`, or `null`. A
+  decimal is text: a JSON number in a `decimal` or `amount` cell is refused. A row has a cell for every column (a
+  series fact every column but its partition's and those derived from the period), and maybe its metadata under
+  `$meta`, which `meta()` reads.
+- **A diagnostic** names a kind of its manifest and a target: `{"seq": n}`, an entry; `{"txn": "<id>"}`, a
+  transaction; or `{"plugin": true}`, the plugin's directive. Zhang reports it as a
+  [`PluginError`](/reference/error-codes/#pluginerror) with the metas `plugin`, `kind` (its kind), `message` and its own,
+  on the target's directive. It has at most 32 metas of its own; a meta's key and value, the kind and the message are
+  each cut at 4 KiB. Zhang names the transaction itself: a meta `txn_id` of the plugin's is dropped, and so is an
+  `account_name`. A diagnostic of the phase `fold` (the default) goes with that directive's errors, after
+  those of the directives before it and before those of the directives after it, so its id is stable; one of the phase
+  `after_fold` comes after the errors of every directive, as a check that needs every price does. One at a transaction
+  is among the transaction's errors and names it in `txn_id`. At most 10,000 are listed, then one more says how many
+  there were.
+- **Checked whole:** every cell of its column's type, the rows in their order, every partition with its key and its
+  periods strictly increasing first days of months, every label binding each parameter, at most 1,000,000 values. Its
+  JSON is at most 32 MiB, 4,000,000 values and 400,000 objects, counted before any of it is read. Anything that does
+  not hold publishes nothing.
+
+While it analyses, an analyzer reads the ledger with the query functions of a router (`zhang_query`,
+`zhang_query_params`, `zhang_query_schema`, `zhang_ledger_info`), each query with the limits of `POST /api/query`, and
+converts amounts with `zhang_convert`. The ledger's errors are not final yet, so `#errors` and the `errors` and
+`balanced` columns are refused; so are its own tables and those of the analyzers after it. `zhang_now` gives the time
+of the load, and makes the ledger depend on the date: `zhang serve` analyses it again at midnight. What it reports with
+`zhang_emit_error` is dropped: its diagnostics are those of its output.
+
+What an analyzer published belongs to the load that ran it: a reload, and a write, analyse the ledger again.
+
+### With the Rust SDK
+
+`plugin!` takes the analysis and the manifest after the other handlers. `zhang_plugin_sdk::analysis` has the types of
+the manifest, the records and the output, and `convert`; the queries are those of `router`; `zhang_plugin_sdk::decimal`
+adds up exactly, as Zhang does:
+
+```rust
+use zhang_plugin_sdk::analysis::{Diagnostic, Input, Manifest, Output, Target};
+use zhang_plugin_sdk::{plugin, router, serde_json, Error};
+
+plugin! {
+    name: "shop",
+    version: env!("CARGO_PKG_VERSION"),
+    analyzer: analyze,
+    manifest: manifest,
+}
+
+fn manifest() -> Manifest {
+    serde_json::from_str(include_str!("../manifest.json")).expect("the manifest is JSON")
+}
+
+fn analyze(input: Input) -> Result<Output, Error> {
+    let sold = router::query("SELECT account, sum(number) AS sold WHERE account ~ '^Income:Shop' GROUP BY account")?;
+    let mut output = Output::default();
+    for record in &input.records {
+        if record.fields["values"].as_array().is_none_or(|values| values.is_empty()) {
+            output.diagnostics.push(Diagnostic {
+                kind: "UnknownItem".into(),
+                target: Target { seq: Some(record.seq), ..Target::default() },
+                ..Diagnostic::default()
+            });
+        }
+    }
+    // ... the rows of the tables, from `input` and `sold`
+    Ok(output)
+}
+```
+
+`zhang-plugin-sdk/examples/budget` is a whole analyzer: Zhang's budgets, their tables and their errors, computed from
+the budget records and queries. Zhang's tests run it in place of the native budget code and check that it answers the
+budget pages alike, its errors included, with the same ids.
+
 ## Lua plugins
 
 A router plugin can be a Lua script instead of a module: `plugin "plugins/report.lua"`. Zhang embeds a Lua 5.4 interpreter, itself a wasm plugin built from `tools/lua-runtime` in the repository, and pairs it with the script at load time: the interpreter is the module the sandbox runs, and the script reaches it through two reserved config keys, `zhang.script` (the source) and `zhang.script_name` (the module path as written, which messages name). Everything else is the wasm path: registration reads `name`, `version` and `supported_type` from the module table the script returns, the first router of a name serves it (a later one is reported), the directive's capabilities and `timeout` apply, every request is a fresh instance, and `GET /api/plugins` lists the script's own name and version.
@@ -455,10 +631,12 @@ Inputs and outputs are Extism plug-in input and output, as JSON.
 |---|---|---|
 | `name` | none | the plugin's name, a JSON string: `"guard"` |
 | `version` | none | its version, a JSON string: `"0.1.0"` |
-| `supported_type` | none | a JSON array of `"Processor"`, `"Mapper"`, `"Router"` |
+| `supported_type` | none | a JSON array of `"Processor"`, `"Mapper"`, `"Router"`, `"Analyzer"` |
 | `processor` | the stream: an array of directives | the new stream |
 | `mapper` | one directive | an array of directives |
 | `router` | the request | the response |
+| `manifest` (an analyzer) | none | its [manifest](#the-manifest) |
+| `analyze` (an analyzer) | the [records](#analyze) it consumes | its diagnostics and the rows of its tables |
 | `capabilities` (optional) | none | `{"writes": ["transaction", "open"]}`, the kinds of directives the plugin appends with `zhang_write_preview` and `zhang_write_commit`; a kind this Zhang does not know is ignored |
 
 A directive is the serde JSON of `zhang-ast`'s `Spanned<Directive>`, of a kind ABI v1 knows: Zhang never hands a plugin a `pad` directive (see [the stage order contract](#the-stage-order-contract)). For example:
@@ -507,6 +685,7 @@ They live in the `extism:host/user` namespace. Arguments and results are `i64` o
 | `zhang_query_builtin` | `{"name": "accounts.subtree", "params": {"account": "Expenses", "date": "2026-10-13", "time": "09:30:00"}}`: a [built-in query](/reference/builtin-queries/) by name, every parameter it declares as plain JSON (`null`, a boolean, an integer, a string, a list of strings) | as `zhang_query`: the query's columns and rows | `unavailable`, `invalid_input`, `query` (an unknown name, a parameter missing, unknown or not of its type) |
 | `zhang_query_schema` | none | `{"tables": [{"name", "description", "columns": [{"name", "type", "description", "provided_by"}], "provided_by"}], "columns": […], "functions": [{"name", "signature", "description", "aggregate"}], "keywords": […]}`, the `data` of `GET /api/query/schema` for the served ledger; `provided_by` is the provider of a table or column that is not the core's (`zhang:budget` for the budget tables), else `null` | `unavailable` |
 | `zhang_ledger_info` | none | `{"title": "…" \| null, "operating_currency": "CNY", "timezone": "Asia/Shanghai"}` | `unavailable` |
+| `zhang_convert` | `[{"amount": {"number": "1.50", "currency": "USD"}, "target": "CNY", "date": "2024-03-01", "via": "USD"?}]`, at most 10,000 a call, each number of at most 1,000 digits written out | for each, the amount in `target` as `convert(position, target, date)` converts a position held at a cost in `via`, with the ledger's prices (`{"number", "currency"}`, exact), or `null` when no price converts it | `unavailable`, `invalid_input` |
 | `zhang_write_preview` | `{"directives": [{"kind": "transaction", …}, {"kind": "open", …}]}` | `{"ok", "file", "generation", "entries": [{"index", "kind", "file", "text", "field_errors", "unbalanced", "errors", "already_open"?}], "token"}` | `unavailable`, `denied`, `invalid_input`, `invalid`, `conflict`, `io` |
 | `zhang_write_commit` | the same, with `"token"` | `{"file", "bytes", "entries", "generation"}` | as `zhang_write_preview` |
 
@@ -539,7 +718,7 @@ Where they work:
 - `zhang_emit_error` reports into the error list from a processor or mapper. While the plugin registers (`name`, `version`, `supported_type`) what it reports is dropped, and in a router it is only logged.
 - `zhang_now` works everywhere. In a router it reads the clock afresh for each request, and a call while registering does not make the ledger depend on the date.
 - `zhang_read_file` and `zhang_list_dir` answer `denied` outside a processor or mapper, and for any path `allowed_paths` does not grant.
-- `zhang_query`, `zhang_query_params`, `zhang_query_builtin`, `zhang_query_schema`, `zhang_ledger_info`, `zhang_write_preview` and `zhang_write_commit` answer `unavailable` outside a router request.
+- `zhang_query`, `zhang_query_params`, `zhang_query_builtin`, `zhang_query_schema`, `zhang_ledger_info`, `zhang_write_preview` and `zhang_write_commit` answer `unavailable` outside a router request, but for the query functions, `zhang_ledger_info` and `zhang_convert`, which an analyzer calls while it analyses the ledger. An analysis runs no built-in query: `zhang_query_builtin` answers a `query` error there.
 
 `zhang_query_params`, `zhang_query_schema`, `zhang_query_builtin`, `zhang_write_preview` and `zhang_write_commit` were added after `zhang_query`. A new host function is an addition a plugin can ignore, so the ABI version stays 1: a plugin that does not import them runs unchanged, and one that does fails to load, as below, on a Zhang without them.
 
@@ -552,3 +731,4 @@ Where they work:
 | `processor` and `mapper` exports, flat config (options and meta), `allowed_hosts` | 0.2.0 |
 | `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, `zhang.allowed_hosts`, `zhang.timeout_ms`, every host function above but the write functions, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |
 | `zhang_write_preview`, `zhang_write_commit`, the `capabilities` export, `allowed_writes`, `zhang.allowed_writes` | the release after 0.2.0 with the write capability |
+| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, experimental until RFC #698 is complete | the release with analyzers (RFC #698) |
