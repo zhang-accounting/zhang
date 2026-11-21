@@ -41,6 +41,8 @@
 
 use std::fmt;
 
+use chrono::NaiveTime;
+
 use crate::catalog::{ColumnRef, TableRef};
 use crate::compiler::{AggregateCall, CExpr, Plan, Running, RunningPlan};
 use crate::executor::Env;
@@ -167,7 +169,7 @@ pub(crate) fn infallible(expr: &CExpr) -> bool {
         CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::WidenInt(_) | CExpr::Target(_) => true,
         CExpr::Not(_) | CExpr::And(_) | CExpr::Or(_) | CExpr::Compare { .. } | CExpr::InSet { .. } | CExpr::InList { .. } | CExpr::IsNull { .. } => true,
         CExpr::InConst { .. } | CExpr::StrTest { .. } | CExpr::Case { .. } => true,
-        CExpr::Scalar { function, .. } => function.total,
+        CExpr::Scalar { function, .. } | CExpr::OpenMetaHas { function, .. } => function.total,
         CExpr::Aggregate(_) | CExpr::Neg(..) | CExpr::Arith { .. } | CExpr::Regex { .. } => false,
     };
     node && expr.children().into_iter().all(infallible)
@@ -296,6 +298,18 @@ pub(crate) fn borrowed_str<'r>(expr: &'r CExpr, env: &Env<'r, '_>) -> Option<Opt
         CExpr::Const(Value::Str(text)) => Some(Some(text)),
         CExpr::Param(param) => match env.params.get(param) {
             Some(Value::Str(text)) => Some(Some(text)),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The time of day an operand reads in place: the `time` column of a posting ([`Borrow::Time`]), without writing it as
+/// text to read it back; `None` when the operand has to be evaluated instead.
+pub(crate) fn borrowed_time(expr: &CExpr, env: &Env<'_, '_>) -> Option<NaiveTime> {
+    match expr {
+        CExpr::Column(column) => match (column.borrow(), env.data, env.row) {
+            (Borrow::Time(get), Some(data), Some(RowRef::Posting(row))) => Some(get(data, row)),
             _ => None,
         },
         _ => None,
@@ -562,6 +576,10 @@ option "operating_currency" "USD"
                     assert_eq!(text.map(|it| Value::Str(it.to_owned())).unwrap_or(Value::Null), value, "{}", column.name());
                     checked += 1;
                 }
+                if let Some(time) = borrowed_time(&expr, &env) {
+                    assert_eq!(crate::table::time_value(time), value, "{}", column.name());
+                    checked += 1;
+                }
                 if let Some(contains) = set_membership(&expr, &env) {
                     let Value::Set(set) = &value else { panic!("{} is not a set", column.name()) };
                     for needle in needles {
@@ -571,8 +589,8 @@ option "operating_currency" "USD"
                 };
             }
         }
-        // 10 core columns and the label column budgets
-        assert_eq!(checked, data.rows.len() * 11);
+        // 10 core columns read as text or as a set, `time` read as a time of day, and the label column budgets
+        assert_eq!(checked, data.rows.len() * 12);
     }
 
     /// A test-only table with more columns than a `u64` has bits: `c0` to `c69`, three rows

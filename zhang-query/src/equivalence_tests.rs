@@ -937,3 +937,88 @@ option "operating_currency" "CNY"
         assert!(query.plan.execution.until.is_none(), "{sql}");
     }
 }
+
+/// `open_meta_has()` prepared to read its arguments in place answers what the call as written does: on postings at
+/// times of day around an `open` and a `close` with times, a same-day reopening, with literals and parameters (NULL
+/// among them), its time from the `time` column, a constant or another column, and on a record table; and the `budgets`
+/// column, whose predicate tests membership with it, holds what it held.
+#[test]
+fn prepared_open_meta_has_keeps_results() {
+    let ledger = load_text(
+        r#"
+option "operating_currency" "CNY"
+1970-01-01 commodity CNY
+1970-01-01 open Assets:Bank
+1970-01-01 open Expenses:Food
+  budget: food
+  budget: fun
+2024-01-01 budget food CNY
+2024-01-01 budget fun CNY
+2024-01-01 budget travel CNY
+2024-01-01 open Expenses:Travel
+  budget: travel
+2024-01-10 08:00 * "Shop" "lunch"
+  Expenses:Food 30 CNY
+  Assets:Bank
+2024-02-01 10:00 close Expenses:Food
+2024-02-01 09:59:59 * "Shop" "before the close"
+  Expenses:Food 10 CNY
+  Expenses:Travel 5 CNY
+  Assets:Bank
+2024-02-01 12:00 open Expenses:Food
+  budget: travel
+2024-02-01 12:00 * "Shop" "at the reopen"
+  Expenses:Food 10 CNY
+  Assets:Bank
+2024-02-01 11:59:59 * "Shop" "before the reopen"
+  Expenses:Food 10 CNY
+  Assets:Bank
+2024-03-01 close Expenses:Travel
+2024-03-01 open Expenses:Travel
+  budget: food
+2024-03-01 * "Airline" "on the day of the same-day reopen"
+  Expenses:Travel 15 CNY
+  Assets:Bank
+"#,
+    );
+    let queries = [
+        "SELECT date, time, account, open_meta_has(account, 'budget', 'food', date, time), open_meta_has(account, 'budget', :budget, date) ORDER BY date, time",
+        "SELECT count(*) WHERE open_meta_has(account, 'budget', :budget, date, time)",
+        "SELECT account, count(*) WHERE NOT open_meta_has(account, :key, 'travel', date, time) GROUP BY account",
+        "SELECT open_meta_has(account, 'budget', :missing, date, time), open_meta_has(:missing, 'budget', 'food', date) IS NULL",
+        "SELECT open_meta_has(account, 'budget', 'travel', date, :noon), open_meta_has(account, 'budget', 'travel', date, '12:00:00')",
+        "SELECT open_meta_has(account, 'budget', 'travel', date, :late), open_meta_has(account, 'budget', 'travel', date, narration) WHERE false",
+        "SELECT open_meta_has(account, 'budget', 'travel', date, :bad)",
+        "SELECT open_meta_has(account, 'budget', 'travel', date, '12:0' + '0')",
+        "SELECT account, open_meta_has(account, 'budget', :budget, 2024-02-01, '12:00') FROM #accounts",
+        "SELECT date, time, account, budgets, 'food' IN budgets, :budget IN budgets",
+        "SELECT count(*) WHERE length(budgets) > 0",
+    ];
+    let types = ParamTypes::new()
+        .bind("budget", DataType::Str)
+        .bind("key", DataType::Str)
+        .bind("missing", DataType::Str)
+        .bind("noon", DataType::Str)
+        .bind("late", DataType::Str)
+        .bind("bad", DataType::Str);
+    for budget in ["food", "fun", "travel", "none"] {
+        let params = Params::new()
+            .bind("budget", budget)
+            .bind("key", "budget")
+            .bind("missing", Value::Null)
+            .bind("noon", "12:00")
+            .bind("late", "23:59:59")
+            .bind("bad", "12h");
+        assert_equivalent_with(&ledger, &queries, &types, &params);
+    }
+    let fava = ["SELECT account, count(*) WHERE open_meta_has(account, 'number', '882882', date, time) GROUP BY account"];
+    assert_equivalent(&fava_demo_ledger(), &fava);
+    // the call is prepared, and EXPLAIN shows it as written
+    let query = Query::compile("SELECT count(*) WHERE open_meta_has(account, 'budget', 'food', date, time)").unwrap();
+    assert!(matches!(&query.plan.filter, Some(crate::compiler::CExpr::OpenMetaHas { .. })));
+    assert!(
+        query.explain().contains("open_meta_has(account, 'budget', 'food', date, time)"),
+        "{}",
+        query.explain()
+    );
+}

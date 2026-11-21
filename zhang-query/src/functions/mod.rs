@@ -68,7 +68,7 @@ pub use self::aggregates::{AggregateFunction, AggregateKind};
 #[cfg(test)]
 pub(crate) use self::scalars::TestContext;
 pub use self::scalars::SCALAR_FUNCTIONS;
-pub(crate) use self::scalars::{is_under, reads_the_row};
+pub(crate) use self::scalars::{is_under, open_meta_has_at, reads_the_row, time_of_day};
 use crate::table::{Dataset, RowRef};
 use crate::value::{DataType, Value};
 

@@ -25,28 +25,32 @@
 //! 7. [`prepare_str_test`]: `icontains(x, 'needle')`, `any_icontains(set, 'needle')` and
 //!    `under(account, 'Ancestor')` prepare their constant once ([`CExpr::StrTest`]): the
 //!    needle is lower-cased once, and the subject is read in place.
+//! 8. [`prepare_open_meta_has`]: `open_meta_has(account, key, value, date[, time])` reads its
+//!    arguments in place ([`CExpr::OpenMetaHas`]): the strings without copying them, the
+//!    posting's `time` as a time of day without writing it as text and reading it back, and
+//!    the values of the `open` without copying them into a set.
 //!
 //! Parameters are constants of one execution: [`bind`] replaces every parameter by its bound
 //! value when a query is executed and runs these rules again, so that a pattern or a set
 //! passed as a parameter is compiled or hashed once per execution, like a literal.
-//! [`optimize_naive`] skips rules 6 and 7 and binding, so tests can check that they never
+//! [`optimize_naive`] skips rules 6 to 8 and binding, so tests can check that they never
 //! change a result.
 //!
 //! Then [`plan_execution`] makes decisions about the plan as a whole:
 //!
-//! 8. [`rewrite_linear_balance`]: `units(balance)` and `cost(balance)` are linear in the
+//! 9. [`rewrite_linear_balance`]: `units(balance)` and `cost(balance)` are linear in the
 //!    positions, so they become running sums of `units(position)` / `cost(position)` per
 //!    currency ([`Running::Units`], [`Running::Cost`]), which cost O(currencies) per row
 //!    instead of O(open lots). `value()` and `convert()` price by date and are not linear. The
 //!    same goes for `units(account_balance)` and `cost(account_balance)`, summed per account
 //!    ([`Running::AccountUnits`], [`Running::AccountCost`]).
-//! 9. [`limit_mode`]: how LIMIT cuts the work short. Without ORDER BY a scan stops once it has
-//!    LIMIT rows (telling DISTINCT rows apart while scanning) and an aggregate query only
-//!    aggregates its first LIMIT groups (unless HAVING may drop some of them), or, when the rows
-//!    of each group come one after another in the order of their keys, only the groups of its
-//!    window, past OFFSET; with
-//!    ORDER BY (and no DISTINCT) the scan keeps the top LIMIT rows instead of sorting them all.
-//! 10. [`account_scope`]: when the filter of a `postings` query can only hold for the rows of
+//! 10. [`limit_mode`]: how LIMIT cuts the work short. Without ORDER BY a scan stops once it has
+//!     LIMIT rows (telling DISTINCT rows apart while scanning) and an aggregate query only
+//!     aggregates its first LIMIT groups (unless HAVING may drop some of them), or, when the rows
+//!     of each group come one after another in the order of their keys, only the groups of its
+//!     window, past OFFSET; with
+//!     ORDER BY (and no DISTINCT) the scan keeps the top LIMIT rows instead of sorting them all.
+//! 11. [`account_scope`]: when the filter of a `postings` query can only hold for the rows of
 //!     some accounts (`account = :account`), the execution only builds their rows.
 //!
 //! The expression rules rewrite the HAVING condition like any other expression; one that
@@ -73,7 +77,8 @@ use crate::value::{DataType, Value};
 /// Which expression rules run.
 #[derive(Clone, Copy)]
 struct Rules<'p> {
-    /// prepare constants for the executor: [`prepare_membership`] and [`prepare_str_test`]
+    /// prepare constants and calls for the executor: [`prepare_membership`], [`prepare_str_test`] and
+    /// [`prepare_open_meta_has`]
     prepare: bool,
     /// an invalid constant pattern is a compile error; otherwise the match is left to fail
     /// when it is evaluated (for parameters, which are bound after compiling)
@@ -483,7 +488,7 @@ fn optimize_with(expr: CExpr, rules: Rules<'_>) -> Result<CExpr, LocatedError> {
     if !rules.prepare {
         return Ok(expr);
     }
-    Ok(prepare_str_test(prepare_membership(expr)))
+    Ok(prepare_open_meta_has(prepare_str_test(prepare_membership(expr))))
 }
 
 /// The FROM expression and WHERE as one filter.
@@ -605,7 +610,7 @@ pub(crate) fn fold_constants(expr: CExpr) -> CExpr {
     let foldable = match &expr {
         CExpr::Const(_) | CExpr::Column(_) | CExpr::Running(_) | CExpr::Param(_) | CExpr::Aggregate(_) | CExpr::Target(_) => false,
         // a function that reads the execution or the row is never folded, even with constant arguments
-        CExpr::Scalar { function, .. } if !function.reads_only_its_arguments() => false,
+        CExpr::Scalar { function, .. } | CExpr::OpenMetaHas { function, .. } if !function.reads_only_its_arguments() => false,
         node => node.children().iter().all(|child| matches!(child, CExpr::Const(_))),
     };
     if !foldable {
@@ -705,6 +710,14 @@ pub(crate) fn prepare_str_test(expr: CExpr) -> CExpr {
                 span,
             }
         }
+        other => other,
+    }
+}
+
+/// `open_meta_has()` prepared to read its arguments in place ([`CExpr::OpenMetaHas`]).
+pub(crate) fn prepare_open_meta_has(expr: CExpr) -> CExpr {
+    match expr {
+        CExpr::Scalar { function, args, span } if function.name == "open_meta_has" => CExpr::OpenMetaHas { function, args, span },
         other => other,
     }
 }
@@ -1138,6 +1151,30 @@ mod tests {
         ));
         assert!(matches!(
             prepare_str_test(scalar("under", vec![col("account"), col("payee")])),
+            CExpr::Scalar { .. }
+        ));
+    }
+
+    #[test]
+    fn open_meta_has_is_prepared_whatever_its_arguments() {
+        let date = || col("date");
+        for args in [
+            vec![col("account"), str_("budget"), str_("Food"), date()],
+            vec![col("account"), str_("budget"), str_("Food"), date(), col("time")],
+            vec![col("payee"), null(), col("narration"), date(), str_("12:00")],
+        ] {
+            let call = scalar("open_meta_has", args);
+            let shown = show(&call);
+            let prepared = optimize_expr(call).unwrap();
+            assert!(matches!(prepared, CExpr::OpenMetaHas { .. }), "{}", show(&prepared));
+            // it reads the ledger, so it is not folded, and EXPLAIN shows the call
+            assert_eq!(show(&prepared), shown);
+        }
+        assert!(!infallible(
+            &optimize_expr(scalar("open_meta_has", vec![col("account"), str_("k"), str_("v"), date()])).unwrap()
+        ));
+        assert!(matches!(
+            prepare_open_meta_has(scalar("open_meta_values", vec![col("account"), str_("budget"), date()])),
             CExpr::Scalar { .. }
         ));
     }
