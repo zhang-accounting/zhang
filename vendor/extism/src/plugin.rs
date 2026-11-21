@@ -73,7 +73,12 @@ impl CompiledPlugin {
             config.consume_fuel(true);
         }
 
-        config.cache(Self::configure_cache(&builder.options.cache_config)?);
+        // zhang patch: the cache the host set with `PluginBuilder::with_cache`, else the one extism configures
+        let cache = match &builder.options.cache {
+            Some(cache) => Some(cache.clone()),
+            None => Self::configure_cache(&builder.options.cache_config)?,
+        };
+        config.cache(cache);
 
         let engine = Engine::new(&config)?;
 

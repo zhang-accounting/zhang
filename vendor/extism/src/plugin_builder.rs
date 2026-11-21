@@ -46,6 +46,8 @@ pub(crate) struct PluginBuilderOptions {
     pub(crate) functions: Vec<Function>,
     pub(crate) debug_options: DebugOptions,
     pub(crate) cache_config: Option<Option<PathBuf>>,
+    // zhang patch: the cache the host set with `PluginBuilder::with_cache`, used in place of `cache_config`
+    pub(crate) cache: Option<wasmtime::Cache>,
     pub(crate) fuel: Option<u64>,
     pub(crate) initialization_fuel: Option<u64>,
     pub(crate) http_response_headers: bool,
@@ -68,6 +70,7 @@ impl<'a> PluginBuilder<'a> {
                 functions: vec![],
                 debug_options: DebugOptions::default(),
                 cache_config: None,
+                cache: None,
                 fuel: None,
                 initialization_fuel: None,
                 http_response_headers: false,
@@ -163,12 +166,26 @@ impl<'a> PluginBuilder<'a> {
     /// Set wasmtime compilation cache config path
     pub fn with_cache_config(mut self, dir: impl Into<PathBuf>) -> Self {
         self.options.cache_config = Some(Some(dir.into()));
+        // zhang patch: the last cache setting wins
+        self.options.cache = None;
         self
     }
 
     /// Turn wasmtime compilation caching off
     pub fn with_cache_disabled(mut self) -> Self {
         self.options.cache_config = Some(None);
+        // zhang patch: the last cache setting wins
+        self.options.cache = None;
+        self
+    }
+
+    /// zhang patch: compile with `cache`, a wasmtime cache the host configured, in place of the one extism sets up from
+    /// a configuration file (`with_cache_config`, `EXTISM_CACHE_CONFIG` or wasmtime's default) at every compilation,
+    /// which fails the compilation when its directory cannot be created. A host sets up one cache, once, and gives a
+    /// clone of it to every plugin it compiles
+    pub fn with_cache(mut self, cache: wasmtime::Cache) -> Self {
+        self.options.cache_config = None;
+        self.options.cache = Some(cache);
         self
     }
 
