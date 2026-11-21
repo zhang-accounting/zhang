@@ -47,7 +47,14 @@ pub(crate) struct PluginBuilderOptions {
     pub(crate) debug_options: DebugOptions,
     pub(crate) cache_config: Option<Option<PathBuf>>,
     pub(crate) fuel: Option<u64>,
+    pub(crate) initialization_fuel: Option<u64>,
     pub(crate) http_response_headers: bool,
+}
+
+impl PluginBuilderOptions {
+    pub(crate) fn effective_initialization_fuel(&self) -> Option<u64> {
+        self.initialization_fuel.or(self.fuel)
+    }
 }
 
 impl<'a> PluginBuilder<'a> {
@@ -62,6 +69,7 @@ impl<'a> PluginBuilder<'a> {
                 debug_options: DebugOptions::default(),
                 cache_config: None,
                 fuel: None,
+                initialization_fuel: None,
                 http_response_headers: false,
             },
         }
@@ -164,16 +172,28 @@ impl<'a> PluginBuilder<'a> {
         self
     }
 
-    /// Limit the number of instructions that can be executed
+    /// Limits fuel consumed during each plugin call.
+    ///
+    /// Unless overridden by [`PluginBuilder::with_initialization_fuel_limit`],
+    /// this also limits initialization.
     pub fn with_fuel_limit(mut self, fuel: u64) -> Self {
         self.options.fuel = Some(fuel);
+        self
+    }
+
+    /// Override the fuel available for plugin initialization.
+    ///
+    /// Initialization includes linking, instantiation, initialization functions,
+    /// and constructors. A call fuel limit must also be configured using
+    /// [`PluginBuilder::with_fuel_limit`].
+    pub fn with_initialization_fuel_limit(mut self, fuel: u64) -> Self {
+        self.options.initialization_fuel = Some(fuel);
         self
     }
 
     /// Configure an initial wasmtime config to be passed to the plugin
     ///
     /// **Warning**: some values might be overwritten by the Extism runtime. In particular:
-    /// - async_support
     /// - epoch_interruption
     /// - debug_info
     /// - coredump_on_trap
@@ -182,7 +202,7 @@ impl<'a> PluginBuilder<'a> {
     /// - wasm_function_references
     /// - wasm_gc
     ///
-    /// See the implementation details of [PluginBuilder::build] and [Plugin::build_new] to verify which values are overwritten.
+    /// See the implementation details of [PluginBuilder::build] and [CompiledPlugin::new] to verify which values are overwritten.
     pub fn with_wasmtime_config(mut self, config: wasmtime::Config) -> Self {
         self.config = Some(config);
         self

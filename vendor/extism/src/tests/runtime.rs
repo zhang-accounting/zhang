@@ -12,6 +12,10 @@ const WASM_HTTP: &[u8] = include_bytes!("../../../wasm/http.wasm");
 const WASM_HTTP_HEADERS: &[u8] = include_bytes!("../../../wasm/http_headers.wasm");
 const WASM_FS: &[u8] = include_bytes!("../../../wasm/read_write.wasm");
 
+// These tests exercise call fuel, not initialization fuel. Avoid coupling them
+// to Wasmtime's platform- and configuration-dependent initialization costs.
+const UNLIMITED_INITIALIZATION_FUEL: u64 = u64::MAX;
+
 host_fn!(pub hello_world (a: String) -> String { Ok(a) });
 
 // Which is the same as:
@@ -245,6 +249,7 @@ fn test_fuel() {
     let mut plugin = PluginBuilder::new(manifest)
         .with_wasi(true)
         .with_fuel_limit(1)
+        .with_initialization_fuel_limit(UNLIMITED_INITIALIZATION_FUEL)
         .build()
         .unwrap();
     for _ in 0..10001 {
@@ -255,12 +260,95 @@ fn test_fuel() {
     }
 }
 
+fn assert_fuel_error(err: &Error) {
+    assert!(
+        err.chain().any(|cause| cause.to_string().contains("fuel")),
+        "unexpected error: {err:#}"
+    );
+}
+
+#[test]
+fn test_initialization_fuel_requires_call_fuel() {
+    let result = PluginBuilder::new(WASM)
+        .with_initialization_fuel_limit(10)
+        .compile();
+    let err = match result {
+        Ok(_) => panic!("initialization fuel without call fuel should fail"),
+        Err(err) => err,
+    };
+
+    assert_eq!(
+        err.to_string(),
+        "an initialization fuel limit requires a call fuel limit"
+    );
+}
+
+#[test]
+fn test_fuel_limits_reactor_initialization() {
+    let wasm = r#"
+        (module
+            (func (export "_initialize")
+                (loop br 0))
+            (func (export "run")))
+    "#;
+
+    let err = PluginBuilder::new(wat::parse_str(wasm).unwrap())
+        .with_fuel_limit(1_000_000)
+        .with_initialization_fuel_limit(100_000)
+        .build()
+        .expect_err("infinite reactor initialization should exhaust fuel");
+
+    assert_fuel_error(&err);
+}
+
+#[test]
+fn test_fuel_limits_module_start() {
+    let wasm = r#"
+        (module
+            (func $spin
+                (loop br 0))
+            (start $spin)
+            (func (export "_start")))
+    "#;
+
+    let mut plugin = PluginBuilder::new(wat::parse_str(wasm).unwrap())
+        .with_fuel_limit(100_000)
+        .build()
+        .expect("command instantiation should be deferred until call");
+    let err = plugin
+        .call::<(), ()>("_start", ())
+        .expect_err("infinite module start should exhaust fuel");
+
+    assert_fuel_error(&err);
+}
+
+#[test]
+fn test_fuel_limits_guest_constructors() {
+    let wasm = r#"
+        (module
+            (func (export "__wasm_call_ctors")
+                (loop br 0))
+            (func (export "run")))
+    "#;
+
+    let mut plugin = PluginBuilder::new(wat::parse_str(wasm).unwrap())
+        .with_fuel_limit(100_000)
+        .build()
+        .expect("plugin should build before constructors run");
+    let err = plugin
+        .call::<(), ()>("run", ())
+        .expect_err("infinite guest constructors should exhaust fuel");
+
+    assert_fuel_error(&err);
+}
+
 #[test]
 fn test_fuel_consumption() {
     let manifest = Manifest::new([extism_manifest::Wasm::data(WASM_LOOP)]);
     let mut plugin = PluginBuilder::new(manifest)
         .with_wasi(true)
         .with_fuel_limit(10000)
+        .with_initialization_fuel_limit(UNLIMITED_INITIALIZATION_FUEL)
         .build()
         .unwrap();
 

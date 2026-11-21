@@ -3,7 +3,7 @@ use crate::*;
 /// WASI context
 pub struct Wasi {
     /// wasi
-    pub ctx: wasi_common::WasiCtx,
+    pub ctx: wasmtime_wasi::p1::WasiP1Ctx,
 }
 
 /// InternalExt provides a unified way of acessing `memory`, `store` and `internal` values
