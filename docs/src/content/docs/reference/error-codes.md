@@ -616,6 +616,12 @@ Zhang reports one itself on the `plugin` directive of a router plugin named like
 the first one serves `/api/plugins/<name>`, and this one serves nothing (`message` names both). Remove one of the two
 directives. A module that is also a processor or mapper, declared twice to run twice, is not reported.
 
+Zhang also reports one on what configures nothing of a plugin every ledger has, such as
+[`zhang:budget`](/guides/plugins/#what-the-server-allows): on a second `plugin` directive naming it, as the first one
+configures it (`message` says where that one is), and on each argument and each meta key of a `plugin "zhang:budget"`
+directive, as `zhang:budget` has no options yet. The plugin runs as without them. Remove what the `message` names. With
+plugins off, these directives report [`PluginsDisabled`](#pluginsdisabled) instead.
+
 For example, a plugin that requires a payee on every transaction reports `message: "payee is missing"` on this
 transaction:
 

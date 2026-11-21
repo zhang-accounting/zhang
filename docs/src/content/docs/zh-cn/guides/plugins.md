@@ -100,7 +100,7 @@ plugin "plugins/receipts.wasm"
 
 所以默认情况下，插件以只读方式运行，没有任何网络访问，每次调用最多 30 秒。当指令授予的更多时，插件仍会以服务器允许的能力加载，错误列表会在该指令上显示一个 [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) 错误，指出需要修改的设置。使用 `--plugins off` 时，每条 `plugin` 指令会显示一个 [`PluginsDisabled`](/zh-cn/reference/error-codes/#pluginsdisabled) 错误。
 
-**官方插件 `zhang:budget`。**[预算](/zh-cn/guides/budgets/)由 `zhang:budget` 解释，它是每个账本都有的官方插件：不需要 `plugin` 指令，账本的 `features.plugin` 选项也不会关闭它，所以账本的任何选项都不会关闭预算。可以写 `plugin "zhang:budget"` 指令，它不会加载第二份。只有服务器的开关会停止它：使用 `--plugins off` 时预算会关闭，预算页面会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误，`zhang serve` 也会在启动时记录这一点。
+**官方插件 `zhang:budget`。**[预算](/zh-cn/guides/budgets/)由 `zhang:budget` 解释，它是每个账本都有的官方插件：不需要 `plugin` 指令，账本的 `features.plugin` 选项也不会关闭它，所以账本的任何选项都不会关闭预算。可以写 `plugin "zhang:budget"` 指令，它不会加载第二份。`zhang:budget` 目前没有任何选项：该指令上的参数或元数据，以及第二条这样的指令，都不起任何配置作用，错误列表会用 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror) 指出这一点。只有服务器的开关会停止它：使用 `--plugins off` 时预算会关闭，预算页面会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误，`zhang serve` 也会在启动时记录这一点。
 
 例如，要让上面的汇率插件获取汇率，这样启动服务器：
 

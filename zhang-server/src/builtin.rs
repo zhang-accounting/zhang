@@ -43,6 +43,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use chrono::{Datelike, NaiveDateTime};
+use log::warn;
 use zhang_core::ledger::Ledger;
 use zhang_query::params::from_json;
 use zhang_query::{Catalog, CatalogDigest, DataType, ExecuteOptions, NamedQuery, ParamTypes, Params, Query, QueryError, QueryResult, Value};
@@ -452,14 +453,23 @@ pub struct Compiled {
 }
 
 impl Compiled {
-    /// Every built-in query of `catalog`, compiled against it. A provider's query named like one of zhang's own is left
-    /// out: zhang's own keep their names (the catalog gives an analyzer no namespace of theirs).
+    /// Every built-in query of `catalog`, compiled against it. zhang's own keep their names: a provider's query named
+    /// like one of them is left out, with a warning. No analyzer's query is: the catalog refuses an analyzer that names
+    /// a query in a namespace of zhang's own ([`zhang_query::BUILTIN_QUERY_NAMESPACES`], which a test keeps to the
+    /// namespaces of [`BUILTINS`]), and the ledger reports that on the analyzer's `plugin` directive, as a
+    /// `PluginAnalysisFailed` error (`manifest`). So a namespace zhang takes in a later version stops an analyzer that
+    /// had it loudly, never by hiding its queries. The native providers' queries are checked by the tests.
     fn of(catalog: &Catalog) -> Compiled {
         let mut own = BUILTINS.iter().map(|builtin| (builtin.named(), None)).collect::<Vec<_>>();
-        let provided = catalog
-            .named_queries()
-            .filter(|(_, query)| get(&query.name).is_none())
-            .map(|(provider, query)| (query.clone(), Some(provider.to_owned())));
+        let (provided, named_like_own): (Vec<_>, Vec<_>) = catalog.named_queries().partition(|(_, query)| get(&query.name).is_none());
+        for (provider, query) in named_like_own {
+            warn!(
+                "the query {} of {} is not served: zhang has a built-in query of that name",
+                query.name,
+                zhang_core::plugin::log_safe(provider)
+            );
+        }
+        let provided = provided.into_iter().map(|(provider, query)| (query.clone(), Some(provider.to_owned())));
         let at = BUILTINS.iter().position(|builtin| builtin.name == PROVIDED_BEFORE).unwrap_or(own.len());
         let after = own.split_off(at);
         let ordered = own.into_iter().chain(provided).chain(after).collect::<Vec<_>>();
