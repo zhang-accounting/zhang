@@ -614,6 +614,6 @@ fn route(request: Request) -> Result<Response, Error> {
 | 功能 | 张记账版本 |
 |---|---|
 | `processor` 和 `mapper` 导出函数、扁平配置（选项和元数据）、`allowed_hosts` | 0.2.0 |
-| 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、`zhang.allowed_hosts`、`zhang.timeout_ms`、上面除写入函数之外的所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
-| `zhang_write_preview`、`zhang_write_commit`、`capabilities` 导出函数、`allowed_writes`、`zhang.allowed_writes` | 0.2.0 之后带有写入能力的发布版 |
-| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert`，在 RFC #698 完成之前是实验性的 | 带有分析器的发布版（RFC #698） |
+| 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、`zhang.allowed_hosts`、`zhang.timeout_ms`、上面除写入函数之外的所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.3.0 |
+| `zhang_write_preview`、`zhang_write_commit`、`capabilities` 导出函数、`allowed_writes`、`zhang.allowed_writes` | 0.3.0 |
+| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert`，在 RFC #698 完成之前是实验性的 | 0.3.0 |

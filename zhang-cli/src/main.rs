@@ -19,7 +19,7 @@ pub mod opendal;
 
 #[derive(Parser, Debug)]
 // the release version (`.build_version`, written by the release workflow; see build.rs), the one `zhang update` and
-// the server report; the bare `version` would print the crate version, which stays 0.1.0
+// the server report; the bare `version` would print the crate version, which a tagged build does not read
 #[clap(about, version = env!("ZHANG_BUILD_VERSION"), author)]
 pub enum Opts {
     /// start an internal server with frontend ui

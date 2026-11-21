@@ -10,7 +10,7 @@ sidebar:
 ## 升级之前
 
 - 备份账本文件夹，如果它是 Git 仓库，就提交一次。如果你使用[通行密钥](/zh-cn/deployment/authentication/#通行密钥的存储位置)，备份中要包含 `.zhang/passkeys.json`。
-- 阅读从你当前版本到新版本之间各个版本的[发布说明](https://github.com/zhang-accounting/zhang/releases)。你的版本号显示在网页界面导航栏中“Zhang”的旁边，以及**设置**页面上。
+- 阅读从你当前版本到新版本之间各个版本的[发布说明](https://github.com/zhang-accounting/zhang/releases)或[更新日志](https://github.com/zhang-accounting/zhang/blob/main/CHANGELOG.md)，以及对应的升级指南：[从 0.2 升级到 0.3](/zh-cn/deployment/upgrading-to-0-3/)。你的版本号显示在网页界面导航栏中“Zhang”的旁边，以及**设置**页面上。
 
 ## Docker
 
@@ -52,15 +52,4 @@ zhang update --verbose
 
 ## 升级之后
 
-打开网页界面，在**设置**页面上确认版本，并查看**总览**页面上的错误列表。较新的发布版可能会报告旧版本默默接受的问题。从 0.2.0 升级到之后的发布版时，尤其要注意：
-
-- 对尚未开设或已经关闭的账户的记账行，会报告为 [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist) 或 [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed)。账户名中的笔误会以这种方式暴露出来。
-- 开立时列出了商品的账户（例如 `open Assets:Bank USD`）只接受这些商品：使用其他商品的记账行或余额断言会被报告为 [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed)，与 Beancount 一致。把该商品加进 `open`，或者不写列表。
-- 不成立的[余额断言](/zh-cn/reference/directives/balance/)仍然报告为 [`AccountBalanceCheckError`](/zh-cn/reference/error-codes/#accountbalancecheckerror)，但不再把账户余额改成断言的金额：余额、报表和补齐都以记账行为准。
-- 交易必须按商品分别平衡，并以该商品的精度计算。混用多种商品或价格却不平衡的交易，会报告为 [`UnbalancedTransaction`](/zh-cn/reference/error-codes/#unbalancedtransaction)。
-- 使用不受支持的记账方法（`NONE`、`AVERAGE`、`AVERAGE_ONLY`）或无效记账方法的账户，会带着一个错误、以默认方法加载，而不是让加载中止。见[记账方法](/zh-cn/reference/directives/account/)。
-- 浏览器的密码弹窗被登录页面取代，并且可以使用通行密钥。脚本可以继续以 HTTP Basic 请求头发送密码，见[身份认证](/zh-cn/deployment/authentication/)。
-- **除非服务器允许更多，插件以只读方式运行，没有网络访问，每次调用最多 30 秒。** 指令授予了 `allowed_hosts` 的插件（例如汇率插件）会失去网络访问，直到你用 `ZHANG_PLUGIN_ALLOWED_HOSTS` 允许它的主机；超过 30 秒的 `timeout` 会被降低，除非 `ZHANG_PLUGIN_MAX_TIMEOUT` 允许。错误列表会在每条这样的指令上显示一个 [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) 错误，指出相应的设置。插件也不再跟随重定向，不能访问私有或回环地址。见[服务器允许的范围](/zh-cn/guides/plugins/#服务器允许的范围)。
-- [Router 插件](/zh-cn/guides/router-plugins/)的页面在沙箱中运行：页面中的脚本不能再使用你的会话，从张记账加载脚本、样式、图片或 JSON 的页面需要把它们内联。插件只会收到允许列表中的请求头，也只能发送允许列表中的响应头；一个请求最多运行 30 秒；每个插件实例最多使用 256 MiB 内存，除非 `ZHANG_PLUGIN_MAX_MEMORY` 允许更多。
-
-[错误码](/zh-cn/reference/error-codes/)解释了每种错误的修复方法。
+打开网页界面，在**设置**页面上确认版本，并查看**总览**页面上的错误列表。较新的发布版可能会报告旧版本默默接受的问题：[从 0.2 升级到 0.3](/zh-cn/deployment/upgrading-to-0-3/) 列出了 0.3 会报告的那些问题。[错误码](/zh-cn/reference/error-codes/)解释了每种错误的修复方法。
