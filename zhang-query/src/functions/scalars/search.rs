@@ -1,5 +1,5 @@
 //! Search functions, zhang extensions for keyword search: `icontains`, `any_icontains`,
-//! `intersects` and the `set` constructor.
+//! `intersects` and the `set` constructor, and `unnest`, which groups by the elements of a set.
 //!
 //! Case-insensitive means compared after Unicode lower-casing ([`str::to_lowercase`]) of both
 //! sides. With a constant needle (a literal, or a parameter of the execution) the optimizer
@@ -36,6 +36,12 @@ pub(super) fn set(args: &[Value]) -> Result<Value, String> {
         .map(|arg| arg.as_str().map(str::to_owned).ok_or_else(|| "set() expects strings".to_owned()))
         .collect::<Result<_, _>>()
         .map(Value::Set)
+}
+
+/// `unnest(set)`, which only a group key can be ([`crate::compiler`] checks it): the executor groups a row under each
+/// element of the set itself, so a call never runs.
+pub(super) fn unnest(_: &[Value]) -> Result<Value, String> {
+    Err("unnest() is only allowed as a group key".to_owned())
 }
 
 #[cfg(test)]

@@ -301,10 +301,53 @@ fn eval_open_meta_has(function: &ScalarFunction, args: &[CExpr], span: Span, env
     Ok(Value::Bool(open_meta_has_at(data, &account, &key, &value, date.and_time(time))))
 }
 
+/// The values of a call of `open_meta_values(account, key, date[, time])` as an unnested set ([`crate::compiler::Plan::unnest`]),
+/// its arguments read in place as [`eval_open_meta_has`] reads them, and the values of the `open` in effect not copied:
+/// `Some(None)` when an argument is NULL or no `open` is in effect, which unnest alike, as no element; `None` when an
+/// argument is of another type or there is no execution, which leaves the call to run as written.
+fn open_meta_values_in_place<'r, 'a>(
+    function: &ScalarFunction, args: &'r [CExpr], span: Span, env: &Env<'r, 'a>,
+) -> Result<Option<Option<&'a BTreeSet<String>>>, LocatedError> {
+    let (Some(data), [account, key, date, time @ ..]) = (env.data, args) else {
+        return Ok(None);
+    };
+    macro_rules! read {
+        ($arg:expr) => {
+            match $arg {
+                Arg::Value(it) => it,
+                Arg::Null => return Ok(Some(None)),
+                Arg::Other => return Ok(None),
+            }
+        };
+    }
+    let account = read!(str_arg(account, env)?);
+    let key = read!(str_arg(key, env)?);
+    let date = read!(match date.eval(env)? {
+        Value::Date(date) => Arg::Value(date),
+        Value::Null => Arg::Null,
+        _ => Arg::Other,
+    });
+    let time = match time {
+        [] => NaiveTime::MIN,
+        [time] => match borrowed_time(time, env) {
+            Some(time) => time,
+            None => {
+                let text = read!(str_arg(time, env)?);
+                time_of_day(&text, function.name).map_err(|message| call_failed(function, span, message))?
+            }
+        },
+        _ => return Ok(None),
+    };
+    Ok(Some(data.open_meta_values(&account, &key, date.and_time(time))))
+}
+
 /// The error of a call of `function` at `span` that failed with `message`.
 fn call_failed(function: &ScalarFunction, span: Span, message: String) -> LocatedError {
     LocatedError::eval(format!("{}(): {}", function.name, message), Some(span))
 }
+
+/// The elements of an unnested set that is NULL or empty, or of an account without an `open` in effect.
+static NO_ELEMENTS: BTreeSet<String> = BTreeSet::new();
 
 /// How many arguments a call evaluates into an array on the stack rather than a list it allocates: most calls have
 /// one to three, and a call per row is common.
@@ -1344,8 +1387,9 @@ pub(crate) fn execute_within(
             let deferred = &strategy.running.deferred_aggregates;
             let first_groups = end.filter(|_| strategy.limit == LimitMode::FirstGroups);
             // LIMIT without ORDER BY over groups that come in runs builds only the groups of its window
+            // (an unnested set puts a row in several groups, which then come in no runs)
             let runs = match (first_groups, run.window) {
-                (Some(_), Some(limits)) => execution.group_runs(keys, deferred, limits, &mut budget)?,
+                (Some(_), Some(limits)) if plan.unnest.is_none() => execution.group_runs(keys, deferred, limits, &mut budget)?,
                 _ => None,
             };
             let (mut groups, mut counted) = match runs {
@@ -1364,7 +1408,15 @@ pub(crate) fn execute_within(
                     let mut later_groups = KeySet::default();
                     // the key of the row, evaluated into one list that every row reuses: a group's own key is a copy,
                     // made when its first row comes
-                    let mut key: Vec<Value> = Vec::with_capacity(keys.len());
+                    let mut key: Vec<Value> = vec![Value::Null; keys.len()];
+                    // the position in the key of the unnested set, whose elements a row counts under one by one, and the
+                    // set: a call of open_meta_values() is read in place, without copying the values per row
+                    let unnest = plan.unnest.and_then(|target| keys.iter().position(|idx| *idx == target));
+                    let unnested = plan.unnest.map(|target| &plan.targets[target].expr);
+                    let meta_values = match unnested {
+                        Some(CExpr::Scalar { function, args, span }) if function.name == "open_meta_values" => Some((*function, args, *span)),
+                        _ => None,
+                    };
                     for (counter, row) in data.iter().enumerate() {
                         Deadline::check(execution.deadline, counter)?;
                         if let (Some(running), RowRef::Posting(posting)) = (&mut running, row) {
@@ -1387,36 +1439,77 @@ pub(crate) fn execute_within(
                             running: running.as_ref(),
                             ..base
                         };
-                        key.clear();
-                        for idx in keys {
-                            key.push(plan.targets[*idx].expr.eval(&env)?);
-                        }
-                        // LIMIT without ORDER BY keeps the first groups, so later ones are skipped
-                        let full = first_groups.is_some_and(|limit| groups.len() >= limit);
-                        let group = match groups.get_index_of(key.as_slice()) {
-                            Some(group) => group,
-                            None if full => {
-                                if run.count_total && !later_groups.contains(key.as_slice()) {
-                                    budget.charge(row_weight(&key))?;
-                                    later_groups.insert(key.clone());
-                                }
-                                continue;
+                        for (at, (slot, idx)) in key.iter_mut().zip(keys).enumerate() {
+                            if Some(at) != unnest {
+                                *slot = plan.targets[*idx].expr.eval(&env)?;
                             }
-                            None => {
-                                let accumulators = new_accumulators(plan, deferred);
-                                budget.charge(row_weight(&key) + accumulators.iter().map(Accumulator::weight).sum::<u64>())?;
-                                groups.insert_full(key.clone(), accumulators).0
+                        }
+                        // the elements of the unnested set: the row counts in the group of each of them, and in none
+                        // without any (an empty set, or NULL)
+                        let owned: BTreeSet<String>;
+                        let mut elements = match (unnested, meta_values) {
+                            (None, _) => None,
+                            (Some(set), meta_values) => {
+                                let in_place = match meta_values {
+                                    Some((function, args, span)) => open_meta_values_in_place(function, args, span, &env)?,
+                                    None => None,
+                                };
+                                Some(match in_place {
+                                    Some(values) => values.unwrap_or(&NO_ELEMENTS).iter(),
+                                    None => {
+                                        owned = match set.eval(&env)? {
+                                            Value::Set(set) => set,
+                                            _ => BTreeSet::new(),
+                                        };
+                                        owned.iter()
+                                    }
+                                })
                             }
                         };
-                        let accumulators = &mut groups[group];
-                        for (idx, (call, accumulator)) in plan.aggregates.iter().zip(accumulators.iter_mut()).enumerate() {
-                            if deferred.contains(&idx) {
-                                accumulator.pick_row(call, ordinal);
-                                continue;
+                        let mut once = true;
+                        loop {
+                            match (unnest, elements.as_mut()) {
+                                (Some(at), Some(elements)) => match elements.next() {
+                                    // the key's text is rewritten in place: a row allocates nothing for it
+                                    Some(element) => match &mut key[at] {
+                                        Value::Str(text) => {
+                                            text.clear();
+                                            text.push_str(element);
+                                        }
+                                        slot => *slot = Value::Str(element.clone()),
+                                    },
+                                    None => break,
+                                },
+                                _ if std::mem::take(&mut once) => {}
+                                _ => break,
                             }
-                            let before = accumulator.weight();
-                            accumulator.update(call, &env)?;
-                            budget.change(before, accumulator.weight())?;
+                            // LIMIT without ORDER BY keeps the first groups, so later ones are skipped
+                            let full = first_groups.is_some_and(|limit| groups.len() >= limit);
+                            let group = match groups.get_index_of(key.as_slice()) {
+                                Some(group) => group,
+                                None if full => {
+                                    if run.count_total && !later_groups.contains(key.as_slice()) {
+                                        budget.charge(row_weight(&key))?;
+                                        later_groups.insert(key.clone());
+                                    }
+                                    continue;
+                                }
+                                None => {
+                                    let accumulators = new_accumulators(plan, deferred);
+                                    budget.charge(row_weight(&key) + accumulators.iter().map(Accumulator::weight).sum::<u64>())?;
+                                    groups.insert_full(key.clone(), accumulators).0
+                                }
+                            };
+                            let accumulators = &mut groups[group];
+                            for (idx, (call, accumulator)) in plan.aggregates.iter().zip(accumulators.iter_mut()).enumerate() {
+                                if deferred.contains(&idx) {
+                                    accumulator.pick_row(call, ordinal);
+                                    continue;
+                                }
+                                let before = accumulator.weight();
+                                accumulator.update(call, &env)?;
+                                budget.change(before, accumulator.weight())?;
+                            }
                         }
                     }
                     // only the first groups were built (no HAVING and no DISTINCT drop any)

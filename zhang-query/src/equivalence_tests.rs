@@ -179,6 +179,10 @@ const QUERIES: &[&str] = &[
     "SELECT date, payee WHERE icontains(payee, 'TRADE') OR icontains(narration, 'café') OR any_icontains(tags, 'TRIP')",
     "SELECT account, count(*) WHERE under(account, 'Assets') OR under(account, 'Expenses:Food') GROUP BY account",
     "SELECT DISTINCT account WHERE NOT under(account, 'Assets:US') AND account IN ('Assets:US:BofA:Checking', 'Assets:Cash')",
+    // unnest(): a row in the group of each element of a set
+    "SELECT unnest(tags) AS tag, count(*), sum(position), last(balance) GROUP BY tag ORDER BY tag",
+    "SELECT unnest(tags) AS tag, year, count(*) WHERE account ~ 'Expenses' GROUP BY tag, year LIMIT 3",
+    "SELECT count(*), first(date) GROUP BY unnest(set(root(account), account)) HAVING count(*) > 1",
 ];
 
 /// Queries with parameters, run with [`PARAMS`]: the optimized execution binds them as

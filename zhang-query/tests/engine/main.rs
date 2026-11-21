@@ -23,4 +23,5 @@ mod server_features_api;
 mod statements;
 mod tables;
 mod typed_api;
+mod unnest;
 mod zhang_tables;
