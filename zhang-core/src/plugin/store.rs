@@ -43,6 +43,32 @@ impl PluginStore {
         &mut self, _plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
         options: &[OptionDomain], policy: Arc<PluginPolicy>,
     ) -> ZhangResult<Option<String>> {
+        self.insert(_plugin, module, declaration, span, clock, timezone, files, options, policy, false)
+    }
+
+    /// [`PluginStore::insert_plugin`] for a plugin the embedder registers for every ledger
+    /// ([`crate::analysis::LoadOptions::default_plugins`]): marked default, and compiled once for every load of the same
+    /// module with the same settings ([`super::cache`]), so that a reload, and so a write, compiles it no more. A
+    /// plugin of the ledger, read from its files, is compiled at every load: its module may change at any time, and its
+    /// compiled code would be kept for a ledger no longer served.
+    #[allow(clippy::too_many_arguments)]
+    pub fn insert_default_plugin(
+        &mut self, plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
+        options: &[OptionDomain], policy: Arc<PluginPolicy>,
+    ) -> ZhangResult<Option<String>> {
+        let conflict = self.insert(plugin, module, declaration, span, clock, timezone, files, options, policy, true)?;
+        if let Some((registered, _)) = self.ordered.last_mut() {
+            registered.default = true;
+        }
+        Ok(conflict)
+    }
+
+    /// [`PluginStore::insert_plugin`], with the compiled code of the plugin kept across loads when `shared`
+    #[allow(clippy::too_many_arguments)]
+    fn insert(
+        &mut self, _plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
+        options: &[OptionDomain], policy: Arc<PluginPolicy>, shared: bool,
+    ) -> ZhangResult<Option<String>> {
         let plugin_name = _plugin.module.as_str().to_string();
 
         // the runtime compiles the module for the settings it is asked for and builds every instance
@@ -50,13 +76,18 @@ impl PluginStore {
         // settings every other instance gets, so the plugin's `capabilities` export sees its config and
         // the compiled code is reused by the first stage run or request. A script's module is the
         // embedded Lua interpreter, and the script rides in the config of every manifest
-        // TODO(P1.5/P1.6): keep the compiled code across loads, by module digest and settings: every load, and so every
-        // write, compiles each plugin again, analyzers and the default `zhang:budget` included
         let (module_bytes, script) = module.into_parts();
-        let runtime = Arc::new(PluginRuntime::new(module_bytes));
         let timeout = declaration.capabilities.timeout;
         let occurrence = self.occurrences(&declaration.directive.module);
         let manifest = settings(&declaration, occurrence, options, script.as_ref(), &policy);
+        // a default plugin's runtime, and the compiled code it keeps, outlive the load: the next load of the same module
+        // with the same settings reuses them. A ledger's own plugin is compiled anew at every load
+        // TODO(P3): a Lua script of the ledger compiles the interpreter at every load; it could share the interpreter's
+        // compiled code as a default plugin does
+        let runtime = match shared {
+            true => super::cache::runtime(module_bytes, &manifest),
+            false => Arc::new(PluginRuntime::new(module_bytes)),
+        };
 
         // registering, the file functions deny every path and the router functions answer that they
         // are unavailable
@@ -328,9 +359,10 @@ impl RegisteredPlugin {
         self.default
     }
 
-    /// mark the plugin registered for every ledger
-    pub(crate) fn mark_default(&mut self) {
-        self.default = true;
+    /// how many times the plugin's module was compiled, by this load and, for a default plugin, by the loads before it
+    /// that kept its compiled code ([`super::cache`])
+    pub fn compilations(&self) -> usize {
+        self.runtime.compilations()
     }
 
     /// whether the plugin is the official `zhang:budget`, a default plugin, which keeps the budget system's names and

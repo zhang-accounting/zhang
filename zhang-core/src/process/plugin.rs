@@ -162,7 +162,9 @@ fn configure_default(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) {
 /// Register the default plugin `default` into `ledger` ([`crate::analysis::LoadOptions::default_plugins`]): as a
 /// `plugin` directive naming its module would, but whatever the ledger's `features.plugin`, and with the metas of
 /// `directive`, the first `plugin` directive naming its module, if the ledger has one: then what they ask for and the
-/// errors of the plugin go on that directive. The operator's `ZHANG_PLUGINS=off` stops it as it stops every plugin.
+/// errors of the plugin go on that directive. Its compiled code is kept across loads
+/// ([`crate::plugin::store::PluginStore::insert_default_plugin`]). The operator's `ZHANG_PLUGINS=off` stops it as it
+/// stops every plugin.
 #[cfg_attr(not(feature = "plugin_runtime"), allow(unused_variables))]
 pub(crate) fn register_default(default: &crate::analysis::DefaultPlugin, directive: Option<&(Plugin, SpanInfo)>, ledger: &mut Ledger) -> ZhangResult<()> {
     #[cfg(feature = "plugin_runtime")]
@@ -193,10 +195,7 @@ pub(crate) fn register_default(default: &crate::analysis::DefaultPlugin, directi
         let (options, policy) = (ledger.options.all(), ledger.plugin_policy.clone());
         ledger
             .plugins
-            .insert_plugin(&plugin, module, declaration, &span, &clock, timezone, files, &options, policy)?;
-        if let Some((registered, _)) = ledger.plugins.ordered.last_mut() {
-            registered.mark_default();
-        }
+            .insert_default_plugin(&plugin, module, declaration, &span, &clock, timezone, files, &options, policy)?;
     }
     Ok(())
 }

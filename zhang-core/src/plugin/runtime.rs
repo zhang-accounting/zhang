@@ -21,6 +21,7 @@
 //! host, clock or file access.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
@@ -104,6 +105,8 @@ pub struct PluginRuntime {
     /// the compiled code of the manifest last asked for. A manifest with other settings (config,
     /// allowed hosts, timeout) replaces it, so the pool never outlives one setting per plugin
     pool: Arc<Mutex<Pool>>,
+    /// how many times the module was compiled
+    compilations: AtomicUsize,
 }
 
 impl PluginRuntime {
@@ -113,6 +116,7 @@ impl PluginRuntime {
             module_bytes,
             bindings: InstanceBindings::default(),
             pool: Arc::default(),
+            compilations: AtomicUsize::new(0),
         }
     }
 
@@ -123,10 +127,16 @@ impl PluginRuntime {
 
     /// the module compiled with the settings of `manifest`, with the host functions linked in
     fn compile(&self, manifest: Manifest) -> Result<CompiledPlugin, extism::Error> {
+        self.compilations.fetch_add(1, Ordering::Relaxed);
         PluginBuilder::new(manifest.with_wasm(Wasm::data(self.module_bytes.clone())))
             .with_functions(PluginHost::functions_for_instances(&self.bindings))
             .with_wasi(true)
             .compile()
+    }
+
+    /// how many times the module was compiled, for any settings
+    pub fn compilations(&self) -> usize {
+        self.compilations.load(Ordering::Relaxed)
     }
 
     /// how many compiled plugins are idle, and the pool's generation, which moves only when the settings change

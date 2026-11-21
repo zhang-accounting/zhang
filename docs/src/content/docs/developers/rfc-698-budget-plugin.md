@@ -790,7 +790,8 @@ the optional item #805 deferred.
 - **The embedder's default plugins** (`LoadOptions::default_plugins`). A `plugin` directive naming one configures it
   (its metas, its span), and one naming `zhang:budget` loads nothing of its own. With plugins off, either directive
   reports `PluginsDisabled`, whatever `features.plugin` says.
-- The `GET /api/plugins` fields are left to P3.
+- **Compiled code.** The compiled code of a default plugin is kept across loads, by its module and its settings, so a
+  reload, and so a write, does not compile it again. The `GET /api/plugins` fields are left to P3.
 
 ## 7. The language of the official Budget plugin
 
