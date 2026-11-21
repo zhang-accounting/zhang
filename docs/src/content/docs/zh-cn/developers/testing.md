@@ -61,6 +61,14 @@ sidebar:
 - 每个错误的类型、metas、范围（文件、起点、终点、行）和 id，以及同一位置上各错误的顺序；
 - 每个数值（按数值比较）、每个状态码，以及每一列的名称和类型。
 
+### 预算脚本与原生预算的对照
+
+在内置脚本 `zhang:budget`（`plugins/budget/budget.lua`）成为预算的唯一实现（RFC #698 P3.3）之前，默认运行原生代码，由一个测试开关选择实现：
+
+- `zhang_server::analysis::BudgetImpl`（`native`、`plugin`、`both`）和 `load_options_for` 用其中一种实现加载账本。带 `budget-switch` feature 的构建（`cargo run --release -p zhang --features budget-switch ...`）在服务器的每次加载中（包括预算基线）从 `ZHANG_BUDGET_IMPL` 读取它；不带该 feature 的构建（所有发布版）都用原生实现加载。
+- `budget_contract_as_the_budget_script` 用脚本（`plugin`）运行契约的每个用例，对照同样的黄金文件，并列出每个差异以及允许它的上述规则；其他任何差异都会让它失败。
+- `zhang_testkit::budget_parity` 用两种实现加载同一个账本（`both`），比较按 id 精确的错误、预算表、`#postings` 的 `budgets` 以及预算页面的查询。`cargo run --release -p zhang --example budget_parity -- bench` 在预算基线的账本上运行它，`-- seeds 1 30` 在按种子生成、并被故意破坏以出现每一种预算错误的账本上运行它。
+
 ## 约定
 
 - 测试名是陈述事实的 `snake_case` 句子：`a_pad_books_the_difference_now`、`every_ledger_has_an_oracle`。
