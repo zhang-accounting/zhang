@@ -93,12 +93,14 @@ plugin "plugins/receipts.wasm"
 
 | 设置 | 默认值 | 作用 |
 |---|---|---|
-| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` 不加载任何插件；`read` 运行插件，插件不修改任何东西；`write` 还允许插件在其指令授予时写入账本。 |
+| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` 不加载任何插件，包括官方插件 `zhang:budget`（见下文）；`read` 运行插件，插件不修改任何东西；`write` 还允许插件在其指令授予时写入账本。 |
 | `ZHANG_PLUGIN_ALLOWED_HOSTS` | 无 | 插件可以访问的主机，用逗号分隔，例如 `api.frankfurter.dev,*.example.com`；`*` 允许任何主机。只有插件的 `allowed_hosts` 和这个设置都允许时，插件才能访问一个主机。 |
 | `ZHANG_PLUGIN_MAX_TIMEOUT` | `30s` | 对插件的一次调用最长能运行多久。 |
 | `ZHANG_PLUGIN_MAX_MEMORY` | `256MiB` | 一个插件实例最多能使用的内存。 |
 
 所以默认情况下，插件以只读方式运行，没有任何网络访问，每次调用最多 30 秒。当指令授予的更多时，插件仍会以服务器允许的能力加载，错误列表会在该指令上显示一个 [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) 错误，指出需要修改的设置。使用 `--plugins off` 时，每条 `plugin` 指令会显示一个 [`PluginsDisabled`](/zh-cn/reference/error-codes/#pluginsdisabled) 错误。
+
+**官方插件 `zhang:budget`。**[预算](/zh-cn/guides/budgets/)由 `zhang:budget` 解释，它是每个账本都有的官方插件：不需要 `plugin` 指令，账本的 `features.plugin` 选项也不会关闭它，所以账本的任何选项都不会关闭预算。可以写 `plugin "zhang:budget"` 指令，它不会加载第二份。只有服务器的开关会停止它：使用 `--plugins off` 时预算会关闭，预算页面会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误，`zhang serve` 也会在启动时记录这一点。
 
 例如，要让上面的汇率插件获取汇率，这样启动服务器：
 

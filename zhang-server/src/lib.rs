@@ -461,6 +461,13 @@ impl ReloadSender {
 pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("ZHANG_BUILD_VERSION"), env!("ZHANG_BUILD_DATE"));
     info!("{}", opts.plugins);
+    // the official default plugins stop with the others: budgets are off, and the ledger says so once
+    for stopped in zhang_core::extensions::stopped_by(&opts.plugins.policy) {
+        warn!(
+            "plugin {} does not run, as {}: budgets are off, budget directives are not interpreted and the budget pages answer that they are unavailable",
+            stopped.provider, stopped.reason
+        );
+    }
     let ledger = load_served_ledger(&mut opts).await?;
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();

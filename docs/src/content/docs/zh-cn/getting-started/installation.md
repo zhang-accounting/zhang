@@ -98,7 +98,7 @@ zhang serve [OPTIONS] <PATH>
 | `-p`, `--port <PORT>` | | `8000` | 监听的端口。 |
 | `--auth <USER:PASSWORD>` | `ZHANG_AUTH` | 无 | 启用密码登录。见[身份认证](/zh-cn/deployment/authentication/)。 |
 | `--passkey <SECRET>` | `ZHANG_PASSKEY` | 无 | 启用通行密钥登录。值是注册通行密钥时需要的密钥。见[身份认证](/zh-cn/deployment/authentication/#通行密钥)。 |
-| `--plugins <off\|read\|write>` | `ZHANG_PLUGINS` | `read` | [插件](/zh-cn/guides/plugins/#服务器允许的范围)能做什么：`off` 不加载插件，`read` 运行插件但不修改任何东西，`write` 还允许插件在其指令授予时写入账本。 |
+| `--plugins <off\|read\|write>` | `ZHANG_PLUGINS` | `read` | [插件](/zh-cn/guides/plugins/#服务器允许的范围)能做什么：`off` 不加载插件，包括官方插件 `zhang:budget`，因此[预算](/zh-cn/guides/budgets/)也会关闭；`read` 运行插件但不修改任何东西，`write` 还允许插件在其指令授予时写入账本。 |
 | `--source <SOURCE>` | `ZHANG_DATA_SOURCE` | `fs` | 账本存放的位置：`fs`（[本地文件系统](/zh-cn/deployment/data-sources/local/)）、`s3`（[S3](/zh-cn/deployment/data-sources/s3/)）、`web-dav`（[WebDAV](/zh-cn/deployment/data-sources/webdav/)）或 `github`（[GitHub](/zh-cn/deployment/data-sources/github/)）。 |
 | `--no-report` | | 关闭 | 停止匿名使用报告：张记账每小时向 `https://zhang-cloud.kilerd.me/client_report` 发送一次它的版本号和构建日期。 |
 

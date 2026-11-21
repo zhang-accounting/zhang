@@ -11,6 +11,9 @@ use crate::utils::hashmap::HashMapOfExt;
 /// check the budgets of the postings of `txn`, a transaction the load accepted
 pub(crate) fn check_budgets(txn: &Transaction, ledger: &mut Ledger, span: &SpanInfo) {
     trace!("[fold] transaction: {:?}", txn);
+    if !super::budget::interpreted(ledger) {
+        return;
+    }
     let datetime = txn.date.to_timezone_datetime(&ledger.options.timezone);
 
     // the budgets of each posting as written: the legs booking split from it are summed into it

@@ -9,6 +9,8 @@ Zhang's budgets are monthly envelopes, in the style of zero-based budgeting: eac
 
 Budgets live beside your accounts: they never change a balance. The full syntax is in [Budget](/reference/directives/budget/).
 
+Budgets are interpreted by `zhang:budget`, an official [plugin](/guides/plugins/#what-the-server-allows) every ledger has, with nothing to declare. A server run with plugins off (`ZHANG_PLUGINS=off`) stops it too: its budget pages then answer that the budget tables are unavailable, and the error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error.
+
 ## Create budgets and link accounts
 
 ```zhang

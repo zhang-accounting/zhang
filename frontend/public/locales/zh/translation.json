@@ -45,7 +45,8 @@
     "PluginError": "插件 {{meta.plugin}}：{{meta.message}}",
     "PluginsDisabled": "插件 {{meta.plugin}} 未加载：服务器关闭了插件（{{meta.setting}}）",
     "PluginCapabilityReduced": "插件 {{meta.plugin}} 请求的 {{meta.capability}} 为 {{meta.requested}}，但服务器只允许 {{meta.granted}}；服务器允许的范围由 {{meta.setting}} 设置",
-    "PluginAnalysisFailed": "插件 {{meta.plugin}} 未能分析账本（{{meta.reason}}）：{{meta.message}}"
+    "PluginAnalysisFailed": "插件 {{meta.plugin}} 未能分析账本（{{meta.reason}}）：{{meta.message}}",
+    "ExtensionUnavailable": "预算指令未被解释：{{meta.reason}}"
   },
   "ERROR_BOX_LOCATION": "{{file}} · 第 {{start}}–{{end}} 行",
   "ERROR_BOX_LOCATION_LINE": "{{file}} · 第 {{line}} 行",

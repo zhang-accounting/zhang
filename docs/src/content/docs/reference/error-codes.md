@@ -691,6 +691,21 @@ The error is on the plugin's directive. The next load analyses the ledger again.
 **Fix:** a `timeout` meta on the directive gives a slow analysis more time, within the server's limit. Otherwise the
 message says what to fix in the plugin, or ask its author.
 
+## ExtensionUnavailable
+
+*Budget directives are not interpreted: `<reason>`*
+
+The ledger uses budgets, but the official plugin that interprets them, `zhang:budget`, does not run: the server runs
+with plugins off (`zhang serve --plugins off` or `ZHANG_PLUGINS=off`), which stops every plugin, `zhang:budget`
+included. Every ledger has `zhang:budget` otherwise, without a `plugin` directive and whatever its `features.plugin`
+option says. The ledger loads without budgets: no budget error is reported, and the [budget](/guides/budgets/) pages,
+the budget tables (`#budgets`, `#budget_definitions`, `#budget_events`), the `budgets` column of `#postings` and the
+`budgets.*` [built-in queries](/reference/builtin-queries/) answer that they are unavailable, saying why. The error is
+reported once, on the first budget directive or `open` with `budget` metadata. Metas: `plugin` (`zhang:budget`) and
+`reason`, such as `plugins are off (ZHANG_PLUGINS=off)`.
+
+**Fix:** if you run the server, start it with `--plugins read` (the default) or `write`, or unset `ZHANG_PLUGINS`.
+
 ## When the ledger does not load
 
 These problems stop Zhang from loading the ledger. `zhang serve` prints the reason on stderr and exits with exit

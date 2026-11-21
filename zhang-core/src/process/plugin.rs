@@ -120,28 +120,77 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
     Ok(())
 }
 
+/// Register the plugins of `ledger`, whose `plugin` directives are `directives`: the official default plugins the
+/// operator's policy stops are noted first ([`crate::extensions::stopped_by`]), then the embedder's default plugins are
+/// registered ([`crate::analysis::LoadOptions::default_plugins`]), each configured by the first directive naming its
+/// module, if any, and then the plugins of the other directives, in order. A directive naming a default plugin, the
+/// embedder's or an official one ([`crate::extensions::DEFAULT_PROVIDERS`]), registers nothing of its own: a default
+/// plugin runs once, whatever the ledger's `features.plugin`, so that no option of the ledger turns budgets off.
+pub(crate) fn register_all(ledger: &mut Ledger, directives: &[(Plugin, SpanInfo)]) -> ZhangResult<()> {
+    ledger.extensions.unavailable = crate::extensions::stopped_by(&ledger.plugin_policy);
+    let defaults = ledger.load_options.default_plugins.clone();
+    for default in &defaults {
+        let directive = directives.iter().find(|(plugin, _)| plugin.module.as_str() == default.module);
+        register_default(default, directive, ledger)?;
+    }
+    let names_default = |plugin: &Plugin| {
+        let module = plugin.module.as_str();
+        crate::extensions::DEFAULT_PROVIDERS.contains(&module) || defaults.iter().any(|default| default.module == module)
+    };
+    for (plugin, span) in directives {
+        match names_default(plugin) {
+            true => configure_default(plugin, ledger, span),
+            false => register(plugin, ledger, span)?,
+        }
+    }
+    Ok(())
+}
+
+/// A `plugin` directive naming a default plugin, at `span`: it configures the plugin, which [`register_default`]
+/// registered with its metas, or an official one, which has nothing to configure. With plugins off it says, whatever
+/// the ledger's `features.plugin`, that the plugin is not loaded.
+fn configure_default(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) {
+    if !ledger.plugin_policy.loads_plugins() {
+        let metas = std::collections::HashMap::from([
+            ("plugin".to_owned(), plugin.module.as_str().to_owned()),
+            ("setting".to_owned(), crate::plugin_policy::LEVEL_ENV.to_owned()),
+        ]);
+        ledger.report(zhang_ast::error::ErrorKind::PluginsDisabled, span, metas);
+    }
+}
+
 /// Register the default plugin `default` into `ledger` ([`crate::analysis::LoadOptions::default_plugins`]): as a
-/// `plugin` directive naming its module would, but whatever the ledger's `features.plugin`, and without a directive to
-/// report on. The operator's `ZHANG_PLUGINS=off` stops it as it stops every plugin.
+/// `plugin` directive naming its module would, but whatever the ledger's `features.plugin`, and with the metas of
+/// `directive`, the first `plugin` directive naming its module, if the ledger has one: then what they ask for and the
+/// errors of the plugin go on that directive. The operator's `ZHANG_PLUGINS=off` stops it as it stops every plugin.
 #[cfg_attr(not(feature = "plugin_runtime"), allow(unused_variables))]
-pub(crate) fn register_default(default: &crate::analysis::DefaultPlugin, ledger: &mut Ledger) -> ZhangResult<()> {
+pub(crate) fn register_default(default: &crate::analysis::DefaultPlugin, directive: Option<&(Plugin, SpanInfo)>, ledger: &mut Ledger) -> ZhangResult<()> {
     #[cfg(feature = "plugin_runtime")]
     {
         if !ledger.plugin_policy.loads_plugins() {
             return Ok(());
         }
-        let plugin = Plugin {
+        let plugin = directive.map(|(plugin, _)| plugin.clone()).unwrap_or_else(|| Plugin {
             module: zhang_ast::ZhangString::quote(default.module.as_str()),
             value: vec![],
             meta: zhang_ast::Meta::default(),
-        };
+        });
+        let span = directive.map(|(_, span)| span.clone()).unwrap_or_default();
         let content = default.content.clone();
         let module = crate::plugin::lua::PluginModule::parse_as(&default.module, &default.file, || Ok(content.to_vec()))?;
-        let declaration = crate::plugin::capabilities::PluginDeclaration::parse(&plugin);
+        let mut declaration = crate::plugin::capabilities::PluginDeclaration::parse(&plugin);
+        if directive.is_some() {
+            for error in &declaration.errors {
+                ledger.report(error.kind.clone(), &span, error.metas.clone());
+            }
+            let timeout_declared = declaration.declares_timeout();
+            for reduced in declaration.capabilities.bound_by(&ledger.plugin_policy, timeout_declared) {
+                ledger.report(ErrorKind::PluginCapabilityReduced, &span, reduced.metas(&default.module));
+            }
+        }
         let (clock, timezone) = (ledger.clock.clone(), ledger.options.timezone);
         let files = crate::plugin::files::FileAccess::new(vec![], ledger.data_source.clone(), &ledger.entry.0);
         let (options, policy) = (ledger.options.all(), ledger.plugin_policy.clone());
-        let span = SpanInfo::default();
         ledger
             .plugins
             .insert_plugin(&plugin, module, declaration, &span, &clock, timezone, files, &options, policy)?;
@@ -150,4 +199,28 @@ pub(crate) fn register_default(default: &crate::analysis::DefaultPlugin, ledger:
         }
     }
     Ok(())
+}
+
+/// Report, once, that `ledger` uses what an official default plugin the operator stopped interprets: on its first
+/// budget directive, or `open` with `budget` metadata, when `zhang:budget` does not run
+/// ([`zhang_ast::error::ErrorKind::ExtensionUnavailable`], with the metas `plugin` and `reason`). The ledger is folded.
+pub(crate) fn report_unavailable(ledger: &mut Ledger) {
+    let Some(reason) = ledger.extensions.unavailable(crate::analysis::BUDGET).map(str::to_owned) else {
+        return;
+    };
+    let first = ledger.directives.iter().find(|directive| match &directive.data {
+        zhang_ast::Directive::Open(open) => open.meta.get_one("budget").is_some(),
+        data => matches!(
+            data,
+            zhang_ast::Directive::Budget(_)
+                | zhang_ast::Directive::BudgetAdd(_)
+                | zhang_ast::Directive::BudgetTransfer(_)
+                | zhang_ast::Directive::BudgetClose(_)
+        ),
+    });
+    let Some(span) = first.map(|directive| directive.span.clone()) else {
+        return;
+    };
+    let metas = std::collections::HashMap::from([("plugin".to_owned(), crate::analysis::BUDGET.to_owned()), ("reason".to_owned(), reason)]);
+    ledger.report(zhang_ast::error::ErrorKind::ExtensionUnavailable, &span, metas);
 }

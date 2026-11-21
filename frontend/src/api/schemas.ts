@@ -2535,7 +2535,8 @@ export interface operations {
                   | 'PluginError'
                   | 'PluginsDisabled'
                   | 'PluginCapabilityReduced'
-                  | 'PluginAnalysisFailed';
+                  | 'PluginAnalysisFailed'
+                  | 'ExtensionUnavailable';
                 metas: {
                   [key: string]: string;
                 };
@@ -2896,7 +2897,8 @@ export interface operations {
                   | 'PluginError'
                   | 'PluginsDisabled'
                   | 'PluginCapabilityReduced'
-                  | 'PluginAnalysisFailed';
+                  | 'PluginAnalysisFailed'
+                  | 'ExtensionUnavailable';
                 metas: {
                   [key: string]: string;
                 };
