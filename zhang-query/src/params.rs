@@ -9,6 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr;
 
+use bigdecimal::num_bigint::BigInt;
 use bigdecimal::BigDecimal;
 use chrono::{Datelike, NaiveDate};
 use zhang_ast::amount::{number_in_range, MAX_NUMBER_SIZE};
@@ -202,11 +203,46 @@ fn decimal(text: &str) -> Result<Value, JsonError> {
     if text.bytes().filter(u8::is_ascii_digit).count() as u64 > MAX_NUMBER_SIZE {
         return Err(JsonError::OutOfRange);
     }
-    let number = BigDecimal::from_str(text).map_err(|_| JsonError::Expected(DECIMAL_EXPECTED))?;
+    let number = match plain_decimal(text) {
+        Some(number) => number,
+        None => BigDecimal::from_str(text).map_err(|_| JsonError::Expected(DECIMAL_EXPECTED))?,
+    };
     if !number_in_range(&number) {
         return Err(JsonError::OutOfRange);
     }
     Ok(Value::Decimal(number))
+}
+
+/// `text` as a decimal when it is written `-?digits[.digits]` with at most 18 digits, as nearly every decimal a plugin
+/// or an analysis writes is: the number [`BigDecimal::from_str`] reads, digits and scale alike, without its general
+/// parser, which costs about ten times as much; `None` for any other text, which that parser reads.
+fn plain_decimal(text: &str) -> Option<BigDecimal> {
+    let (negative, digits) = match text.as_bytes() {
+        [b'-', rest @ ..] => (true, rest),
+        bytes => (false, bytes),
+    };
+    let (mut value, mut count, mut scale) = (0i64, 0, None);
+    for (at, byte) in digits.iter().enumerate() {
+        match byte {
+            b'0'..=b'9' => {
+                count += 1;
+                if count > 18 {
+                    return None;
+                }
+                value = value * 10 + i64::from(byte - b'0');
+                if let Some(scale) = scale.as_mut() {
+                    *scale += 1;
+                }
+            }
+            // a point between digits
+            b'.' if scale.is_none() && at > 0 && at + 1 < digits.len() => scale = Some(0),
+            _ => return None,
+        }
+    }
+    if count == 0 {
+        return None;
+    }
+    Some(BigDecimal::new(BigInt::from(if negative { -value } else { value }), scale.unwrap_or(0)))
 }
 
 /// Named parameters given as JSON, `(name, type name, value)` each, as a plugin gives them to
@@ -356,9 +392,75 @@ mod tests {
     use chrono::NaiveDate;
     use serde_json::json;
 
-    use super::{bind_json, from_json, to_bql, JsonError, JSON_TYPES};
+    use super::{bind_json, from_json, plain_decimal, to_bql, JsonError, JSON_TYPES};
     use crate::value::{DataType, Interval, Value};
     use crate::ParamRef;
+
+    /// A plain decimal reads as `BigDecimal::from_str` reads it, digits and scale; any other text is left to it.
+    #[test]
+    fn plain_decimals_read_as_the_general_parser_reads_them() {
+        let mut texts = [
+            "0",
+            "-0",
+            "-0.00",
+            "007.50",
+            "12.50",
+            "-12.50",
+            "1000",
+            "0.00000000000000001",
+            "999999999999999999",
+            "-999999999999999999",
+            "99999999999999999.9",
+            "1234567890.12345678",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        // and some generated ones: up to 18 digits, a sign, a point anywhere between digits
+        let mut state = 698u64;
+        for _ in 0..5000 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let len = 1 + (state >> 33) as usize % 18;
+            let mut digits = (0..len).map(|at| char::from(b'0' + ((state >> (at % 40)) % 10) as u8)).collect::<String>();
+            if (state >> 7).is_multiple_of(2) && len > 1 {
+                digits.insert(1 + (state >> 11) as usize % (len - 1), '.');
+            }
+            texts.push(if (state >> 3).is_multiple_of(3) { format!("-{digits}") } else { digits });
+        }
+        for text in &texts {
+            let plain = plain_decimal(text).unwrap_or_else(|| panic!("{text} is plain"));
+            let general = BigDecimal::from_str(text).unwrap();
+            assert_eq!(plain.as_bigint_and_exponent(), general.as_bigint_and_exponent(), "{text}");
+        }
+        for text in [
+            "",
+            "-",
+            ".",
+            "1.",
+            ".5",
+            "-.5",
+            "+1",
+            "--1",
+            "1.2.3",
+            "1e5",
+            "1E-2",
+            " 1",
+            "1 ",
+            "1_000",
+            "１",
+            "1234567890123456789",
+        ] {
+            assert_eq!(plain_decimal(text), None, "{text:?}");
+        }
+        // what the general parser reads still reads
+        assert_eq!(
+            from_json(DataType::Decimal, &json!("1e2")),
+            Ok(Value::Decimal(BigDecimal::from_str("1e2").unwrap()))
+        );
+        assert_eq!(
+            from_json(DataType::Decimal, &json!("+1.5")),
+            Ok(Value::Decimal(BigDecimal::from_str("1.5").unwrap()))
+        );
+    }
 
     fn bql(value: impl Into<Value>) -> Option<String> {
         to_bql(&value.into())
