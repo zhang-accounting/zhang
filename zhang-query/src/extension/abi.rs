@@ -328,10 +328,10 @@ pub(crate) fn snapshot(provider: &Provider, output: &abi::Output, entries: usize
 
 /// The values of an output so far, which it may hold at most [`MAX_OUTPUT_VALUES`] of.
 #[derive(Default)]
-struct Values(u64);
+pub(crate) struct Values(u64);
 
 impl Values {
-    fn count(&mut self, value: &Value) -> Result<(), String> {
+    pub(crate) fn count(&mut self, value: &Value) -> Result<(), String> {
         self.0 += weight(value);
         match self.0 > MAX_OUTPUT_VALUES {
             true => Err(format!("the output holds more than {} values", MAX_OUTPUT_VALUES)),

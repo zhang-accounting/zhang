@@ -140,4 +140,15 @@ pub fn publish(ledger: &Ledger, provider: &str, output: &abi::Output) -> Result<
     Ok(Arc::new(snapshot))
 }
 
+/// [`publish`] reading `output`, the output as the host reads it first, straight into cells: the same snapshot, or
+/// `None` when the quick reading does not take the output as it is; [`publish`] then reads it the long way and says
+/// what does not hold. An analysis's output is read at every load, so at every write.
+pub fn publish_raw(ledger: &Ledger, provider: &str, output: &abi::RawOutput<'_>) -> Option<Arc<dyn Any + Send + Sync>> {
+    let catalog = Catalog::of_ledger(ledger);
+    let provider = catalog.published_provider(provider)?;
+    let entries = LedgerCache::of(ledger).entries(ledger).rows.len();
+    let snapshot = extension::reader::snapshot(provider, output, entries)?;
+    Some(Arc::new(snapshot))
+}
+
 pub use crate::extension::abi::MAX_OUTPUT_VALUES;

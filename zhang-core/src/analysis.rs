@@ -84,6 +84,15 @@ pub trait AnalysisHost: Send + Sync {
     /// Publish `output`, what the analyzer providing the tables of `provider` found in `ledger`, checked against its
     /// manifest in the ledger's catalog: the data of its snapshot, or what does not hold.
     fn publish(&self, ledger: &Ledger, provider: &str, output: &abi::Output) -> Result<Arc<dyn Any + Send + Sync>, String>;
+
+    /// [`AnalysisHost::publish`] the quick way: `output` as the host reads it first, read straight into the cells of
+    /// the analyzer's tables. The same data, or `None` when this does not take the output as it is: then the output is
+    /// read the long way, with [`AnalysisHost::publish`], which says what does not hold. A host without a quick way
+    /// answers `None`.
+    fn publish_raw(&self, ledger: &Ledger, provider: &str, output: &abi::RawOutput<'_>) -> Option<Arc<dyn Any + Send + Sync>> {
+        let _ = (ledger, provider, output);
+        None
+    }
 }
 
 /// A ledger lent to the host functions of one analysis, for as long as it runs: the host functions are linked once per

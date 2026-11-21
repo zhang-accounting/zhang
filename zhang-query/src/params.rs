@@ -198,7 +198,7 @@ pub fn from_json(ty: DataType, value: &serde_json::Value) -> Result<Value, JsonE
 /// text is parsed, so that a text of millions of digits is refused as quickly as `1e100000000`,
 /// which parses in no time but would be compared or written out with as many digits as its
 /// exponent says.
-fn decimal(text: &str) -> Result<Value, JsonError> {
+pub(crate) fn decimal(text: &str) -> Result<Value, JsonError> {
     let text = text.trim();
     if text.bytes().filter(u8::is_ascii_digit).count() as u64 > MAX_NUMBER_SIZE {
         return Err(JsonError::OutOfRange);

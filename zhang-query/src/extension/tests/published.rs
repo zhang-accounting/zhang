@@ -13,6 +13,7 @@ use zhang_shared::plugin_abi::analysis as abi;
 use super::ledger;
 use crate::analysis::{self, AnalyzerTables, LedgerCatalog};
 use crate::catalog::Catalog;
+use crate::extension::snapshot::Snapshot;
 use crate::params::{ParamTypes, Params};
 use crate::{Query, QueryErrorKind, QueryResult};
 
@@ -81,13 +82,40 @@ fn attach(ledger: &mut Ledger, analyzers: &[(&str, abi::Manifest, bool)]) -> Led
     catalog
 }
 
-/// Publish `output` as the snapshot of `provider` into `ledger`.
+/// Publish `output` as the snapshot of `provider` into `ledger`. The output is read both ways, the long way
+/// ([`analysis::publish`]) and the quick way ([`analysis::publish_raw`]), which must make the same snapshot of it, or
+/// both refuse it.
 fn publish(ledger: &Ledger, provider: &str, output: Json) -> Result<(), String> {
-    let output: abi::Output = serde_json::from_value(output).map_err(|err| err.to_string())?;
-    let data = analysis::publish(ledger, provider, &output)?;
+    let (long, quick) = both_ways(ledger, provider, &serde_json::to_string(&output).unwrap());
+    match (&long, quick) {
+        (Ok(_), None) => panic!("the quick way refused an output the long way took: {output}"),
+        (Err(err), Some(_)) => panic!("the quick way took an output the long way refused ({err}): {output}"),
+        (Ok((_, long)), Some(quick)) => assert_eq!(*long, quick, "both ways read {output}"),
+        (Err(_), None) => {}
+    }
+    let (data, _) = long?;
     let slot = ledger.extensions.analyzer(provider).expect("a slot");
     assert!(slot.snapshot.set(Published::ok(data)).is_ok(), "published once");
     Ok(())
+}
+
+/// The output `text` of `provider` read the long way (the data and the snapshot written out, or the error) and the
+/// quick way (the snapshot written out, if it took the output).
+#[allow(clippy::type_complexity)]
+fn both_ways(ledger: &Ledger, provider: &str, text: &str) -> (Result<(Arc<dyn Any + Send + Sync>, String), String>, Option<String>) {
+    let describe = |data: &Arc<dyn Any + Send + Sync>| data.downcast_ref::<Snapshot>().expect("a snapshot").describe();
+    let long = serde_json::from_str::<abi::Output>(text)
+        .map_err(|err| err.to_string())
+        .and_then(|output| analysis::publish(ledger, provider, &output))
+        .map(|data| {
+            let described = describe(&data);
+            (data, described)
+        });
+    let quick = serde_json::from_str::<abi::RawOutput>(text)
+        .ok()
+        .and_then(|output| analysis::publish_raw(ledger, provider, &output))
+        .map(|data| describe(&data));
+    (long, quick)
 }
 
 fn run(ledger: &Ledger, sql: &str) -> Result<QueryResult, String> {
@@ -538,4 +566,87 @@ fn the_errors_of_a_ledger_its_analyzers_analyse_are_not_read() {
         texts(&[&["0"]]),
         "the ledger has errors, read once placed"
     );
+}
+
+/// A manifest of an analyzer `cells`: a record table with a column of every type a cell can have.
+fn cells() -> abi::Manifest {
+    serde_json::from_value(json!({
+        "analysis_abi": 1,
+        "tables": [{"name": "all", "kind": "records", "columns": [
+            {"name": "s", "type": "str"}, {"name": "i", "type": "int"}, {"name": "d", "type": "decimal"},
+            {"name": "t", "type": "date"}, {"name": "b", "type": "bool"}, {"name": "a", "type": "amount"},
+            {"name": "e", "type": "set"}, {"name": "m", "type": "metas"}
+        ]}]
+    }))
+    .expect("a manifest")
+}
+
+#[test]
+fn the_quick_way_reads_an_output_as_the_long_way_does_or_leaves_it_to_it() {
+    let mut ledger = ledger(TEXT);
+    attach(&mut ledger, &[("shop", shop(), false), ("cells", cells(), false)]);
+    // the quick way takes these, and makes the snapshot the long way makes
+    let row = r#"{"s": "x", "i": 1, "d": "1.50", "t": "2024-01-31", "b": true, "a": {"number": "-0.10", "currency": "USD"}, "e": ["b", "a", "b"], "m": [{"key": "k", "value": "v"}]}"#;
+    let taken = [
+        format!(r#"{{"tables": {{"all": [{row}]}}}}"#),
+        r#"{"tables": {"all": [{"s": null, "i": null, "d": null, "t": null, "b": null, "a": null, "e": null, "m": null, "$meta": {"z": ["1", "2"], "a": []}}]}}"#.to_owned(),
+        // escaped keys and texts, keys in any order, the largest integers, a decimal with an exponent
+        r#"{"tables": {"all": [{"m": [], "e": [], "a": {"currency": "USD", "number": "1e3", "other": [1]}, "b": false, "t": "2024-1-5", "d": " 2 ", "i": -9223372036854775808, "s": "\"é\""}]}}"#.to_owned(),
+        r#"{"tables": {"all": [{"s": "", "i": 9223372036854775807, "d": "-0", "t": "2024-02-29", "b": true, "a": null, "e": ["é"], "m": [{"value": "v", "key": "k", "x": null}]}]}}"#.to_owned(),
+        // a partition's fields in any order, and fields nobody reads, at every level
+        r#"{"x": 1, "series": {"stock": {"y": [], "partitions": [{"rows": [{"date": "2024-01-01", "opening": "0", "sold": "1", "closing": "9", "$meta": {"k": ["v"]}}], "first_cause": {"seq": 0, "z": 1}, "until_cause": null, "until": "2024-03-01", "key": {"item": "apple"}, "w": {}}]}},
+            "labels": {"items": [{"params": {"min": "1", "accounts": ["Assets:Bank"]}, "label": "apple", "v": 1}]}}"#.to_owned(),
+        r#"{"series": {"stock": {}}, "labels": {"items": []}, "tables": {"items": []}}"#.to_owned(),
+    ];
+    for text in &taken {
+        let (long, quick) = both_ways(&ledger, if text.contains("\"all\"") { "cells" } else { "shop" }, text);
+        let (_, long) = long.unwrap_or_else(|err| panic!("{text}: {err}"));
+        assert_eq!(Some(long), quick, "{text}");
+    }
+    // the long way takes these, and the quick way leaves them to it: a repeated key, a struct written as a list
+    for text in [
+        r#"{"tables": {"items": [{"item": "a", "item": "b", "price": null, "tags": null}]}}"#,
+        r#"{"tables": {"items": [], "items": []}}"#,
+        r#"{"tables": {"items": [{"item": "a", "price": null, "tags": null, "$meta": {"k": ["1"], "k": ["2"]}}]}}"#,
+        r#"{"tables": {"items": [{"item": "a", "price": {"number": "1", "number": "2", "currency": "USD"}, "tags": null}]}}"#,
+        r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-01-01", "until_cause": [0], "rows": [{"date": "2024-01-01", "opening": "0", "sold": "0", "closing": "0"}]}]}}}"#,
+    ] {
+        let (long, quick) = both_ways(&ledger, "shop", text);
+        assert!(long.is_ok(), "{text}: {:?}", long.err());
+        assert_eq!(quick, None, "{text}");
+    }
+    // and the quick way takes nothing the long way refuses
+    for text in [
+        r#"{"tables": {"all": [{"s": 1, "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": null, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1.0, "d": "1", "t": "2024-01-31", "b": true, "a": null, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 9223372036854775808, "d": "1", "t": "2024-01-31", "b": true, "a": null, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": 1, "t": "2024-01-31", "b": true, "a": null, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1x", "t": "2024-01-31", "b": true, "a": null, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1e100000000", "t": "2024-01-31", "b": true, "a": null, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-02-30", "b": true, "a": null, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": 1, "a": null, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": {"number": null, "currency": "USD"}, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": {"number": "1"}, "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": ["1", "USD"], "e": null, "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": null, "e": ["a", 1], "m": null}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": null, "e": null, "m": [{"key": "k"}]}]}}"#,
+        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": null, "e": null, "m": null, "$meta": null}]}}"#,
+        r#"{"tables": {"all": [["x", 1, "1", "2024-01-31", true, null, null, null]]}}"#,
+        r#"{"tables": {"all": {}}}"#,
+        r#"{"tables": {"all": 1, "all": []}}"#,
+        r#"{"labels": {"items": [{"label": 1}], "items": []}}"#,
+        r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-01-01", "first_cause": {"seq": 1000}, "rows": [{"date": "2024-01-01", "opening": "0", "sold": "0", "closing": "0"}]}]}}}"#,
+        r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-01-01", "rows": [{"date": "2024-01-01", "opening": "0", "sold": "0"}]}]}}}"#,
+        r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-01-01", "rows": [{"date": null, "opening": "0", "sold": "0", "closing": "0"}]}]}}}"#,
+        r#"{"series": {"stock": {"partitions": [{"key": {"item": "a", "x": 1}, "until": "2024-01-01", "rows": [{"date": "2024-01-01", "opening": "0", "sold": "0", "closing": "0"}]}]}}}"#,
+        r#"{"series": {"stock": {"partitions": [{"until": "2024-01-01", "rows": []}]}}}"#,
+        r#"{"labels": {"items": [{"label": "a", "params": {"accounts": null}}]}}"#,
+        r#"{"labels": {"items": [{"label": "a", "params": {"accounts": null, "min": "1", "max": "2"}}]}}"#,
+        r#"{"labels": {"items": [{"params": {"accounts": null, "min": "1"}}]}}"#,
+    ] {
+        let provider = if text.contains("\"all\"") { "cells" } else { "shop" };
+        let (long, quick) = both_ways(&ledger, provider, text);
+        assert!(long.is_err(), "{text}: the long way takes it");
+        assert_eq!(quick, None, "{text}");
+    }
 }

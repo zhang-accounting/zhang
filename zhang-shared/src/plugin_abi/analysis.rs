@@ -8,6 +8,7 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 
 /// The version of the analysis ABI a [`Manifest`] is written for.
@@ -415,6 +416,59 @@ pub struct Output {
     /// the labels of every label column, by its name in the manifest
     #[serde(default)]
     pub labels: BTreeMap<String, Vec<LabelOutput>>,
+}
+
+/// An [`Output`] as the host reads it first: its diagnostics, and the JSON text of each table, series and label
+/// column, by its name, which the host then reads straight into the cells their declarations say, with no tree of
+/// JSON values in between. It reads the same JSON as [`Output`].
+#[derive(Debug, Default, Deserialize)]
+pub struct RawOutput<'a> {
+    #[serde(default)]
+    pub diagnostics: Vec<Diagnostic>,
+    /// the rows of each record table, as in [`Output::tables`]
+    #[serde(default, borrow)]
+    pub tables: RawEntries<'a>,
+    /// each series table, as in [`Output::series`]
+    #[serde(default, borrow)]
+    pub series: RawEntries<'a>,
+    /// the labels of each label column, as in [`Output::labels`]
+    #[serde(default, borrow)]
+    pub labels: RawEntries<'a>,
+}
+
+/// The entries of a JSON object as the host reads them first: each key with the JSON text of its value, in the order
+/// written. A key may be written twice, which [`Output`] reads as the last one only, its earlier values read whole
+/// nonetheless: a reader of these entries that does not check its earlier values takes no such object.
+#[derive(Debug, Default)]
+pub struct RawEntries<'a>(pub Vec<(String, &'a RawValue)>);
+
+impl<'de: 'a, 'a> Deserialize<'de> for RawEntries<'a> {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Entries<'a>(std::marker::PhantomData<&'a ()>);
+        impl<'de: 'a, 'a> serde::de::Visitor<'de> for Entries<'a> {
+            type Value = RawEntries<'a>;
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("an object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<RawEntries<'a>, A::Error> {
+                let mut entries = vec![];
+                while let Some((key, value)) = map.next_entry::<String, &'de RawValue>()? {
+                    entries.push((key, value));
+                }
+                Ok(RawEntries(entries))
+            }
+        }
+        deserializer.deserialize_map(Entries(std::marker::PhantomData))
+    }
+}
+
+impl<'a> RawEntries<'a> {
+    /// Whether a key is written twice.
+    pub fn repeats_a_key(&self) -> bool {
+        let mut keys = self.0.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>();
+        keys.sort_unstable();
+        keys.windows(2).any(|pair| pair[0] == pair[1])
+    }
 }
 
 /// The key of the metadata of a row of [`Output`].
