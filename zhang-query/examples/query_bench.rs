@@ -172,6 +172,33 @@ fn budgets(spec: &Spec, ledger: &Ledger, rounds: usize) {
     let (took, rows) = timed(ledger, &[(held, accounts.clone())], rounds);
     println!("{} held commodities: {rows} rows, {:.2} ms", spec.name(), ms(took));
 
+    // the activity of every budget per month in one pass per commodity, grouped by the budgets of each posting
+    let grouped = "SELECT unnest(open_meta_values(account, 'budget', date, time)) AS budget, yearmonth(date) AS month, \
+        min(seq) AS first, \
+        sum(CASE WHEN currency = :commodity THEN number ELSE number(convert(position, :commodity, date)) END) AS activity \
+        WHERE account IN :accounts GROUP BY budget, month";
+    let mut commodities = budgets.iter().map(|budget| budget.commodity.as_str()).collect::<Vec<_>>();
+    commodities.sort_unstable();
+    commodities.dedup();
+    let per_commodity = commodities
+        .iter()
+        .map(|commodity| {
+            let accounts = budgets
+                .iter()
+                .filter(|budget| budget.commodity == *commodity)
+                .flat_map(|budget| budget.accounts.iter().cloned())
+                .collect();
+            (grouped, Params::new().bind("accounts", Value::Set(accounts)).bind("commodity", *commodity))
+        })
+        .collect::<Vec<_>>();
+    let (took, rows) = timed(ledger, &per_commodity, rounds);
+    println!(
+        "{} budgets grouped by unnest(): {} aggregations, {rows} rows, {:.2} ms",
+        spec.name(),
+        per_commodity.len(),
+        ms(took)
+    );
+
     // the rows alone: what assembling the rows of the budgets' accounts costs, as every query over them pays it
     let scan = "SELECT count(*) WHERE account IN :accounts";
     let (took, rows) = timed(ledger, &[(scan, accounts.clone())], rounds);
