@@ -302,8 +302,33 @@ Against the first baseline (its two runs, A / B):
 
 - **Readers no longer wait for loads.** With 100,000 transactions, a reader during the watcher's turn took 2.4 ms at the p50 instead of 2.4 s, and 8 readers while writing saw a p95 of 43.5 ms instead of 2.4 s. What is left on a read is the swap, and the first budget request after it, which builds the budget snapshot of the new ledger: a reader during a write waited up to 467 ms.
 - **A write costs one load**, as #841 intended: 1.8 s instead of 2.2 to 2.3 s with 100,000 transactions. With 10,000 the difference is within the noise of the write.
-- **The budget requests trade the first one for the others.** A warm `#budgets` request reads the snapshot and takes 0.3 to 4 ms instead of 3 to 78 ms, but the first budget request of every loaded ledger builds it: 283 to 529 ms with 100,000 transactions (was 131 to 188), 36 to 61 ms with 10,000. The server loads the ledger on every write and every edit, so the budget page's first answer after an edit is the cold one. `interval` reads the postings through the `budgets` label column and got slower with 100,000 transactions (64 ms instead of 46).
-- **Memory**: a loaded ledger takes what it took. After the requests the peak is about 470 MiB higher with 100,000 transactions, and the end of the run peaked at 3.9 GiB instead of 3.5; this bench does not break that memory down.
+- **The budget requests trade the first one for the others.** A warm `#budgets` request reads the snapshot and takes 0.3 to 4 ms instead of 3 to 78 ms; the first budget request of every loaded ledger builds it, which costs about as much as one request cost before (+0.4% of instructions with 100,000 transactions). The server loads the ledger on every write and every edit, so the budget page's first answer after an edit is the cold one.
+- **The cold requests and `interval` are slower because of the allocator, not of the budget code.** These numbers were taken with glibc's allocator. Since #840 the ledger a reload replaced is freed on a blocking thread while the requests on the new one run: under glibc that makes the first request after a reload two to three times slower (283 to 529 ms instead of about 160 ms with 100,000 transactions) and leaves allocation-heavy queries such as `interval` about 45% slower afterwards. The same bench on `main` before the budget snapshot (`3d0f9652`) gave the same figures, and so did the instruction counts of the requests (`interval` 636 M instructions at `67c82375`, 624 M on `main`). Freeing the replaced ledger before the request, or another allocator, takes the effect away ([The allocator](#the-allocator)).
+- **Memory**: a loaded ledger takes what it took, and the budget snapshot adds about 7 MiB to one of 100,000 transactions. The peak at the end of the run (3.5 to 5.4 GiB between runs) is memory glibc keeps after the reloads freed it ([The allocator](#the-allocator)).
+
+### The allocator
+
+`zhang` uses mimalloc since this comparison; built with `--no-default-features`, it uses the system's allocator. The four allocators below ran the bench of this section on `main` at `fa8e8abb`, two runs each, alternating, with `ZHANG_BUDGET_BASELINE_IDLE=60`, which reads the resident memory again after 60 s idle at the end of the run. Two values are the two runs; a range is the two runs' values.
+
+| | glibc | glibc + `malloc_trim` | mimalloc | jemalloc |
+|---|---:|---:|---:|---:|
+| 10k: `interval` p50 (ms) | 4.3 / 4.5 | 4.9 / 4.3 | 5.3 / 5.8 | 4.8 / 4.2 |
+| 10k: cold requests, min / median / max (ms) | 17 / 43 / 56 | 21 / 44 / 59 | 16 / 20 / 54 | 10 / 13 / 26 |
+| 10k: write p50 (ms) | 179 / 170 | 213 / 222 | 165 / 164 | 169 / 153 |
+| 10k: reader during a write, p95 (ms) | 45 / 47 | 54 / 55 | 28 / 19 | 25 / 26 |
+| 10k: RSS after the load / peak / at the end / 60 s idle later (MiB) | 100 / 555–670 / 555–666 / 533–556 | 103 / 237–320 / 221–278 / 187–204 | 125 / 326–360 / 326–360 / 213–220 | 116 / 366–395 / 311–344 / 97–99 |
+| 100k: `interval` p50 (ms) | 41.9 / 66.7 | 68.5 / 70.2 | 44.6 / 47.8 | 45.9 / 46.3 |
+| 100k: cold requests, min / median / max (ms) | 171 / 389 / 1,714 | 265 / 399 / 558 | 136 / 156 / 190 | 126 / 139 / 179 |
+| 100k: write p50 (ms) | 1,962 / 1,772 | 1,826 / 2,216 | 1,377 / 1,379 | 1,408 / 1,399 |
+| 100k: reader during a write, p95 (ms) | 396 / 367 | 399 / 463 | 164 / 163 | 171 / 153 |
+| 100k: 8 readers while writing, p95 (ms) | 68.5 / 42.1 | 42.8 / 70.1 | 44.5 / 44.0 | 49.7 / 51.2 |
+| 100k: RSS after the load / peak / at the end / 60 s idle later (MiB) | 645 / 4,447–5,424 / 4,372–5,380 / 4,130–5,018 | 645 / 1,659–1,847 / 1,391–1,442 / 822–882 | 417 / 1,403–1,441 / 1,092–1,198 / 505–518 | 624 / 1,391–1,400 / 851–886 / 414 |
+| `zhang` binary, stripped (Linux x86_64) | 45,521,264 B | + 0 | + 109,208 B | + 252,376 B |
+| Release targets | all | glibc only (a no-op elsewhere) | all: Linux gnu (x86_64, aarch64), macOS, Windows (MSVC), FreeBSD | not Windows (MSVC); aarch64 builds need `JEMALLOC_SYS_WITH_LG_PAGE=16` for 16 KiB and 64 KiB page kernels |
+
+- **glibc keeps what the reloads freed**: 4.1 to 5.0 GiB after 60 s idle with 100,000 transactions, for a ledger of 645 MiB. It is free memory, not live data: `malloc_trim` after each freed ledger gives most of it back (822 to 882 MiB), but makes the first requests and `interval` no faster.
+- **mimalloc and jemalloc fix both**: the first request after a reload is about as fast as in a fresh process (136 to 190 ms), a write is a quarter faster (loading is), and the peak is 1.4 GiB instead of 4.4 to 5.4. After 60 s idle mimalloc holds 505 to 518 MiB, jemalloc 414 (97 to 99 MiB with 10,000 transactions, against 213 to 220 for mimalloc).
+- **mimalloc is the default**: jemalloc returns a little more memory, but it does not build for Windows (MSVC), and its page size is fixed at build time, so an aarch64 build for 4 KiB pages fails on the 16 KiB and 64 KiB page kernels some ARM hosts run. mimalloc builds for every release target, reads the page size at run time, and holds less memory after loading a large ledger (417 MiB, against 624 for jemalloc and 645 for glibc).
 
 ## Reproduce
 
@@ -330,6 +355,6 @@ ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_
 cd /tmp/budget-ledgers/100000tx-30b-60m && LC_ALL=C sha256sum *.zhang | sha256sum
 ```
 
-A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only.
+A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only. `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle at the end of the run. The bench uses the allocator of the binary: mimalloc, or the system's with `--no-default-features`.
 
 Run the whole bench at least twice, and compare the plugin with the native implementation in the same session, alternating them.
