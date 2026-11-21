@@ -93,12 +93,14 @@ Whoever can change your ledger files, through the web UI's file editor, a Git re
 
 | Setting | Default | What it does |
 |---|---|---|
-| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` loads no plugin; `read` runs plugins, which change nothing; `write` also lets a plugin write to the ledger where its directive grants it. |
+| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` loads no plugin, the official `zhang:budget` included (see below); `read` runs plugins, which change nothing; `write` also lets a plugin write to the ledger where its directive grants it. |
 | `ZHANG_PLUGIN_ALLOWED_HOSTS` | none | The hosts plugins may reach, separated by commas, such as `api.frankfurter.dev,*.example.com`; `*` allows any host. A plugin reaches a host only if its `allowed_hosts` and this setting both allow it. |
 | `ZHANG_PLUGIN_MAX_TIMEOUT` | `30s` | The longest one call into a plugin may run. |
 | `ZHANG_PLUGIN_MAX_MEMORY` | `256MiB` | The most memory one plugin instance may use. |
 
 So by default plugins run read-only, without any network, for at most 30 seconds a call. When a directive grants more, the plugin still loads with what the server allows, and the error list shows a [`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced) error on the directive that names the setting to change. With `--plugins off`, each `plugin` directive shows a [`PluginsDisabled`](/reference/error-codes/#pluginsdisabled) error instead.
+
+**The official plugin `zhang:budget`.** [Budgets](/guides/budgets/) are interpreted by `zhang:budget`, an official plugin every ledger has: it needs no `plugin` directive, and the ledger's `features.plugin` option does not turn it off, so no option of a ledger turns budgets off. A `plugin "zhang:budget"` directive is allowed, and loads no second copy. Only the server's switch stops it: with `--plugins off`, budgets are off, the budget pages answer that the budget tables are unavailable, the error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error, and `zhang serve` logs it when it starts.
 
 For example, to let the exchange-rate plugin above fetch its rates, start the server with:
 

@@ -3,6 +3,7 @@
 //! test(booking::)'`. The plugin host suite (`wasm_plugins`) needs the `plugin_runtime` feature, as before.
 
 mod booking;
+mod default_plugins;
 mod open_commodities;
 mod operating_currency_precision;
 mod posting_metadata;

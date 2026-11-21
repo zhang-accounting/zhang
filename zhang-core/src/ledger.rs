@@ -462,6 +462,8 @@ impl Ledger {
         self.outcomes = self.fold(&dated, metas.len(), assertions, validation, stage_errors)?;
         self.metas = metas;
         self.directives = dated;
+        // budgets, when the operator's policy stopped zhang:budget, are said not to be interpreted
+        crate::process::plugin::report_unavailable(&mut self);
         // the analyzers read the final ledger; their diagnostics join the errors before they are placed and identified
         let mut ledger = self.analyze();
         ledger.place_errors();
@@ -761,13 +763,8 @@ impl Ledger {
     }
 
     fn handle_plugins(&mut self, plugin_directives: &[(Plugin, SpanInfo)]) -> ZhangResult<()> {
-        // the embedder's plugins first: they analyse the ledger before its own
-        for default in self.load_options.default_plugins.clone() {
-            crate::process::plugin::register_default(&default, self)?;
-        }
-        for (plugin, span) in plugin_directives {
-            crate::process::plugin::register(plugin, self, span)?;
-        }
+        // the default plugins first, the embedder's and the official ones: they analyse the ledger before its own
+        crate::process::plugin::register_all(self, plugin_directives)?;
         #[cfg(feature = "plugin_runtime")]
         {
             self.native_budget = !self.plugins.reports_budget_errors();

@@ -11,6 +11,38 @@ use std::any::Any;
 use std::fmt;
 use std::sync::{Arc, OnceLock};
 
+use crate::plugin_policy::{PluginPolicy, LEVEL_ENV};
+
+/// The official plugins every ledger has, without a `plugin` directive and whatever its `features.plugin` option says:
+/// `zhang:budget`, which interprets the budget directives and provides the budget tables, the `budgets` column of
+/// `postings` and the budget pages' named queries. Its native provider serves them until RFC #698 moves budgets into
+/// its bundled script; the operator's `ZHANG_PLUGINS=off` stops it as it stops every plugin ([`stopped_by`]).
+pub const DEFAULT_PROVIDERS: [&str; 1] = [crate::analysis::BUDGET];
+
+/// The official default plugins `policy` stops, each with why: every one of them when the operator turned plugins off.
+pub fn stopped_by(policy: &PluginPolicy) -> Vec<Unavailable> {
+    if policy.loads_plugins() {
+        return vec![];
+    }
+    DEFAULT_PROVIDERS
+        .iter()
+        .map(|provider| Unavailable {
+            provider: (*provider).to_owned(),
+            reason: format!("plugins are off ({LEVEL_ENV}=off)"),
+        })
+        .collect()
+}
+
+/// An official default plugin that does not run for a ledger, and why: what it interprets is not interpreted, its tables
+/// and label columns answer that they are unavailable, and the ledger says so once
+/// ([`zhang_ast::error::ErrorKind::ExtensionUnavailable`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Unavailable {
+    pub provider: String,
+    /// `plugins are off (ZHANG_PLUGINS=off)`
+    pub reason: String,
+}
+
 /// The extensions of a loaded ledger: its catalog and its analyzers' snapshots.
 #[derive(Default)]
 pub struct Extensions {
@@ -23,9 +55,16 @@ pub struct Extensions {
     /// whether the analyzers are analysing the ledger, while it loads: its errors are not placed yet, so a query of
     /// them is refused
     pub analysing: bool,
+    /// the official default plugins that do not run for the ledger, set before anything of it is interpreted
+    pub unavailable: Vec<Unavailable>,
 }
 
 impl Extensions {
+    /// Why the official default plugin `provider` does not run for the ledger; `None` when it runs.
+    pub fn unavailable(&self, provider: &str) -> Option<&str> {
+        self.unavailable.iter().find(|it| it.provider == provider).map(|it| it.reason.as_str())
+    }
+
     /// The slot of the analyzer providing the tables of `provider`.
     pub fn analyzer(&self, provider: &str) -> Option<&AnalyzerSlot> {
         self.analyzers.iter().find(|slot| slot.provider == provider)
@@ -46,6 +85,7 @@ impl fmt::Debug for Extensions {
             .field("catalog", &self.catalog.is_some())
             .field("analyzers", &self.analyzers)
             .field("analysing", &self.analysing)
+            .field("unavailable", &self.unavailable)
             .finish()
     }
 }

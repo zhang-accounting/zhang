@@ -12,6 +12,7 @@ mod auth;
 mod balance_assertions;
 mod base64_paths;
 mod day_order;
+mod default_plugins;
 mod error_bodies;
 mod error_lines;
 mod journals_engine;

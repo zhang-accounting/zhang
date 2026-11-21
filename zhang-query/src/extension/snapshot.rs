@@ -169,6 +169,9 @@ pub(crate) fn native_snapshots() -> Vec<NativeSnapshot> {
 pub(crate) fn table_data<'l>(ledger: &'l Ledger, rows: &ExtensionRows, table: &str) -> Result<Option<&'l TableData>, String> {
     let unavailable = |why: &str| format!("table #{} is unavailable: {}", table, why);
     let no_data = || unavailable(&format!("{} has no data for this ledger", rows.provider));
+    if let (Source::Native(_), Some(why)) = (rows.source, stopped(ledger, &rows.provider)) {
+        return Err(unavailable(&why));
+    }
     match rows.source {
         Source::Native(native) => match native_snapshot(ledger, native).and_then(|snapshot| snapshot.table(ledger, table)) {
             Some(Ok(data)) => Ok(Some(data)),
@@ -189,6 +192,7 @@ pub(crate) fn table_data<'l>(ledger: &'l Ledger, rows: &ExtensionRows, table: &s
 /// has no label.
 pub(crate) fn label_data<'l>(ledger: &'l Ledger, column: &LabelColumn) -> &'l [Label] {
     match column.source {
+        Source::Native(_) if stopped(ledger, &column.provider).is_some() => &[],
         Source::Native(native) => native_snapshot(ledger, native)
             .and_then(|snapshot| snapshot.labels(ledger, &column.name))
             .and_then(|labels| labels.as_deref().ok())
@@ -205,7 +209,10 @@ pub(crate) fn label_data<'l>(ledger: &'l Ledger, column: &LabelColumn) -> &'l [L
 /// not analysed the ledger yet. A column whose provider was skipped reads empty, as its tables do.
 pub(crate) fn check_label_column(ledger: &Ledger, column: &LabelColumn) -> Result<(), String> {
     match column.source {
-        Source::Native(_) => Ok(()),
+        Source::Native(_) => match stopped(ledger, &column.provider) {
+            Some(why) => Err(format!("column postings.{} is unavailable: {}", column.name, why)),
+            None => Ok(()),
+        },
         Source::Published => match published(ledger, &column.provider, column.digest) {
             Published::Data(_) | Published::Skipped => Ok(()),
             Published::NotYet(analysing) => Err(format!(
@@ -215,6 +222,13 @@ pub(crate) fn check_label_column(ledger: &Ledger, column: &LabelColumn) -> Resul
             Published::Unavailable(why) => Err(format!("column postings.{} is unavailable: {}", column.name, why)),
         },
     }
+}
+
+/// Why the native provider `provider` serves nothing of `ledger`: the official default plugin it is does not run for
+/// the ledger, as the operator turned plugins off ([`zhang_core::extensions::Extensions::unavailable`]).
+fn stopped(ledger: &Ledger, provider: &str) -> Option<String> {
+    let reason = ledger.extensions.unavailable(provider)?;
+    Some(format!("plugin {} does not run: {}", provider, reason))
 }
 
 /// The native snapshot of `native` of `ledger`.

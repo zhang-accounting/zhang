@@ -63,4 +63,6 @@ zhang update --verbose
 - **除非服务器允许更多，插件以只读方式运行，没有网络访问，每次调用最多 30 秒。** 指令授予了 `allowed_hosts` 的插件（例如汇率插件）会失去网络访问，直到你用 `ZHANG_PLUGIN_ALLOWED_HOSTS` 允许它的主机；超过 30 秒的 `timeout` 会被降低，除非 `ZHANG_PLUGIN_MAX_TIMEOUT` 允许。错误列表会在每条这样的指令上显示一个 [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) 错误，指出相应的设置。插件也不再跟随重定向，不能访问私有或回环地址。见[服务器允许的范围](/zh-cn/guides/plugins/#服务器允许的范围)。
 - [Router 插件](/zh-cn/guides/router-plugins/)的页面在沙箱中运行：页面中的脚本不能再使用你的会话，从张记账加载脚本、样式、图片或 JSON 的页面需要把它们内联。插件只会收到允许列表中的请求头，也只能发送允许列表中的响应头；一个请求最多运行 30 秒；每个插件实例最多使用 256 MiB 内存，除非 `ZHANG_PLUGIN_MAX_MEMORY` 允许更多。
 
+- **`ZHANG_PLUGINS=off` 也会关闭预算。** 预算由官方插件 `zhang:budget` 解释：每个账本都有它，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响，而运维者的开关会像停止其他插件一样停止它。以 `--plugins off` 或 `ZHANG_PLUGINS=off` 运行的服务器会在启动时记录预算已关闭；预算页面和查询会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。预算需要 `ZHANG_PLUGINS` 为 `read`（默认值）或 `write`。
+
 [错误码](/zh-cn/reference/error-codes/)解释了每种错误的修复方法。
