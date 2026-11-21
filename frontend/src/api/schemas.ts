@@ -3,389 +3,892 @@
  * Do not make direct changes to the file.
  */
 
-/** OneOf type helpers */
-type Without<T, U> = { [P in Exclude<keyof T, keyof U>]?: never };
-type XOR<T, U> = T | U extends object ? (Without<T, U> & U) | (Without<U, T> & T) : T | U;
-type OneOf<T extends any[]> = T extends [infer Only] ? Only : T extends [infer A, infer B, ...infer Rest] ? OneOf<[XOR<A, B>, ...Rest]> : never;
-
 export interface paths {
   '/api/accounts': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Account List
      * @description Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
-     * operating currency at today's prices, and the balance of the account with its sub-accounts.
+     *     operating currency at today's prices, and the balance of the account with its sub-accounts.
      *
-     * Built-in queries `accounts.list` and `accounts.balances`.
+     *     Built-in queries `accounts.list` and `accounts.balances`.
      */
     get: operations['get_account_list'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/accounts/batch-balances': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /** Create Batch Account Balances */
     post: operations['create_batch_account_balances'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/accounts/{account_name}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Account Info
      * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
-     * account with its sub-accounts, which its page shows. Any other account is a 404, and a name that is no account
-     * name a 400.
+     *     account with its sub-accounts, which its page shows. Any other account is a 404, and a name that is no account
+     *     name a 400.
      *
-     * Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
+     *     Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
      */
     get: operations['get_account_info'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/accounts/{account_name}/balances': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /** Create Account Balance */
     post: operations['create_account_balance'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/accounts/{account_name}/documents': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /** Upload Account Document */
     post: operations['upload_account_document'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/accounts/{account_name}/journals': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Account Journals
      * @description The journal of the account and its sub-accounts, newest first: a row per posting, with the account it posts
-     * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
-     * assertion on the account, with the balance it was checked against.
+     *     to and the running balance of the account with its sub-accounts in its currency, and a row per balance
+     *     assertion on the account, with the balance it was checked against.
      *
-     * With `page` and `size` (from 1; `size` 100 by default and at most 1000, as on every paged endpoint; another page or
-     * size is a 400), one page of the rows, and the number of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
-     * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
-     * name a 400, as for `GET /api/accounts/{a}`.
+     *     With `page` and `size` (from 1; `size` 100 by default and at most 1000, as on every paged endpoint; another page or
+     *     size is a 400), one page of the rows, and the number of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
+     *     return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
+     *     name a 400, as for `GET /api/accounts/{a}`.
      *
-     * Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
-     * `accounts.balance_assertions`.
+     *     Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
+     *     `accounts.balance_assertions`.
      */
     get: operations['get_account_journals'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/app/code': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * App Login Code
      * @description Issues a one-time code for the app login handoff, valid for 60 seconds, and the app url
-     * `return_to` with the code (and `state`, when given) appended; needs a session (cookie or
-     * Bearer). The scheme of `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
-     * With a PKCE `code_challenge` (method `S256` only), the exchange needs its `code_verifier`.
+     *     `return_to` with the code (and `state`, when given) appended; needs a session (cookie or
+     *     Bearer). The scheme of `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
+     *     With a PKCE `code_challenge` (method `S256` only), the exchange needs its `code_verifier`.
      */
     post: operations['app_login_code'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/app/exchange': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * App Login Exchange
      * @description Exchanges a one-time code of the app login handoff for the session token, to send as
-     * `Authorization: Bearer`. A code issued with a PKCE challenge needs its `code_verifier`, one
-     * issued without refuses a verifier. A code can be exchanged once, a failed exchange uses it up
-     * too; failures count towards the sign-in limit.
+     *     `Authorization: Bearer`. A code issued with a PKCE challenge needs its `code_verifier`, one
+     *     issued without refuses a verifier. A code can be exchanged once, a failed exchange uses it up
+     *     too; failures count towards the sign-in limit.
      */
     post: operations['app_login_exchange'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/login': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Auth Login
      * @description Exchanges the `ZHANG_AUTH` credential for a session cookie.
      */
     post: operations['auth_login'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/logout': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Auth Logout
      * @description Ends the session by clearing its cookie.
      */
     post: operations['auth_logout'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/passkey/login/finish': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Passkey Login Finish
      * @description Finishes a passkey login and signs the caller in.
      */
     post: operations['passkey_login_finish'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/passkey/login/start': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Passkey Login Start
      * @description Starts a passkey login, allowing every registered passkey.
      */
     post: operations['passkey_login_start'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/passkey/register/finish': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Passkey Register Finish
      * @description Finishes registering a passkey and stores it. A caller without a session (registering with
-     * the secret) is signed in with the new passkey; a signed-in caller keeps their session.
+     *     the secret) is signed in with the new passkey; a signed-in caller keeps their session.
      */
     post: operations['passkey_register_finish'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/passkey/register/start': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Passkey Register Start
      * @description Starts registering a passkey; needs a session or the `ZHANG_PASSKEY` secret.
      */
     post: operations['passkey_register_start'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/passkeys': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Passkeys
      * @description The registered passkeys; needs a session.
      */
     get: operations['get_passkeys'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/passkeys/{passkey_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
     /**
      * Delete Passkey
      * @description Removes a passkey (and ends its sessions); needs a session. The last passkey stays while
-     * password login is disabled.
+     *     password login is disabled.
      */
     delete: operations['delete_passkey'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/auth/status': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Auth Status
      * @description Whether authentication is enabled, which methods, and who the caller is.
      */
     get: operations['get_auth_status'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/commodities': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get All Commodities
      * @description Every commodity, with how much of it the Assets and Liabilities accounts hold and its latest
-     * price in the operating currency.
+     *     price in the operating currency.
      */
     get: operations['get_all_commodities'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/commodities/{commodity_name}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Single Commodity
      * @description One commodity: how much of it the Assets and Liabilities accounts hold and in which lots, its
-     * latest price in the operating currency, and all its prices. An unknown commodity is a 404.
+     *     latest price in the operating currency, and all its prices. An unknown commodity is a 404.
      */
     get: operations['get_single_commodity'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/files': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /** Get Files */
     get: operations['get_files'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/files/{file_path}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /** Get File Content */
     get: operations['get_file_content'];
     /** Update File Content */
     put: operations['update_file_content'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/info': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /** Get Basic Info */
     get: operations['get_basic_info'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/journals': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Journals
      * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
-     * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
-     * of a page from `journals.postings` and `journals.balance_checks`.
+     *     among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
+     *     of a page from `journals.postings` and `journals.balance_checks`.
      *
-     * Pages count from 1 (`page`, the first by default) and have 1 to 1000 rows (`size`, 100 by default), as on every
-     * paged endpoint; another page or size is a bad request, and a page past the last one is empty.
+     *     Pages count from 1 (`page`, the first by default) and have 1 to 1000 rows (`size`, 100 by default), as on every
+     *     paged endpoint; another page or size is a bad request, and a page past the last one is empty.
      */
     get: operations['get_journals'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/options': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /** Get All Options */
     get: operations['get_all_options'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/plugins': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Plugin List
      * @description The loaded plugins in declaration order, which is the order they run in. A router plugin
-     * also lists the route it serves.
+     *     also lists the route it serves.
      */
     get: operations['plugin_list'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/query': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Run Query
      * @description Run a BQL-compatible query over the ledger.
      *
-     * With `count_total` the result also has the number of rows before `LIMIT` and `OFFSET`,
-     * `total`. Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
+     *     With `count_total` the result also has the number of rows before `LIMIT` and `OFFSET`,
+     *     `total`. Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
      */
     post: operations['run_query'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/query/builtins': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Builtin Queries
      * @description The built-in queries: the named BQL behind the figures the app shows, which the Query page
-     * (`/explore`) can open and a user adapt. See the "Built-in queries" page of the docs.
+     *     (`/explore`) can open and a user adapt. See the "Built-in queries" page of the docs.
      */
     get: operations['get_builtin_queries'];
+    put?: never;
     /**
      * Run Builtin Queries
      * @description Run several built-in queries, each as `POST /api/query/builtins/{name}` runs it, under one
-     * read lock of the ledger, so the figures of one page agree with each other: the results in
-     * the order of the requests. The whole batch is refused, with the same 404 or 400, when one
-     * of its queries would be.
+     *     read lock of the ledger, so the figures of one page agree with each other: the results in
+     *     the order of the requests. The whole batch is refused, with the same 404 or 400, when one
+     *     of its queries would be.
      */
     post: operations['run_builtin_queries'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/query/builtins/{name}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Run Builtin Query
      * @description Run a built-in query with its parameters bound: the rows the app computes its figures from,
-     * with the columns `GET /api/query/builtins` lists for the query, as `POST /api/query` returns
-     * a result.
+     *     with the columns `GET /api/query/builtins` lists for the query, as `POST /api/query` returns
+     *     a result.
      *
-     * `params` gives every parameter by name, as `POST /api/query/builtins/{name}/text` takes
-     * them; with `count_total` the result also has `total`, the number of rows before `LIMIT`
-     * and `OFFSET`. An unknown query is a 404; a missing, unknown or mistyped parameter a 400,
-     * each naming the query or the parameter.
+     *     `params` gives every parameter by name, as `POST /api/query/builtins/{name}/text` takes
+     *     them; with `count_total` the result also has `total`, the number of rows before `LIMIT`
+     *     and `OFFSET`. An unknown query is a 404; a missing, unknown or mistyped parameter a 400,
+     *     each naming the query or the parameter.
      */
     post: operations['run_builtin_query'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/query/builtins/{name}/text': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Get Builtin Query Text
      * @description A built-in query with its parameters written in as BQL literals, to open it on the Query page
-     * (`/explore`), where parameters cannot be bound: it runs there to the same result as in the app.
+     *     (`/explore`), where parameters cannot be bound: it runs there to the same result as in the app.
      *
-     * `params` gives every parameter of the query by name (see `GET /api/query/builtins` for
-     * their types): a boolean for `bool`, an integer for `int`, a number or a string such as
-     * `"12.50"` for `decimal`, a string for `str`, a string `YYYY-MM-DD` for `date`, a list of
-     * strings for `set`, and `null` for NULL. An unknown query is a 404; a missing, unknown or
-     * mistyped parameter a 400.
+     *     `params` gives every parameter of the query by name (see `GET /api/query/builtins` for
+     *     their types): a boolean for `bool`, an integer for `int`, a number or a string such as
+     *     `"12.50"` for `decimal`, a string for `str`, a string `YYYY-MM-DD` for `date`, a list of
+     *     strings for `set`, and `null` for NULL. An unknown query is a 404; a missing, unknown or
+     *     mistyped parameter a 400.
      */
     post: operations['get_builtin_query_text'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/query/csv': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Run Query Csv
      * @description Run a BQL-compatible query and download the result as CSV (`query.csv`).
      *
-     * Amount, position and inventory columns are split into one numeric column per currency,
-     * named like `balance (USD)`, as beanquery's numberify does. Query errors are answered
-     * with HTTP 400 and `{"message", "line", "column"}`, as in `POST /api/query`.
+     *     Amount, position and inventory columns are split into one numeric column per currency,
+     *     named like `balance (USD)`, as beanquery's numberify does. Query errors are answered
+     *     with HTTP 400 and `{"message", "line", "column"}`, as in `POST /api/query`.
      */
     post: operations['run_query_csv'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/query/saved': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Saved Queries
      * @description The queries saved in the ledger by `query` directives, in ledger order (by date, then
-     * source order). Queries sharing a name are all listed.
+     *     source order). Queries sharing a name are all listed.
      *
-     * Each query is compiled to report whether it is `valid` with the current engine; an
-     * invalid one is still listed, with its `error`.
+     *     Each query is compiled to report whether it is `valid` with the current engine; an
+     *     invalid one is still listed, with its `error`.
      */
     get: operations['get_saved_queries'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/query/schema': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Query Schema
      * @description The columns and functions available to queries.
      */
     get: operations['get_query_schema'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/reload': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Reload
      * @description `POST /api/reload`: reload the ledger from its files, answered once it is done. A reload that fails, as a syntax
-     * error makes it, is answered with the reason (HTTP 409): the ledger served is the one loaded before it (#492).
+     *     error makes it, is answered with the reason (HTTP 409): the ledger served is the one loaded before it (#492).
      */
     post: operations['reload'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/statistic/graph': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     /**
      * Get Statistic Graph
      * @description The net worth at the end of every day, week or month of the range, and what each account
-     * type changed by in it, keyed by the bucket's first day (built-in queries
-     * `report.net_worth_trend`, `report.net_worth` and `report.changes`).
+     *     type changed by in it, keyed by the bucket's first day (built-in queries
+     *     `report.net_worth_trend`, `report.net_worth` and `report.changes`).
      *
-     * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
+     *     `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
      */
     get: operations['get_statistic_graph'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/transactions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Create New Transaction
      * @description Write a new transaction: appended to the file the `directive_output_path` option gives its date, and an `include`
-     * of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
-     * gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
+     *     of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
+     *     gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
      *
-     * With an `Idempotency-Key` header, the key identifies the client's action, not the transaction it sends: the
-     * transaction is written with the key as its `idempotency-key` metadata, and a create sent again with the same key,
-     * whatever its body, writes nothing and answers the transaction that has it, with `Idempotency-Replayed: true`. The
-     * ledger is looked up while the create holds it to write, as every write does, and as reloaded after the write
-     * before it: two creates with one key, sent at once, write once. A request with the header and its own
-     * `idempotency-key` in `metas` is refused; without the header, that is metadata like any other.
+     *     With an `Idempotency-Key` header, the key identifies the client's action, not the transaction it sends: the
+     *     transaction is written with the key as its `idempotency-key` metadata, and a create sent again with the same key,
+     *     whatever its body, writes nothing and answers the transaction that has it, with `Idempotency-Replayed: true`. The
+     *     ledger is looked up while the create holds it to write, as every write does, and as reloaded after the write
+     *     before it: two creates with one key, sent at once, write once. A request with the header and its own
+     *     `idempotency-key` in `metas` is refused; without the header, that is metadata like any other.
      */
     post: operations['create_new_transaction'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/transactions/preview': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Preview New Transaction
      * @description What `POST /api/transactions` would write for the request, without writing it: the transaction's text, the fields it
-     * would refuse with a 400, and what the ledger would report against the transaction once written, such as what it is
-     * unbalanced by. The ledger checks it as it checks every transaction once written: booked against the lots held
-     * before it, each posting weighed by its cost or price, at each commodity's precision.
+     *     would refuse with a 400, and what the ledger would report against the transaction once written, such as what it is
+     *     unbalanced by. The ledger checks it as it checks every transaction once written: booked against the lots held
+     *     before it, each posting weighed by its cost or price, at each commodity's precision.
      */
     post: operations['preview_new_transaction'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/transactions/{transaction_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
     /**
      * Update Single Transaction
      * @description Replace a transaction, in place in its file, by the one the request describes. The ledger is reloaded before the
-     * answer, which gives the transaction's id in it, and its new version: an update keeps the id, as the transaction
-     * stays where it was. With the `version` of the transaction in `If-Match`, the update is refused with a 412 when the
-     * transaction its id names now has another version.
+     *     answer, which gives the transaction's id in it, and its new version: an update keeps the id, as the transaction
+     *     stays where it was. With the `version` of the transaction in `If-Match`, the update is refused with a 412 when the
+     *     transaction its id names now has another version.
      */
     put: operations['update_single_transaction'];
+    post?: never;
     /**
      * Delete Single Transaction
      * @description Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
-     * left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
-     * a request sent after it no longer finds the transaction. The documents its metadata names stay in the ledger's
-     * directory.
+     *     left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
+     *     a request sent after it no longer finds the transaction. The documents its metadata names stay in the ledger's
+     *     directory.
      *
-     * The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
-     * the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
-     * the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
-     * without the version would delete that one. When that one is written alike, with the same version, the server
-     * remembers that it deleted that version at that id lately (in memory, for a day): a delete or an update naming it is
-     * a 412 too.
+     *     The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
+     *     the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
+     *     the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
+     *     without the version would delete that one. When that one is written alike, with the same version, the server
+     *     remembers that it deleted that version at that id lately (in memory, for a day): a delete or an update naming it is
+     *     a 412 too.
      */
     delete: operations['delete_single_transaction'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/transactions/{transaction_id}/documents': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /** Upload Transaction Document */
     post: operations['upload_transaction_document'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
   '/api/transactions/{transaction_id}/preview': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
     /**
      * Preview Transaction Update
      * @description What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
-     * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits,
-     * and refused as the update would be, with a 412 for a version in `If-Match` that the transaction no longer has.
+     *     `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits,
+     *     and refused as the update would be, with a 412 for a version in `If-Match` that the transaction no longer has.
      */
     post: operations['preview_transaction_update'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
   };
 }
-
 export type webhooks = Record<string, never>;
-
-export type components = Record<string, never>;
-
+export interface components {
+  schemas: never;
+  responses: never;
+  parameters: never;
+  requestBodies: never;
+  headers: never;
+  pathItems: never;
+}
 export type $defs = Record<string, never>;
-
-export type external = Record<string, never>;
-
 export interface operations {
-  /**
-   * Get Account List
-   * @description Every account with an `open` or `close` directive or with postings, by name: its own balance, valued in the
-   * operating currency at today's prices, and the balance of the account with its sub-accounts.
-   *
-   * Built-in queries `accounts.list` and `accounts.balances`.
-   */
   get_account_list: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -403,7 +906,7 @@ export interface operations {
               };
               /**
                * @description the balance of the account and all its sub-accounts, closed ones included, valued in the operating currency as
-               * `amount` is: what the account's page shows as its balance with sub-accounts
+               *     `amount` is: what the account's page shows as its balance with sub-accounts
                */
               amount_with_sub_accounts: {
                 calculated: {
@@ -417,7 +920,7 @@ export interface operations {
               };
               /**
                * @description the balance a balance assertion on the account is checked against, per currency: that of the account
-               * and all its sub-accounts
+               *     and all its sub-accounts
                */
               balance_with_sub_accounts: {
                 [key: string]: string;
@@ -433,8 +936,13 @@ export interface operations {
       };
     };
   };
-  /** Create Batch Account Balances */
   create_batch_account_balances: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': (
@@ -465,12 +973,15 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description the balances of a beancount ledger the request replaced: those of the same account and commodity for the same
-               * date, which the new balance supersedes
+               *     date, which the new balance supersedes
                */
               replaced: {
                 account: string;
@@ -484,7 +995,7 @@ export interface operations {
                 date: string;
                 /**
                  * @description the tolerance (`~`) it was written with, which the new balance does not keep: a balance from the balance tools
-                 * is exact. Null for an exact one
+                 *     is exact. Null for an exact one
                  */
                 tolerance?: string | null;
               }[];
@@ -494,23 +1005,22 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Account Info
-   * @description An account with an `open` or `close` directive or with postings: its own balance, and the balance of the
-   * account with its sub-accounts, which its page shows. Any other account is a 404, and a name that is no account
-   * name a 400.
-   *
-   * Built-in queries `accounts.subtree` and `accounts.subtree_balances`.
-   */
   get_account_info: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         account_name: string;
       };
+      cookie?: never;
     };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -539,7 +1049,7 @@ export interface operations {
               };
               /**
                * @description the balance a balance assertion on the account is checked against, per currency: that of the account
-               * and all its sub-accounts
+               *     and all its sub-accounts
                */
               balance_with_sub_accounts: {
                 [key: string]: string;
@@ -558,12 +1068,14 @@ export interface operations {
       };
     };
   };
-  /** Create Account Balance */
   create_account_balance: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         account_name: string;
       };
+      cookie?: never;
     };
     requestBody: {
       content: {
@@ -592,12 +1104,15 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description the balances of a beancount ledger the request replaced: those of the same account and commodity for the same
-               * date, which the new balance supersedes
+               *     date, which the new balance supersedes
                */
               replaced: {
                 account: string;
@@ -611,7 +1126,7 @@ export interface operations {
                 date: string;
                 /**
                  * @description the tolerance (`~`) it was written with, which the new balance does not keep: a balance from the balance tools
-                 * is exact. Null for an exact one
+                 *     is exact. Null for an exact one
                  */
                 tolerance?: string | null;
               }[];
@@ -621,12 +1136,14 @@ export interface operations {
       };
     };
   };
-  /** Upload Account Document */
   upload_account_document: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         account_name: string;
       };
+      cookie?: never;
     };
     /** @description Multipart form data */
     requestBody: {
@@ -637,52 +1154,45 @@ export interface operations {
     responses: {
       /** @description no content */
       204: {
-        content: never;
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };
-  /**
-   * Get Account Journals
-   * @description The journal of the account and its sub-accounts, newest first: a row per posting, with the account it posts
-   * to and the running balance of the account with its sub-accounts in its currency, and a row per balance
-   * assertion on the account, with the balance it was checked against.
-   *
-   * With `page` and `size` (from 1; `size` 100 by default and at most 1000, as on every paged endpoint; another page or
-   * size is a 400), one page of the rows, and the number of rows of all the pages in the `X-Total-Count` header. Without them, the whole journal; a journal too large to
-   * return at once is a 400 that asks for pages. An account without a page is a 404, and a name that is no account
-   * name a 400, as for `GET /api/accounts/{a}`.
-   *
-   * Built-in queries `accounts.journal` (`accounts.journal_page` for a page) and
-   * `accounts.balance_assertions`.
-   */
   get_account_journals: {
     parameters: {
       query?: {
         page?: number | null;
         size?: number | null;
       };
+      header?: never;
       path: {
         account_name: string;
       };
+      cookie?: never;
     };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
         headers: {
           /** @description the number of rows of all the pages; only sent for a page */
           'X-Total-Count'?: number;
+          [name: string]: unknown;
         };
         content: {
           'application/json': {
             data: {
               /**
                * @description the account of the posting, in an account's journal the account itself or one of its sub-accounts; the
-               * asserted account for a balance assertion
+               *     asserted account for a balance assertion
                */
               account: string;
               /**
                * @description the balance after the row, in the row's currency: in an account's journal, the running balance of the account
-               * and its sub-accounts, and for a balance assertion the balance it was checked against
+               *     and its sub-accounts, and for a balance assertion the balance it was checked against
                */
               account_after: {
                 commodity: string;
@@ -697,7 +1207,7 @@ export interface operations {
               } | null;
               /**
                * @description for the row of a balance assertion: the balance it was checked against, that of the account and
-               * all its sub-accounts; null for a posting
+               *     all its sub-accounts; null for a posting
                */
               checked_balance?: {
                 commodity: string;
@@ -729,7 +1239,7 @@ export interface operations {
               trx_id: string;
               /**
                * @description the version of the transaction, as the `version` of its item in `GET /api/journals`: what an update or a
-               * delete of it names in `If-Match`; `null` for a balance assertion and for a transaction a plugin made
+               *     delete of it names in `If-Match`; `null` for a balance assertion and for a transaction a plugin made
                */
               trx_version: string | null;
             }[];
@@ -738,14 +1248,13 @@ export interface operations {
       };
     };
   };
-  /**
-   * App Login Code
-   * @description Issues a one-time code for the app login handoff, valid for 60 seconds, and the app url
-   * `return_to` with the code (and `state`, when given) appended; needs a session (cookie or
-   * Bearer). The scheme of `return_to` must be `zhang-app` or one of `ZHANG_APP_RETURN_SCHEMES`.
-   * With a PKCE `code_challenge` (method `S256` only), the exchange needs its `code_verifier`.
-   */
   app_login_code: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
@@ -763,6 +1272,9 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -776,14 +1288,13 @@ export interface operations {
       };
     };
   };
-  /**
-   * App Login Exchange
-   * @description Exchanges a one-time code of the app login handoff for the session token, to send as
-   * `Authorization: Bearer`. A code issued with a PKCE challenge needs its `code_verifier`, one
-   * issued without refuses a verifier. A code can be exchanged once, a failed exchange uses it up
-   * too; failures count towards the sign-in limit.
-   */
   app_login_exchange: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
@@ -791,7 +1302,7 @@ export interface operations {
           code: string;
           /**
            * @description the PKCE code verifier (RFC 7636) whose challenge the code was issued with; leave it out for a
-           * code issued without one
+           *     code issued without one
            */
           code_verifier?: string | null;
         };
@@ -800,6 +1311,9 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -815,11 +1329,13 @@ export interface operations {
       };
     };
   };
-  /**
-   * Auth Login
-   * @description Exchanges the `ZHANG_AUTH` credential for a session cookie.
-   */
   auth_login: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
@@ -831,18 +1347,21 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
-               * `POST /api/auth/app/exchange`)
+               *     `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
               /**
                * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
-               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
-               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               *     `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               *     echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
                */
               app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
@@ -869,26 +1388,32 @@ export interface operations {
       };
     };
   };
-  /**
-   * Auth Logout
-   * @description Ends the session by clearing its cookie.
-   */
   auth_logout: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
-               * `POST /api/auth/app/exchange`)
+               *     `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
               /**
                * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
-               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
-               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               *     `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               *     echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
                */
               app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
@@ -915,11 +1440,13 @@ export interface operations {
       };
     };
   };
-  /**
-   * Passkey Login Finish
-   * @description Finishes a passkey login and signs the caller in.
-   */
   passkey_login_finish: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
@@ -935,18 +1462,21 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
-               * `POST /api/auth/app/exchange`)
+               *     `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
               /**
                * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
-               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
-               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               *     `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               *     echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
                */
               app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
@@ -973,14 +1503,20 @@ export interface operations {
       };
     };
   };
-  /**
-   * Passkey Login Start
-   * @description Starts a passkey login, allowing every registered passkey.
-   */
   passkey_login_start: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -997,12 +1533,13 @@ export interface operations {
       };
     };
   };
-  /**
-   * Passkey Register Finish
-   * @description Finishes registering a passkey and stores it. A caller without a session (registering with
-   * the secret) is signed in with the new passkey; a signed-in caller keeps their session.
-   */
   passkey_register_finish: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
@@ -1020,18 +1557,21 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
-               * `POST /api/auth/app/exchange`)
+               *     `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
               /**
                * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
-               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
-               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               *     `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               *     echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
                */
               app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
@@ -1058,11 +1598,13 @@ export interface operations {
       };
     };
   };
-  /**
-   * Passkey Register Start
-   * @description Starts registering a passkey; needs a session or the `ZHANG_PASSKEY` secret.
-   */
   passkey_register_start: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
@@ -1076,6 +1618,9 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1092,14 +1637,20 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Passkeys
-   * @description The registered passkeys; needs a session.
-   */
   get_passkeys: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1112,20 +1663,22 @@ export interface operations {
       };
     };
   };
-  /**
-   * Delete Passkey
-   * @description Removes a passkey (and ends its sessions); needs a session. The last passkey stays while
-   * password login is disabled.
-   */
   delete_passkey: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         passkey_id: string;
       };
+      cookie?: never;
     };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1138,26 +1691,32 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Auth Status
-   * @description Whether authentication is enabled, which methods, and who the caller is.
-   */
   get_auth_status: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description whether the server supports the login handoff of the mobile app (`POST /api/auth/app/code` and
-               * `POST /api/auth/app/exchange`)
+               *     `POST /api/auth/app/exchange`)
                */
               app_login: boolean;
               /**
                * @description whether the app login handoff supports PKCE (RFC 7636, `S256`) and `state`: the login page passes
-               * `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
-               * echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
+               *     `code_challenge`, `code_challenge_method` and `state` on to `POST /api/auth/app/code`, the redirect
+               *     echoes `state`, and `POST /api/auth/app/exchange` checks `code_verifier`
                */
               app_login_pkce: boolean;
               /** @description the url schemes the app login handoff may return to: `zhang-app` and those of `ZHANG_APP_RETURN_SCHEMES` */
@@ -1184,15 +1743,20 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get All Commodities
-   * @description Every commodity, with how much of it the Assets and Liabilities accounts hold and its latest
-   * price in the operating currency.
-   */
   get_all_commodities: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1213,20 +1777,22 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Single Commodity
-   * @description One commodity: how much of it the Assets and Liabilities accounts hold and in which lots, its
-   * latest price in the operating currency, and all its prices. An unknown commodity is a 404.
-   */
   get_single_commodity: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         commodity_name: string;
       };
+      cookie?: never;
     };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1255,7 +1821,7 @@ export interface operations {
                 } | null;
                 /**
                  * @description the lot's label, from the `{cost, "label"}` it was bought with; left out when the lot has
-                 * none, so unlabelled lots serialize as before
+                 *     none, so unlabelled lots serialize as before
                  */
                 label?: string | null;
                 price?: {
@@ -1279,11 +1845,20 @@ export interface operations {
       };
     };
   };
-  /** Get Files */
   get_files: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data?: (string | null)[];
@@ -1292,16 +1867,22 @@ export interface operations {
       };
     };
   };
-  /** Get File Content */
   get_file_content: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         file_path: string;
       };
+      cookie?: never;
     };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1309,7 +1890,7 @@ export interface operations {
               path: string;
               /**
                * @description the fingerprint of the file as served, the SHA-256 of its bytes in hex: a save sends it back as
-               * `expected_sha256`, to be refused when the file changed since it was loaded
+               *     `expected_sha256`, to be refused when the file changed since it was loaded
                */
               sha256: string;
             };
@@ -1318,12 +1899,14 @@ export interface operations {
       };
     };
   };
-  /** Update File Content */
   update_file_content: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         file_path: string;
       };
+      cookie?: never;
     };
     requestBody: {
       content: {
@@ -1331,7 +1914,7 @@ export interface operations {
           content: string;
           /**
            * @description the `sha256` the file was served with (`GET /api/files/{path}`): the save is refused with 409, and writes
-           * nothing, when the file no longer has that content. Without it the file is overwritten as it is, as before
+           *     nothing, when the file no longer has that content. Without it the file is overwritten as it is, as before
            */
           expected_sha256?: string | null;
         };
@@ -1340,15 +1923,27 @@ export interface operations {
     responses: {
       /** @description no content */
       204: {
-        content: never;
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
     };
   };
-  /** Get Basic Info */
   get_basic_info: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1358,7 +1953,7 @@ export interface operations {
               format: string;
               /**
                * @description why the last reload failed, while the ledger served is the one loaded before it; absent once a reload
-               * succeeded (#492)
+               *     succeeded (#492)
                */
               reload_failure?: {
                 /** @description the file the failure is in, when it is one file's, as a syntax error is; as the ledger names its files */
@@ -1376,15 +1971,6 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Journals
-   * @description The journal: the transactions and the balance assertions, newest first. An assertion is listed in its place
-   * among the transactions; it books nothing. The built-in query `journals.page`, with the postings and the checks
-   * of a page from `journals.postings` and `journals.balance_checks`.
-   *
-   * Pages count from 1 (`page`, the first by default) and have 1 to 1000 rows (`size`, 100 by default), as on every
-   * paged endpoint; another page or size is a bad request, and a page past the last one is empty.
-   */
   get_journals: {
     parameters: {
       query?: {
@@ -1394,10 +1980,17 @@ export interface operations {
         tags?: string[] | null;
         links?: string[] | null;
       };
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1409,14 +2002,14 @@ export interface operations {
                     datetime: string;
                     /**
                      * @description whether an edit through the API, which rewrites the transaction from its directive, drops text of it: a comment
-                     * line between its postings, a comment on its header line or after a metadata line. A client warns before such
-                     * an edit; `false` for a transaction a plugin made, which cannot be edited at all
+                     *     line between its postings, a comment on its header line or after a metadata line. A client warns before such
+                     *     an edit; `false` for a transaction a plugin made, which cannot be edited at all
                      */
                     edit_drops_text: boolean;
                     flag: string;
                     /**
                      * @description whether the transaction is written with a time of day: `false` for one written with its date alone, whose
-                     * `datetime` is then midnight. An update keeps it so by sending the date alone (`2024-01-02`) as its `datetime`
+                     *     `datetime` is then midnight. An update keeps it so by sending the date alone (`2024-01-02`) as its `datetime`
                      */
                     has_time: boolean;
                     /** Format: uuid */
@@ -1425,7 +2018,7 @@ export interface operations {
                     links: string[];
                     /**
                      * @description metadata of the transaction, in the order it is written: the keys in the order they first appear, the values of
-                     * a repeated key together, after the first of them
+                     *     a repeated key together, after the first of them
                      */
                     metas: {
                       key: string;
@@ -1457,9 +2050,9 @@ export interface operations {
                       };
                       /**
                        * @description metadata of the posting: in the order it is written (the values of a repeated key together, after the first)
-                       * when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
-                       * when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
-                       * written
+                       *     when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
+                       *     when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
+                       *     written
                        */
                       metas: {
                         key: string;
@@ -1472,7 +2065,7 @@ export interface operations {
                       } | null;
                       /**
                        * @description the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
-                       * the entry of a balance check and for a transaction a plugin made
+                       *     the entry of a balance check and for a transaction a plugin made
                        */
                       written?: {
                         /** @description the comment at the end of the line, without the `;` */
@@ -1491,8 +2084,8 @@ export interface operations {
                     type: 'Transaction';
                     /**
                      * @description the version of the transaction's text, the SHA-256 in hex of its text as the ledger read it: an update or a
-                     * delete names it in `If-Match` to be refused (412) when the id names another text by then. Two transactions
-                     * written alike have the same version. `null` for a transaction a plugin made, which cannot be edited
+                     *     delete names it in `If-Match` to be refused (412) when the id names another text by then. Two transactions
+                     *     written alike have the same version. `null` for a transaction a plugin made, which cannot be edited
                      */
                     version: string | null;
                   }
@@ -1527,7 +2120,7 @@ export interface operations {
                     payee: string;
                     /**
                      * @description one entry of the asserted account, not a posting: an assertion books nothing, so `account_before` and
-                     * `account_after` are both the checked balance, and `inferred_unit` is zero, as in an account's journal
+                     *     `account_after` are both the checked balance, and `inferred_unit` is zero, as in an account's journal
                      */
                     postings: {
                       account: string;
@@ -1553,9 +2146,9 @@ export interface operations {
                       };
                       /**
                        * @description metadata of the posting: in the order it is written (the values of a repeated key together, after the first)
-                       * when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
-                       * when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
-                       * written
+                       *     when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
+                       *     when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
+                       *     written
                        */
                       metas: {
                         key: string;
@@ -1568,7 +2161,7 @@ export interface operations {
                       } | null;
                       /**
                        * @description the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
-                       * the entry of a balance check and for a transaction a plugin made
+                       *     the entry of a balance check and for a transaction a plugin made
                        */
                       written?: {
                         /** @description the comment at the end of the line, without the `;` */
@@ -1619,9 +2212,9 @@ export interface operations {
                       };
                       /**
                        * @description metadata of the posting: in the order it is written (the values of a repeated key together, after the first)
-                       * when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
-                       * when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
-                       * written
+                       *     when the journal lines the posting up with the posting as written, which `written` then holds; sorted by key
+                       *     when `written` is `null`, for a transaction a plugin made, or whose booked postings do not line up with those
+                       *     written
                        */
                       metas: {
                         key: string;
@@ -1634,7 +2227,7 @@ export interface operations {
                       } | null;
                       /**
                        * @description the rest of the posting line as it is written in the ledger file, for a transaction read from one; `null` for
-                       * the entry of a balance check and for a transaction a plugin made
+                       *     the entry of a balance check and for a transaction a plugin made
                        */
                       written?: {
                         /** @description the comment at the end of the line, without the `;` */
@@ -1661,11 +2254,20 @@ export interface operations {
       };
     };
   };
-  /** Get All Options */
   get_all_options: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1677,22 +2279,27 @@ export interface operations {
       };
     };
   };
-  /**
-   * Plugin List
-   * @description The loaded plugins in declaration order, which is the order they run in. A router plugin
-   * also lists the route it serves.
-   */
   plugin_list: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               capabilities: {
                 /**
                  * @description hosts the plugin may reach over HTTP: what its directive grants within what the server allows
-                 * (`ZHANG_PLUGIN_ALLOWED_HOSTS`); empty means no network access
+                 *     (`ZHANG_PLUGIN_ALLOWED_HOSTS`); empty means no network access
                  */
                 allowed_hosts: string[];
               };
@@ -1701,18 +2308,18 @@ export interface operations {
               plugin_type: ('Processor' | 'Mapper' | 'Router' | 'Analyzer')[];
               /**
                * @description where a router plugin serves requests, `/api/plugins/{name}`; null for a plugin that is not a
-               * router, and for a router whose name an earlier router plugin already serves
+               *     router, and for a router whose name an earlier router plugin already serves
                */
               route: string | null;
               version: string;
               /**
                * @description the kinds of directives its `plugin` directive lets it write, its `allowed_writes` values; it writes the
-               * kinds in both lists
+               *     kinds in both lists
                */
               writes_granted: string[];
               /**
                * @description the kinds of directives the plugin declares it writes, `transaction` or `open`, from its `capabilities`
-               * export; empty for a plugin that writes nothing
+               *     export; empty for a plugin that writes nothing
                */
               writes_requested: string[];
             }[];
@@ -1721,20 +2328,19 @@ export interface operations {
       };
     };
   };
-  /**
-   * Run Query
-   * @description Run a BQL-compatible query over the ledger.
-   *
-   * With `count_total` the result also has the number of rows before `LIMIT` and `OFFSET`,
-   * `total`. Query errors are answered with HTTP 400 and `{"message", "line", "column"}`.
-   */
   run_query: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
           /**
            * @description also count the rows before `LIMIT` and `OFFSET` into the result's `total`, e.g. for the
-           * number of pages; `POST /api/query` only
+           *     number of pages; `POST /api/query` only
            */
           count_total?: boolean | null;
           /** @description the BQL query text */
@@ -1745,6 +2351,9 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1754,44 +2363,46 @@ export interface operations {
                 type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
               }[];
               rows: (
-                | boolean
-                | number
-                | string
-                | string[]
-                | {
-                    currency: string;
-                    number: string;
-                  }
-                | {
-                    cost: {
-                      currency: string;
-                      date: string | null;
-                      label: string | null;
-                      number: string;
-                    } | null;
-                    units: {
-                      currency: string;
-                      number: string;
-                    };
-                  }
-                | {
-                    positions: {
-                      cost: {
-                        currency: string;
-                        date: string | null;
-                        label: string | null;
-                        number: string;
-                      } | null;
-                      units: {
+                | (
+                    | boolean
+                    | number
+                    | string
+                    | string[]
+                    | {
                         currency: string;
                         number: string;
-                      };
-                    }[];
-                  }
-                | {
-                    key: string;
-                    value: string;
-                  }[]
+                      }
+                    | {
+                        cost: {
+                          currency: string;
+                          date: string | null;
+                          label: string | null;
+                          number: string;
+                        } | null;
+                        units: {
+                          currency: string;
+                          number: string;
+                        };
+                      }
+                    | {
+                        positions: {
+                          cost: {
+                            currency: string;
+                            date: string | null;
+                            label: string | null;
+                            number: string;
+                          } | null;
+                          units: {
+                            currency: string;
+                            number: string;
+                          };
+                        }[];
+                      }
+                    | {
+                        key: string;
+                        value: string;
+                      }[]
+                  )
                 | null
               )[][];
               /** @description the number of rows before `LIMIT` and `OFFSET`; only when the request sets `count_total` */
@@ -1802,6 +2413,9 @@ export interface operations {
       };
       /** @description the query cannot be parsed, compiled or run */
       400: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             column: number | null;
@@ -1812,15 +2426,20 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Builtin Queries
-   * @description The built-in queries: the named BQL behind the figures the app shows, which the Query page
-   * (`/explore`) can open and a user adapt. See the "Built-in queries" page of the docs.
-   */
   get_builtin_queries: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1848,14 +2467,13 @@ export interface operations {
       };
     };
   };
-  /**
-   * Run Builtin Queries
-   * @description Run several built-in queries, each as `POST /api/query/builtins/{name}` runs it, under one
-   * read lock of the ledger, so the figures of one page agree with each other: the results in
-   * the order of the requests. The whole batch is refused, with the same 404 or 400, when one
-   * of its queries would be.
-   */
   run_builtin_queries: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
@@ -1865,7 +2483,7 @@ export interface operations {
           name: string;
           /** @description the value of every parameter of the query, by name (`from` for `:from`) */
           params: {
-            [key: string]: boolean | number | string | string[] | null;
+            [key: string]: (boolean | number | string | string[]) | null;
           };
         }[];
       };
@@ -1873,6 +2491,9 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1882,44 +2503,46 @@ export interface operations {
                 type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
               }[];
               rows: (
-                | boolean
-                | number
-                | string
-                | string[]
-                | {
-                    currency: string;
-                    number: string;
-                  }
-                | {
-                    cost: {
-                      currency: string;
-                      date: string | null;
-                      label: string | null;
-                      number: string;
-                    } | null;
-                    units: {
-                      currency: string;
-                      number: string;
-                    };
-                  }
-                | {
-                    positions: {
-                      cost: {
-                        currency: string;
-                        date: string | null;
-                        label: string | null;
-                        number: string;
-                      } | null;
-                      units: {
+                | (
+                    | boolean
+                    | number
+                    | string
+                    | string[]
+                    | {
                         currency: string;
                         number: string;
-                      };
-                    }[];
-                  }
-                | {
-                    key: string;
-                    value: string;
-                  }[]
+                      }
+                    | {
+                        cost: {
+                          currency: string;
+                          date: string | null;
+                          label: string | null;
+                          number: string;
+                        } | null;
+                        units: {
+                          currency: string;
+                          number: string;
+                        };
+                      }
+                    | {
+                        positions: {
+                          cost: {
+                            currency: string;
+                            date: string | null;
+                            label: string | null;
+                            number: string;
+                          } | null;
+                          units: {
+                            currency: string;
+                            number: string;
+                          };
+                        }[];
+                      }
+                    | {
+                        key: string;
+                        value: string;
+                      }[]
+                  )
                 | null
               )[][];
               /** @description the number of rows before `LIMIT` and `OFFSET`; only when the request sets `count_total` */
@@ -1930,6 +2553,9 @@ export interface operations {
       };
       /** @description the query cannot be parsed, compiled or run */
       400: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             column: number | null;
@@ -1940,22 +2566,14 @@ export interface operations {
       };
     };
   };
-  /**
-   * Run Builtin Query
-   * @description Run a built-in query with its parameters bound: the rows the app computes its figures from,
-   * with the columns `GET /api/query/builtins` lists for the query, as `POST /api/query` returns
-   * a result.
-   *
-   * `params` gives every parameter by name, as `POST /api/query/builtins/{name}/text` takes
-   * them; with `count_total` the result also has `total`, the number of rows before `LIMIT`
-   * and `OFFSET`. An unknown query is a 404; a missing, unknown or mistyped parameter a 400,
-   * each naming the query or the parameter.
-   */
   run_builtin_query: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         name: string;
       };
+      cookie?: never;
     };
     /** @description `POST /api/query/builtins/{name}`: run a built-in query with its parameters bound. */
     requestBody: {
@@ -1965,7 +2583,7 @@ export interface operations {
           count_total?: boolean | null;
           /** @description the value of every parameter of the query, by name (`from` for `:from`) */
           params: {
-            [key: string]: boolean | number | string | string[] | null;
+            [key: string]: (boolean | number | string | string[]) | null;
           };
         };
       };
@@ -1973,6 +2591,9 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -1982,44 +2603,46 @@ export interface operations {
                 type: 'null' | 'bool' | 'int' | 'decimal' | 'str' | 'date' | 'set' | 'amount' | 'position' | 'inventory' | 'interval' | 'metas';
               }[];
               rows: (
-                | boolean
-                | number
-                | string
-                | string[]
-                | {
-                    currency: string;
-                    number: string;
-                  }
-                | {
-                    cost: {
-                      currency: string;
-                      date: string | null;
-                      label: string | null;
-                      number: string;
-                    } | null;
-                    units: {
-                      currency: string;
-                      number: string;
-                    };
-                  }
-                | {
-                    positions: {
-                      cost: {
-                        currency: string;
-                        date: string | null;
-                        label: string | null;
-                        number: string;
-                      } | null;
-                      units: {
+                | (
+                    | boolean
+                    | number
+                    | string
+                    | string[]
+                    | {
                         currency: string;
                         number: string;
-                      };
-                    }[];
-                  }
-                | {
-                    key: string;
-                    value: string;
-                  }[]
+                      }
+                    | {
+                        cost: {
+                          currency: string;
+                          date: string | null;
+                          label: string | null;
+                          number: string;
+                        } | null;
+                        units: {
+                          currency: string;
+                          number: string;
+                        };
+                      }
+                    | {
+                        positions: {
+                          cost: {
+                            currency: string;
+                            date: string | null;
+                            label: string | null;
+                            number: string;
+                          } | null;
+                          units: {
+                            currency: string;
+                            number: string;
+                          };
+                        }[];
+                      }
+                    | {
+                        key: string;
+                        value: string;
+                      }[]
+                  )
                 | null
               )[][];
               /** @description the number of rows before `LIMIT` and `OFFSET`; only when the request sets `count_total` */
@@ -2030,6 +2653,9 @@ export interface operations {
       };
       /** @description the query cannot be parsed, compiled or run */
       400: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             column: number | null;
@@ -2040,29 +2666,21 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Builtin Query Text
-   * @description A built-in query with its parameters written in as BQL literals, to open it on the Query page
-   * (`/explore`), where parameters cannot be bound: it runs there to the same result as in the app.
-   *
-   * `params` gives every parameter of the query by name (see `GET /api/query/builtins` for
-   * their types): a boolean for `bool`, an integer for `int`, a number or a string such as
-   * `"12.50"` for `decimal`, a string for `str`, a string `YYYY-MM-DD` for `date`, a list of
-   * strings for `set`, and `null` for NULL. An unknown query is a 404; a missing, unknown or
-   * mistyped parameter a 400.
-   */
   get_builtin_query_text: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         name: string;
       };
+      cookie?: never;
     };
     requestBody: {
       content: {
         'application/json': {
           /** @description the value of every parameter of the query, by name (`from` for `:from`) */
           params: {
-            [key: string]: boolean | number | string | string[] | null;
+            [key: string]: (boolean | number | string | string[]) | null;
           };
         };
       };
@@ -2070,12 +2688,15 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description the BQL with every parameter written in as a literal: it runs on the Query page
-               * (`/explore`) to the same result as the query with the parameters bound
+               *     (`/explore`) to the same result as the query with the parameters bound
                */
               query: string;
             };
@@ -2084,21 +2705,19 @@ export interface operations {
       };
     };
   };
-  /**
-   * Run Query Csv
-   * @description Run a BQL-compatible query and download the result as CSV (`query.csv`).
-   *
-   * Amount, position and inventory columns are split into one numeric column per currency,
-   * named like `balance (USD)`, as beanquery's numberify does. Query errors are answered
-   * with HTTP 400 and `{"message", "line", "column"}`, as in `POST /api/query`.
-   */
   run_query_csv: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
           /**
            * @description also count the rows before `LIMIT` and `OFFSET` into the result's `total`, e.g. for the
-           * number of pages; `POST /api/query` only
+           *     number of pages; `POST /api/query` only
            */
           count_total?: boolean | null;
           /** @description the BQL query text */
@@ -2115,6 +2734,7 @@ export interface operations {
            * @example attachment; filename="query.csv"
            */
           'Content-Disposition': string;
+          [name: string]: unknown;
         };
         content: {
           'text/csv; charset=utf-8': string;
@@ -2122,6 +2742,9 @@ export interface operations {
       };
       /** @description the query cannot be parsed, compiled or run */
       400: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             column: number | null;
@@ -2132,18 +2755,20 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Saved Queries
-   * @description The queries saved in the ledger by `query` directives, in ledger order (by date, then
-   * source order). Queries sharing a name are all listed.
-   *
-   * Each query is compiled to report whether it is `valid` with the current engine; an
-   * invalid one is still listed, with its `error`.
-   */
   get_saved_queries: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -2159,7 +2784,7 @@ export interface operations {
               query: string;
               /**
                * @description whether the query compiles with the current engine; saved queries are never
-               * validated at load time, so one written for a future feature is simply `false`
+               *     validated at load time, so one written for a future feature is simply `false`
                */
               valid: boolean;
             }[];
@@ -2168,14 +2793,20 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Query Schema
-   * @description The columns and functions available to queries.
-   */
   get_query_schema: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -2185,7 +2816,7 @@ export interface operations {
                 name: string;
                 /**
                  * @description the provider of the column, such as `zhang:budget` for the `budgets` column of `postings`; `null` for a column
-                 * of zhang's core
+                 *     of zhang's core
                  */
                 provided_by: string | null;
                 /** @enum {string} */
@@ -2208,7 +2839,7 @@ export interface operations {
                   name: string;
                   /**
                    * @description the provider of the column, such as `zhang:budget` for the `budgets` column of `postings`; `null` for a column
-                   * of zhang's core
+                   *     of zhang's core
                    */
                   provided_by: string | null;
                   /** @enum {string} */
@@ -2226,15 +2857,20 @@ export interface operations {
       };
     };
   };
-  /**
-   * Reload
-   * @description `POST /api/reload`: reload the ledger from its files, answered once it is done. A reload that fails, as a syntax
-   * error makes it, is answered with the reason (HTTP 409): the ledger served is the one loaded before it (#492).
-   */
   reload: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: string;
@@ -2243,14 +2879,6 @@ export interface operations {
       };
     };
   };
-  /**
-   * Get Statistic Graph
-   * @description The net worth at the end of every day, week or month of the range, and what each account
-   * type changed by in it, keyed by the bucket's first day (built-in queries
-   * `report.net_worth_trend`, `report.net_worth` and `report.changes`).
-   *
-   * `from` and `to` are ledger dates (`YYYY-MM-DD`), both inclusive.
-   */
   get_statistic_graph: {
     parameters: {
       query: {
@@ -2258,10 +2886,17 @@ export interface operations {
         to: string;
         interval: 'Day' | 'Week' | 'Month';
       };
+      header?: never;
+      path?: never;
+      cookie?: never;
     };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
@@ -2301,34 +2936,24 @@ export interface operations {
       };
     };
   };
-  /**
-   * Create New Transaction
-   * @description Write a new transaction: appended to the file the `directive_output_path` option gives its date, and an `include`
-   * of that file to the main file when the ledger does not read it yet. The ledger is reloaded before the answer, which
-   * gives the transaction's id in it: a request sent after the answer finds it in the journal under that id.
-   *
-   * With an `Idempotency-Key` header, the key identifies the client's action, not the transaction it sends: the
-   * transaction is written with the key as its `idempotency-key` metadata, and a create sent again with the same key,
-   * whatever its body, writes nothing and answers the transaction that has it, with `Idempotency-Replayed: true`. The
-   * ledger is looked up while the create holds it to write, as every write does, and as reloaded after the write
-   * before it: two creates with one key, sent at once, write once. A request with the header and its own
-   * `idempotency-key` in `metas` is refused; without the header, that is metadata like any other.
-   */
   create_new_transaction: {
     parameters: {
+      query?: never;
       header?: {
         /** @description what identifies the client's action: a create sent again with the key of a transaction the ledger has writes nothing, and answers that transaction, with `Idempotency-Replayed: true`. 1 to 128 characters from `A`-`Z`, `a`-`z`, `0`-`9`, `.`, `_`, `~` and `-`, such as a UUID */
         'Idempotency-Key'?: string;
       };
+      path?: never;
+      cookie?: never;
     };
     requestBody: {
       content: {
         'application/json': {
           /**
            * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
-           * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
-           * timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
-           * transaction written so: an update keeps it so by sending its date alone
+           *     (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
+           *     timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
+           *     transaction written so: an update keeps it so by sending its date alone
            */
           datetime: string;
           flag?: string | null;
@@ -2343,19 +2968,19 @@ export interface operations {
             account: string;
             /**
              * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
-             * comment of the posting it edits, `null` removes it
+             *     comment of the posting it edits, `null` removes it
              */
             comment?: string | null;
             /**
              * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
-             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
-             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             *     whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             *     the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
              */
             cost?: string | null;
             /**
              * @description the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
-             * flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
-             * `null` removes it
+             *     flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+             *     `null` removes it
              */
             flag?: string | null;
             /** @description metadata of the posting, checked like the transaction's `metas`, written in the order given */
@@ -2367,21 +2992,20 @@ export interface operations {
               | null;
             /**
              * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
-             * a field left out keeps the price of the posting it edits, `null` removes it
+             *     a field left out keeps the price of the posting it edits, `null` removes it
              */
             price?: string | null;
             /** @description the units of the posting, `null` for the one posting whose units booking infers */
-            unit?: OneOf<
-              [
-                {
-                  commodity: string;
-                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
-                  number: string;
-                },
-                string,
-                null,
-              ]
-            >;
+            unit?:
+              | (
+                  | {
+                      commodity: string;
+                      /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                      number: string;
+                    }
+                  | string
+                )
+              | null;
           }[];
           tags: string[];
         };
@@ -2393,6 +3017,7 @@ export interface operations {
         headers: {
           /** @description `true` when the answer is the transaction an earlier request with the same `Idempotency-Key` wrote, and nothing was written; absent otherwise */
           'Idempotency-Replayed'?: string;
+          [name: string]: unknown;
         };
         content: {
           'application/json': {
@@ -2400,17 +3025,17 @@ export interface operations {
               /**
                * Format: uuid
                * @description The id of the transaction written, in the ledger as reloaded before this answer: `GET /api/journals` lists it
-               * under this id, and `PUT`, `DELETE` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
-               * derived from places, the file and the offset of the text in it: it stays the id of this transaction until its
-               * file changes before it, by a write or an editor, which moves it. An update keeps the id. `null` when the
-               * ledger could not be reloaded after the write (the failure is the `reload_failure` of `/api/info`), or when the
-               * load rejected the transaction written, as one whose missing amount cannot be filled in: it is in the file,
-               * but in no journal
+               *     under this id, and `PUT`, `DELETE` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
+               *     derived from places, the file and the offset of the text in it: it stays the id of this transaction until its
+               *     file changes before it, by a write or an editor, which moves it. An update keeps the id. `null` when the
+               *     ledger could not be reloaded after the write (the failure is the `reload_failure` of `/api/info`), or when the
+               *     load rejected the transaction written, as one whose missing amount cannot be filled in: it is in the file,
+               *     but in no journal
                */
               id: string | null;
               /**
                * @description the version of the transaction written, as the journal gives it: what an update or a delete of it names in
-               * `If-Match`. `null` when the id is `null`
+               *     `If-Match`. `null` when the id is `null`
                */
               version: string | null;
             };
@@ -2419,22 +3044,21 @@ export interface operations {
       };
     };
   };
-  /**
-   * Preview New Transaction
-   * @description What `POST /api/transactions` would write for the request, without writing it: the transaction's text, the fields it
-   * would refuse with a 400, and what the ledger would report against the transaction once written, such as what it is
-   * unbalanced by. The ledger checks it as it checks every transaction once written: booked against the lots held
-   * before it, each posting weighed by its cost or price, at each commodity's precision.
-   */
   preview_new_transaction: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
     requestBody: {
       content: {
         'application/json': {
           /**
            * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
-           * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
-           * timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
-           * transaction written so: an update keeps it so by sending its date alone
+           *     (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
+           *     timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
+           *     transaction written so: an update keeps it so by sending its date alone
            */
           datetime: string;
           flag?: string | null;
@@ -2449,19 +3073,19 @@ export interface operations {
             account: string;
             /**
              * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
-             * comment of the posting it edits, `null` removes it
+             *     comment of the posting it edits, `null` removes it
              */
             comment?: string | null;
             /**
              * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
-             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
-             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             *     whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             *     the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
              */
             cost?: string | null;
             /**
              * @description the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
-             * flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
-             * `null` removes it
+             *     flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+             *     `null` removes it
              */
             flag?: string | null;
             /** @description metadata of the posting, checked like the transaction's `metas`, written in the order given */
@@ -2473,21 +3097,20 @@ export interface operations {
               | null;
             /**
              * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
-             * a field left out keeps the price of the posting it edits, `null` removes it
+             *     a field left out keeps the price of the posting it edits, `null` removes it
              */
             price?: string | null;
             /** @description the units of the posting, `null` for the one posting whose units booking infers */
-            unit?: OneOf<
-              [
-                {
-                  commodity: string;
-                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
-                  number: string;
-                },
-                string,
-                null,
-              ]
-            >;
+            unit?:
+              | (
+                  | {
+                      commodity: string;
+                      /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                      number: string;
+                    }
+                  | string
+                )
+              | null;
           }[];
           tags: string[];
         };
@@ -2496,12 +3119,15 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description the errors the ledger would report against the transaction once written, as `GET /api/errors` lists them, such
-               * as `UnbalancedTransaction` or `AccountClosed`
+               *     as `UnbalancedTransaction` or `AccountClosed`
                */
               errors: {
                 /** @enum {string} */
@@ -2542,7 +3168,7 @@ export interface operations {
               }[];
               /**
                * @description the fields the create or update refuses with a 400, each with its message, in the order they are checked: the
-               * first is what the create or update answers. Nothing else is checked while there is one
+               *     first is what the create or update answers. Nothing else is checked while there is one
                */
               field_errors: {
                 /** @enum {string} */
@@ -2575,19 +3201,19 @@ export interface operations {
                 posting: number | null;
                 /**
                  * @description the value it is about: the account name, the commodity, the amount, cost or price as given, the metadata key, the
-                 * tag, the link or the flag
+                 *     tag, the link or the flag
                  */
                 value: string;
               }[];
               /**
                * @description the transaction as the ledger's format writes it, exactly the text the create or update writes; `null` while a
-               * field is invalid
+               *     field is invalid
                */
               text: string | null;
               /**
                * @description what the transaction is unbalanced by once booked, each posting weighed by its cost or price, rounded at each
-               * commodity's precision, as the ledger checks it: empty when it balances; `null` when booking cannot complete it
-               * (see `errors`) or a field is invalid
+               *     commodity's precision, as the ledger checks it: empty when it balances; `null` when booking cannot complete it
+               *     (see `errors`) or a field is invalid
                */
               unbalanced:
                 | {
@@ -2602,15 +3228,9 @@ export interface operations {
       };
     };
   };
-  /**
-   * Update Single Transaction
-   * @description Replace a transaction, in place in its file, by the one the request describes. The ledger is reloaded before the
-   * answer, which gives the transaction's id in it, and its new version: an update keeps the id, as the transaction
-   * stays where it was. With the `version` of the transaction in `If-Match`, the update is refused with a 412 when the
-   * transaction its id names now has another version.
-   */
   update_single_transaction: {
     parameters: {
+      query?: never;
       header?: {
         /** @description the `version` of the transaction the request writes, as the journal gives it: the request is refused with a 412 when the transaction its id names now has another version */
         'If-Match'?: string;
@@ -2618,15 +3238,16 @@ export interface operations {
       path: {
         transaction_id: string;
       };
+      cookie?: never;
     };
     requestBody: {
       content: {
         'application/json': {
           /**
            * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
-           * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
-           * timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
-           * transaction written so: an update keeps it so by sending its date alone
+           *     (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
+           *     timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
+           *     transaction written so: an update keeps it so by sending its date alone
            */
           datetime: string;
           flag?: string | null;
@@ -2641,19 +3262,19 @@ export interface operations {
             account: string;
             /**
              * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
-             * comment of the posting it edits, `null` removes it
+             *     comment of the posting it edits, `null` removes it
              */
             comment?: string | null;
             /**
              * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
-             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
-             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             *     whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             *     the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
              */
             cost?: string | null;
             /**
              * @description the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
-             * flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
-             * `null` removes it
+             *     flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+             *     `null` removes it
              */
             flag?: string | null;
             /** @description metadata of the posting, checked like the transaction's `metas`, written in the order given */
@@ -2665,21 +3286,20 @@ export interface operations {
               | null;
             /**
              * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
-             * a field left out keeps the price of the posting it edits, `null` removes it
+             *     a field left out keeps the price of the posting it edits, `null` removes it
              */
             price?: string | null;
             /** @description the units of the posting, `null` for the one posting whose units booking infers */
-            unit?: OneOf<
-              [
-                {
-                  commodity: string;
-                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
-                  number: string;
-                },
-                string,
-                null,
-              ]
-            >;
+            unit?:
+              | (
+                  | {
+                      commodity: string;
+                      /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                      number: string;
+                    }
+                  | string
+                )
+              | null;
           }[];
           tags: string[];
         };
@@ -2688,23 +3308,26 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * Format: uuid
                * @description The id of the transaction written, in the ledger as reloaded before this answer: `GET /api/journals` lists it
-               * under this id, and `PUT`, `DELETE` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
-               * derived from places, the file and the offset of the text in it: it stays the id of this transaction until its
-               * file changes before it, by a write or an editor, which moves it. An update keeps the id. `null` when the
-               * ledger could not be reloaded after the write (the failure is the `reload_failure` of `/api/info`), or when the
-               * load rejected the transaction written, as one whose missing amount cannot be filled in: it is in the file,
-               * but in no journal
+               *     under this id, and `PUT`, `DELETE` and the documents of `/api/transactions/{transaction_id}` take it. Ids are
+               *     derived from places, the file and the offset of the text in it: it stays the id of this transaction until its
+               *     file changes before it, by a write or an editor, which moves it. An update keeps the id. `null` when the
+               *     ledger could not be reloaded after the write (the failure is the `reload_failure` of `/api/info`), or when the
+               *     load rejected the transaction written, as one whose missing amount cannot be filled in: it is in the file,
+               *     but in no journal
                */
               id: string | null;
               /**
                * @description the version of the transaction written, as the journal gives it: what an update or a delete of it names in
-               * `If-Match`. `null` when the id is `null`
+               *     `If-Match`. `null` when the id is `null`
                */
               version: string | null;
             };
@@ -2713,22 +3336,9 @@ export interface operations {
       };
     };
   };
-  /**
-   * Delete Single Transaction
-   * @description Delete a transaction: its text is removed from its file, with the line it ends and the blank lines that would be
-   * left twice; the comments and the entries around it stay as they are. The ledger is reloaded before the answer, so
-   * a request sent after it no longer finds the transaction. The documents its metadata names stay in the ledger's
-   * directory.
-   *
-   * The request names the `version` of the transaction, as the journal gives it, in `If-Match`: without it, a 428; when
-   * the transaction its id names now has another version, a 412, and nothing is deleted. Ids are derived from places:
-   * the transactions after a deleted one in its file move, and the next one can take its id, so a delete sent again
-   * without the version would delete that one. When that one is written alike, with the same version, the server
-   * remembers that it deleted that version at that id lately (in memory, for a day): a delete or an update naming it is
-   * a 412 too.
-   */
   delete_single_transaction: {
     parameters: {
+      query?: never;
       header: {
         /** @description the `version` of the transaction the request writes, as the journal gives it: the request is refused with a 412 when the transaction its id names now has another version */
         'If-Match': string;
@@ -2736,10 +3346,15 @@ export interface operations {
       path: {
         transaction_id: string;
       };
+      cookie?: never;
     };
+    requestBody?: never;
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data?: Record<string, never>;
@@ -2748,12 +3363,14 @@ export interface operations {
       };
     };
   };
-  /** Upload Transaction Document */
   upload_transaction_document: {
     parameters: {
+      query?: never;
+      header?: never;
       path: {
         transaction_id: string;
       };
+      cookie?: never;
     };
     /** @description Multipart form data */
     requestBody: {
@@ -2764,6 +3381,9 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: string;
@@ -2772,14 +3392,9 @@ export interface operations {
       };
     };
   };
-  /**
-   * Preview Transaction Update
-   * @description What `PUT /api/transactions/{transaction_id}` would write for the request, without writing it, as
-   * `POST /api/transactions/preview` tells it for a new one. The edit is checked in place of the transaction it edits,
-   * and refused as the update would be, with a 412 for a version in `If-Match` that the transaction no longer has.
-   */
   preview_transaction_update: {
     parameters: {
+      query?: never;
       header?: {
         /** @description the `version` of the transaction the request writes, as the journal gives it: the request is refused with a 412 when the transaction its id names now has another version */
         'If-Match'?: string;
@@ -2787,15 +3402,16 @@ export interface operations {
       path: {
         transaction_id: string;
       };
+      cookie?: never;
     };
     requestBody: {
       content: {
         'application/json': {
           /**
            * @description when the transaction is: the ledger's wall-clock time, in its timezone, without an offset, as responses give it
-           * (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
-           * timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
-           * transaction written so: an update keeps it so by sending its date alone
+           *     (`2024-01-02T07:00:00`). An instant with an offset or `Z` is read as the wall-clock time it is in the ledger's
+           *     timezone. A date alone (`2024-01-02`) is written without a time, as the journal's `has_time` tells of a
+           *     transaction written so: an update keeps it so by sending its date alone
            */
           datetime: string;
           flag?: string | null;
@@ -2810,19 +3426,19 @@ export interface operations {
             account: string;
             /**
              * @description the comment at the end of the posting line, without the `;`. In an update, a field left out keeps the
-             * comment of the posting it edits, `null` removes it
+             *     comment of the posting it edits, `null` removes it
              */
             comment?: string | null;
             /**
              * @description the cost of the posting as the ledger writes it: `{150 USD}` per unit, `{{1500 USD}}` in total, `{}` for
-             * whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
-             * the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
+             *     whatever lot booking finds, or `{150 USD, 2024-01-15, "lot"}` with the acquisition date and the label of
+             *     the lot. In an update, a field left out keeps the cost of the posting it edits, `null` removes it
              */
             cost?: string | null;
             /**
              * @description the flag of the posting, written before its account, such as `!`: one character the ledger reads as a posting's
-             * flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
-             * `null` removes it
+             *     flag (`#` is a comment in a zhang ledger). In an update, a field left out keeps the flag of the posting it edits,
+             *     `null` removes it
              */
             flag?: string | null;
             /** @description metadata of the posting, checked like the transaction's `metas`, written in the order given */
@@ -2834,21 +3450,20 @@ export interface operations {
               | null;
             /**
              * @description the price of the posting as the ledger writes it: `@ 6 USD` per unit or `@@ 60 USD` in total. In an update,
-             * a field left out keeps the price of the posting it edits, `null` removes it
+             *     a field left out keeps the price of the posting it edits, `null` removes it
              */
             price?: string | null;
             /** @description the units of the posting, `null` for the one posting whose units booking infers */
-            unit?: OneOf<
-              [
-                {
-                  commodity: string;
-                  /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
-                  number: string;
-                },
-                string,
-                null,
-              ]
-            >;
+            unit?:
+              | (
+                  | {
+                      commodity: string;
+                      /** @description serialized as a string in plain notation (`"0.0000001"`, never `"1E-7"`), with its scale */
+                      number: string;
+                    }
+                  | string
+                )
+              | null;
           }[];
           tags: string[];
         };
@@ -2857,12 +3472,15 @@ export interface operations {
     responses: {
       /** @description default return */
       200: {
+        headers: {
+          [name: string]: unknown;
+        };
         content: {
           'application/json': {
             data: {
               /**
                * @description the errors the ledger would report against the transaction once written, as `GET /api/errors` lists them, such
-               * as `UnbalancedTransaction` or `AccountClosed`
+               *     as `UnbalancedTransaction` or `AccountClosed`
                */
               errors: {
                 /** @enum {string} */
@@ -2903,7 +3521,7 @@ export interface operations {
               }[];
               /**
                * @description the fields the create or update refuses with a 400, each with its message, in the order they are checked: the
-               * first is what the create or update answers. Nothing else is checked while there is one
+               *     first is what the create or update answers. Nothing else is checked while there is one
                */
               field_errors: {
                 /** @enum {string} */
@@ -2936,19 +3554,19 @@ export interface operations {
                 posting: number | null;
                 /**
                  * @description the value it is about: the account name, the commodity, the amount, cost or price as given, the metadata key, the
-                 * tag, the link or the flag
+                 *     tag, the link or the flag
                  */
                 value: string;
               }[];
               /**
                * @description the transaction as the ledger's format writes it, exactly the text the create or update writes; `null` while a
-               * field is invalid
+               *     field is invalid
                */
               text: string | null;
               /**
                * @description what the transaction is unbalanced by once booked, each posting weighed by its cost or price, rounded at each
-               * commodity's precision, as the ledger checks it: empty when it balances; `null` when booking cannot complete it
-               * (see `errors`) or a field is invalid
+               *     commodity's precision, as the ledger checks it: empty when it balances; `null` when booking cannot complete it
+               *     (see `errors`) or a field is invalid
                */
               unbalanced:
                 | {
