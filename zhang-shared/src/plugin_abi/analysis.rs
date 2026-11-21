@@ -13,6 +13,107 @@ use serde_json::{Map, Value};
 /// The version of the analysis ABI a [`Manifest`] is written for.
 pub const ANALYSIS_ABI: u32 = 1;
 
+/// The most bytes of JSON an analyzer's manifest has.
+pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
+
+/// The most bytes of JSON one analysis answers.
+pub const MAX_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
+
+/// The most JSON values (objects, arrays, strings, numbers, booleans and nulls, keys aside) one analysis answers.
+pub const MAX_OUTPUT_NODES: usize = 4_000_000;
+
+/// The most JSON objects one analysis answers: rows, amounts, targets, metas. An object costs the host far more once
+/// read than its bytes of JSON, so they are counted on their own.
+pub const MAX_OUTPUT_OBJECTS: usize = 400_000;
+
+/// Check that `json` is JSON within `max_bytes` bytes, `max_nodes` values and `max_objects` objects, without reading
+/// it into memory: what the host checks before it reads an analyzer's output ([`Output`]) or manifest ([`Manifest`]),
+/// so that a small text of many tiny objects cannot make it hold gigabytes. The error says which bound it passes.
+pub fn check_size(json: &[u8], max_bytes: usize, max_nodes: usize, max_objects: usize) -> Result<(), String> {
+    use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, SeqAccess, Visitor};
+
+    if json.len() > max_bytes {
+        return Err(format!("it is {} bytes of JSON, more than {}", json.len(), max_bytes));
+    }
+    struct Counter {
+        nodes: usize,
+        objects: usize,
+        max_nodes: usize,
+        max_objects: usize,
+    }
+    impl Counter {
+        fn node<E: serde::de::Error>(&mut self, object: bool) -> Result<(), E> {
+            self.nodes += 1;
+            self.objects += usize::from(object);
+            if self.nodes > self.max_nodes {
+                return Err(E::custom(format!("it holds more than {} JSON values", self.max_nodes)));
+            }
+            if self.objects > self.max_objects {
+                return Err(E::custom(format!("it holds more than {} JSON objects", self.max_objects)));
+            }
+            Ok(())
+        }
+    }
+    struct Node<'c>(&'c mut Counter);
+    impl<'de> DeserializeSeed<'de> for Node<'_> {
+        type Value = ();
+        fn deserialize<D: serde::Deserializer<'de>>(self, deserializer: D) -> Result<(), D::Error> {
+            deserializer.deserialize_any(self)
+        }
+    }
+    impl<'de> Visitor<'de> for Node<'_> {
+        type Value = ();
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("JSON")
+        }
+        fn visit_bool<E: serde::de::Error>(self, _: bool) -> Result<(), E> {
+            self.0.node(false)
+        }
+        fn visit_i64<E: serde::de::Error>(self, _: i64) -> Result<(), E> {
+            self.0.node(false)
+        }
+        fn visit_u64<E: serde::de::Error>(self, _: u64) -> Result<(), E> {
+            self.0.node(false)
+        }
+        fn visit_f64<E: serde::de::Error>(self, _: f64) -> Result<(), E> {
+            self.0.node(false)
+        }
+        fn visit_str<E: serde::de::Error>(self, _: &str) -> Result<(), E> {
+            self.0.node(false)
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<(), E> {
+            self.0.node(false)
+        }
+        fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<(), A::Error> {
+            self.0.node(false)?;
+            while seq.next_element_seed(Node(&mut *self.0))?.is_some() {}
+            Ok(())
+        }
+        fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+            self.0.node(true)?;
+            while map.next_key::<IgnoredAny>()?.is_some() {
+                map.next_value_seed(Node(&mut *self.0))?;
+            }
+            Ok(())
+        }
+    }
+    let mut counter = Counter {
+        nodes: 0,
+        objects: 0,
+        max_nodes,
+        max_objects,
+    };
+    let mut deserializer = serde_json::Deserializer::from_slice(json);
+    Node(&mut counter)
+        .deserialize(&mut deserializer)
+        .and_then(|()| deserializer.end())
+        .map_err(|e| match e.is_data() {
+            // the bound it passes, as the counter said it, without where the reader stopped
+            true => e.to_string().split(" at line").next().unwrap_or_default().to_owned(),
+            false => e.to_string(),
+        })
+}
+
 /// What an analyzer declares about itself, read once while it registers: what it reads, the diagnostics it may report,
 /// and the tables and columns it provides. It is static, so a ledger's catalog is known before any analysis runs, even
 /// when one fails. On the wire (wrapped here for reading):
@@ -303,6 +404,28 @@ mod test {
         assert!(manifest.columns.is_empty());
         // a kind of table this version does not know is no manifest
         assert!(serde_json::from_value::<Manifest>(json!({"tables": [{"name": "t", "kind": "cube", "columns": []}]})).is_err());
+    }
+
+    #[test]
+    fn should_check_the_size_of_a_json_text_without_reading_it() {
+        assert_eq!(check_size(br#"{"a": [1, "x", null, {"b": true}]}"#, 100, 7, 2), Ok(()));
+        assert_eq!(
+            check_size(br#"{"a": [1, "x", null, {"b": true}]}"#, 100, 6, 2),
+            Err("it holds more than 6 JSON values".to_owned())
+        );
+        assert_eq!(check_size(br#"[{}, {}, {}]"#, 100, 10, 2), Err("it holds more than 2 JSON objects".to_owned()));
+        assert_eq!(check_size(b"[1, 2]", 3, 10, 2), Err("it is 6 bytes of JSON, more than 3".to_owned()));
+        assert!(check_size(b"{\"a\": ", 100, 10, 2).unwrap_err().starts_with("EOF while parsing"));
+        assert!(check_size(b"[1] [2]", 100, 10, 2).unwrap_err().starts_with("trailing characters"));
+        // a text of tiny objects stops at the bound, whatever its length
+        let tiny = format!("[{}{{}}]", "{},".repeat(1_000_000));
+        assert_eq!(
+            check_size(tiny.as_bytes(), usize::MAX, usize::MAX, 1000),
+            Err("it holds more than 1000 JSON objects".to_owned())
+        );
+        // deeply nested arrays are refused by the reader before they exhaust the stack
+        let deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
+        assert!(check_size(deep.as_bytes(), usize::MAX, usize::MAX, usize::MAX).is_err());
     }
 
     #[test]
