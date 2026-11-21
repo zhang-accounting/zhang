@@ -11,13 +11,13 @@
     "deploy": "wrangler pages deploy dist --project-name zhang-docs"
   },
   "dependencies": {
-    "@astrojs/check": "^0.9.10",
+    "@astrojs/check": "^0.9.12",
     "@astrojs/starlight": "^0.42.5",
-    "astro": "^7.3.5",
+    "astro": "^7.4.13",
     "sharp": "^0.35.5",
     "typescript": "^6.0.3"
   },
   "devDependencies": {
-    "wrangler": "^4.147.0"
+    "wrangler": "^4.165.0"
   }
 }
