@@ -197,7 +197,7 @@ A query is an aggregate query when one of its targets uses an [aggregate functio
 - **Without `GROUP BY`**, an aggregate query is grouped by all of its targets that are not aggregates. `SELECT account, sum(position)` is the same as `SELECT account, sum(position) GROUP BY account`. If every target is an aggregate, all matching postings form a single group.
 - **With `GROUP BY`**, every target that reads a column, or calls one of the [metadata functions](#metadata-functions), outside of an aggregate function must be a group key. `SELECT account, payee, count(*) GROUP BY account` is an error because `payee` is not grouped. Targets that use neither, such as constants, need not be grouped.
 - In an aggregate query, an `ORDER BY` expression that is not an aggregate must also be a group key.
-- Values of type `set` (such as `tags`) and `inventory` cannot be group keys.
+- Values of type `set` (such as `tags`) and `inventory` cannot be group keys. To group by the elements of a set, group by [`unnest`](#grouping-by-the-elements-of-a-set).
 - A group key cannot contain an aggregate function, and aggregate functions cannot be nested (`sum(count(*))` is an error).
 - A single target cannot mix an aggregate with a column used outside of it, even a grouped one. `number - sum(number)` and `possign(sum(position), account)` are errors; write the second one as `sum(possign(position, account))`. Expressions built only from aggregates and constants, such as `sum(number) / 12` or `units(sum(position))`, are aggregates themselves and are fine.
 - An aggregate query without group keys returns one row even when no postings match: `count` and numeric `sum` return `0`, inventory `sum` returns an empty inventory, and `first`, `last`, `min` and `max` return `NULL`. `HAVING`, `LIMIT` and `OFFSET` still apply. A query with explicit or implicit group keys returns no rows when nothing matches.
@@ -207,6 +207,22 @@ SELECT root(account, 2) AS category, sum(position) AS total
 WHERE account ~ '^Expenses'
 GROUP BY category
 ```
+
+#### Grouping by the elements of a set
+
+`unnest(set)` makes each element of a set a group key of its own: a posting counts in the group of each element of the set, with that element as the key's value, and in no group when the set is empty or `NULL`. A posting of a transaction tagged `#food` and `#work` counts in the `food` group and in the `work` group, and an untagged one in neither.
+
+```sql
+SELECT unnest(tags) AS tag, count(*) AS postings, sum(position) AS total
+WHERE account ~ '^Expenses'
+GROUP BY tag
+ORDER BY tag
+```
+
+- `unnest` is only allowed as a whole target, or a `GROUP BY` item, that is a group key; a query has at most one. Anywhere else, inside another expression or in `WHERE`, `ORDER BY` or an aggregate's argument, it is an error. `HAVING` and `ORDER BY` can read the key like any other one.
+- Its argument is any per-row `set` expression: `tags`, `links`, `open_meta_values(account, 'budget', date, time)` or a parameter.
+- The key's values are `str`. The other keys and the aggregates are the same for each element, so a group holds exactly what a query per element filtering on `:element IN set` holds.
+- `unnest` is a Zhang extension.
 
 ### HAVING
 
@@ -1058,7 +1074,7 @@ An `int` is converted to `decimal` when it is combined with a `decimal` or passe
 - `metas`: pair by pair, by key and then by value.
 - `interval`: intervals have no order, as in beanquery (`1 month` is neither more nor less than `30 days`), so `<`, `<=`, `>`, `>=`, `ORDER BY`, `min`, `max` and `PIVOT BY` reject them. They can be equal or not: `=`, `!=`, `IN`, `GROUP BY` and `DISTINCT` compare their months (a year counts as twelve) and their days, so `interval('12 months') = interval('1 year')`. beanquery rejects `=` and `!=` on intervals.
 
-`set`, `inventory` and `metas` values cannot be group keys.
+`set`, `inventory` and `metas` values cannot be group keys; [`unnest`](#grouping-by-the-elements-of-a-set) groups by the elements of a set.
 
 ## Functions
 
@@ -1253,6 +1269,7 @@ Zhang extensions for keyword search. "Ignoring case" compares the texts after co
 | `any_icontains(set, str) -> bool` | Whether an element of the set contains the text, ignoring case. | `any_icontains(tags, 'trip')` |
 | `intersects(set, set) -> bool` | Whether the two sets have an element in common. | `intersects(tags, :tags)` |
 | `set(str, ...) -> set` | The set of the given strings, with any number of them. `set()` is the empty set. | `intersects(tags, set('trip', 'food'))` |
+| `unnest(set) -> str` | Each element of the set, as a group key of its own; only allowed as a whole group key. See [Grouping by the elements of a set](#grouping-by-the-elements-of-a-set). | `SELECT unnest(tags) AS tag, count(*) GROUP BY tag` |
 
 ```sql
 SELECT date, payee, narration, account, position

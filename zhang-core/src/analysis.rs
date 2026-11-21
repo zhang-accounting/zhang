@@ -206,6 +206,20 @@ pub struct DefaultPlugin {
     pub content: Arc<[u8]>,
 }
 
+impl DefaultPlugin {
+    /// `zhang:budget` as its bundled Lua script (`plugins/budget/budget.lua`, RFC #698): registered, it publishes the
+    /// budget tables and reports the budget errors instead of the native provider and the native checks.
+    #[cfg(feature = "plugin_runtime")]
+    pub fn budget() -> DefaultPlugin {
+        let script = &crate::plugin::bundled::BUDGET;
+        DefaultPlugin {
+            module: BUDGET.to_owned(),
+            file: script.file.to_owned(),
+            content: Arc::from(script.content),
+        }
+    }
+}
+
 impl fmt::Debug for DefaultPlugin {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("DefaultPlugin")
@@ -349,7 +363,30 @@ pub fn input(ledger: &Ledger, manifest: &abi::Manifest) -> abi::Input {
             operating_currency: ledger.options.operating_currency.clone(),
             timezone: ledger.options.timezone.name().to_owned(),
         },
+        last_transaction: last_transaction(ledger),
     }
+}
+
+/// The last transaction of `ledger`, of the latest date the one the load processed last: the last one it accepted
+/// (it has a `seq`), as the directives are in the order of their dates.
+fn last_transaction(ledger: &Ledger) -> Option<abi::EntryAt> {
+    ledger
+        .directives
+        .iter()
+        .zip(&ledger.outcomes)
+        .rev()
+        .find_map(|(directive, outcome)| match (&directive.data, outcome.seq) {
+            (Directive::Transaction(transaction), Some(seq)) => Some(abi::EntryAt {
+                seq,
+                date: transaction
+                    .date
+                    .to_timezone_datetime(&ledger.options.timezone)
+                    .date_naive()
+                    .format("%Y-%m-%d")
+                    .to_string(),
+            }),
+            _ => None,
+        })
 }
 
 /// Whether `ledger` gives the analyzer declaring `manifest` something to read: a record of a kind it consumes, or an

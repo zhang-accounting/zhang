@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use chrono::NaiveDate;
 use regex::{Regex, RegexBuilder};
+use rustc_hash::FxBuildHasher;
 
 pub(crate) use crate::ast::ArithOp;
 use crate::ast::{self, BinaryOp, Count, CountValue, Expr, ExprKind, InTarget, Literal, LogicalOp, Select, Targets, UnaryOp};
@@ -171,8 +172,9 @@ pub(crate) struct ConstSet {
     items: Vec<Value>,
     /// whether the items are the elements of a set (`IN :tags`) rather than a list
     from_set: bool,
-    strings: HashSet<String>,
-    others: HashSet<Value>,
+    /// hashed with FxHash, as a row looks its value up in them: the items are the query's, the needles the ledger's
+    strings: HashSet<String, FxBuildHasher>,
+    others: HashSet<Value, FxBuildHasher>,
     /// a NULL item: a needle that matches no other item is then NULL, not FALSE
     has_null: bool,
 }
@@ -183,8 +185,8 @@ impl ConstSet {
         let mut set = ConstSet {
             items: vec![],
             from_set: false,
-            strings: HashSet::new(),
-            others: HashSet::new(),
+            strings: HashSet::default(),
+            others: HashSet::default(),
             has_null: false,
         };
         for item in &items {
@@ -208,7 +210,7 @@ impl ConstSet {
             items: vec![],
             from_set: true,
             strings: elements.iter().cloned().collect(),
-            others: HashSet::new(),
+            others: HashSet::default(),
             has_null: false,
         }
     }
@@ -571,8 +573,11 @@ pub(crate) struct AggregateCall {
 pub(crate) struct PlannedTarget {
     pub name: String,
     pub ty: DataType,
+    /// the expression; of an `unnest(set)` target, the set ([`Plan::unnest`])
     pub expr: CExpr,
     pub is_aggregate: bool,
+    /// whether the target is `unnest(set)`: its values are the elements of the set
+    pub unnest: bool,
     pub span: Span,
 }
 
@@ -601,6 +606,9 @@ pub(crate) struct Plan {
     pub aggregates: Vec<AggregateCall>,
     /// `Some` for aggregate queries: the indexes of the targets forming the group key
     pub group_keys: Option<Vec<usize>>,
+    /// the group key that is `unnest(set)`, at most one: its target's expression is the set, and a row counts in the
+    /// group of each of its elements, with the element as the key's value
+    pub unnest: Option<usize>,
     /// `HAVING`: the finished groups for which it is not TRUE are dropped. It reads the
     /// group's targets ([`CExpr::Target`]) and aggregates, never a row.
     pub having: Option<CExpr>,
@@ -780,6 +788,8 @@ impl Compiler<'_> {
         let group_keys = if !self.aggregates.is_empty() || group_by.is_some() {
             // without GROUP BY, the non-aggregate targets form the key (beanquery's implicit grouping)
             let keys = group_by.unwrap_or_else(|| (0..visible).filter(|idx| !targets[*idx].is_aggregate).collect());
+            // before the other checks of the keys, which a misplaced unnest() would fail less clearly
+            check_unnest(&targets, Some(&keys))?;
             for idx in &keys {
                 let target = &targets[*idx];
                 if matches!(target.ty, DataType::Set | DataType::Inventory | DataType::Metas) {
@@ -816,6 +826,7 @@ impl Compiler<'_> {
             None
         };
 
+        let unnest = check_unnest(&targets, group_keys.as_deref())?;
         let having = match &select.having {
             Some(expr) => Some(self.having(expr, group_keys.as_deref(), &targets, &target_asts, visible)?),
             None => None,
@@ -848,6 +859,7 @@ impl Compiler<'_> {
             filter: None,
             aggregates: std::mem::take(&mut self.aggregates),
             group_keys,
+            unnest,
             having,
             order,
             distinct: select.distinct,
@@ -970,7 +982,13 @@ impl Compiler<'_> {
 
     fn target(&mut self, expr: &Expr, alias: Option<String>) -> Result<(PlannedTarget, Option<(String, Span)>), LocatedError> {
         let mut info = ExprInfo::default();
-        let (compiled, ty) = self.expr(expr, Mode::Target, &mut info)?;
+        let (compiled, ty, unnest) = match self.unnest(expr, &mut info)? {
+            Some((set, ty)) => (set, ty, true),
+            None => {
+                let (compiled, ty) = self.expr(expr, Mode::Target, &mut info)?;
+                (compiled, ty, false)
+            }
+        };
         let name = alias.unwrap_or_else(|| self.name(expr.span, &compiled));
         Ok((
             PlannedTarget {
@@ -978,10 +996,33 @@ impl Compiler<'_> {
                 ty,
                 expr: compiled,
                 is_aggregate: info.has_aggregate,
+                unnest,
                 span: expr.span,
             },
             info.bare_column,
         ))
+    }
+
+    /// `unnest(set)` as a whole target or GROUP BY item: the compiled set and the type of its elements; `None` for any
+    /// other expression. The set is a per-row expression. Whether the target is a group key, as it must be, is checked
+    /// once the keys are known ([`check_unnest`]).
+    fn unnest(&mut self, expr: &Expr, info: &mut ExprInfo) -> Result<Option<Typed>, LocatedError> {
+        let ExprKind::Call { name, args, star: false } = &expr.kind else {
+            return Ok(None);
+        };
+        if !name.eq_ignore_ascii_case(UNNEST) {
+            return Ok(None);
+        }
+        let mut compiled = vec![];
+        let mut types = vec![];
+        for arg in args {
+            let (c, ty) = self.expr(arg, Mode::Row("unnest()"), info)?;
+            compiled.push(c);
+            types.push(ty);
+        }
+        let resolved = resolve_scalar(name, &types).map_err(|message| LocatedError::compile(message, expr.span))?;
+        let ty = resolved.function.returns.resolve(&types);
+        Ok(compiled.pop().map(|set| (set, ty)))
     }
 
     /// Resolve a GROUP BY / ORDER BY item to a target index: a 1-based target index, a
@@ -1009,12 +1050,19 @@ impl Compiler<'_> {
         }
         let mode = if clause == "GROUP BY" { Mode::Row(clause) } else { Mode::Target };
         let mut info = ExprInfo::default();
-        let (compiled, ty) = self.expr(item, mode, &mut info)?;
+        let (compiled, ty, unnest) = match self.unnest(item, &mut info)? {
+            Some((set, ty)) => (set, ty, true),
+            None => {
+                let (compiled, ty) = self.expr(item, mode, &mut info)?;
+                (compiled, ty, false)
+            }
+        };
         targets.push(PlannedTarget {
             name: self.name(item.span, &compiled),
             ty,
             expr: compiled,
             is_aggregate: info.has_aggregate,
+            unnest,
             span: item.span,
         });
         target_asts.push(item.clone());
@@ -1173,6 +1221,9 @@ impl Compiler<'_> {
         }
         if star {
             return err(format!("{}(*) is not supported; only count(*) is", name), span);
+        }
+        if name.eq_ignore_ascii_case(UNNEST) {
+            return err(UNNEST_ONLY_A_KEY, span);
         }
         if reads_the_row(name) && info.bare_column.is_none() {
             // metadata functions read the current row, like a column reference
@@ -1498,6 +1549,28 @@ fn attribute_error(table: &TableRef, name: &str, span: Span, mode: Mode, info: &
     }
     let first = &name[..dots.first().copied().unwrap_or(name.len())];
     column_ref(table, first, Span::new(span.start, span.start + first.len()), mode, info)
+}
+
+/// The function that groups by the elements of a set ([`Plan::unnest`]).
+const UNNEST: &str = "unnest";
+
+/// The error of `unnest()` anywhere but as a whole target or GROUP BY item that is a group key.
+const UNNEST_ONLY_A_KEY: &str = "unnest() is only allowed as a whole target or GROUP BY item that the query groups by, \
+    such as SELECT unnest(tags) AS tag, count(*) GROUP BY tag";
+
+/// The target that is `unnest(set)`, checked: at most one, and a group key.
+fn check_unnest(targets: &[PlannedTarget], group_keys: Option<&[usize]>) -> Result<Option<usize>, LocatedError> {
+    let mut unnested = targets.iter().enumerate().filter(|(_, target)| target.unnest);
+    let Some((idx, target)) = unnested.next() else {
+        return Ok(None);
+    };
+    if let Some((_, second)) = unnested.next() {
+        return err("a query can unnest one set only", second.span);
+    }
+    if !group_keys.is_some_and(|keys| keys.contains(&idx)) {
+        return err(UNNEST_ONLY_A_KEY, target.span);
+    }
+    Ok(Some(idx))
 }
 
 fn scalar_call(name: &str, args: Vec<CExpr>, types: &[DataType], span: Span) -> Result<Typed, LocatedError> {
@@ -1955,7 +2028,12 @@ impl fmt::Display for Plan {
         }
         for (idx, target) in self.targets.iter().enumerate() {
             let hidden = if idx >= self.visible { " (hidden)" } else { "" };
-            writeln!(f, "target {}: {} = {} : {}{}", idx, target.name, target.expr, target.ty, hidden)?;
+            let (open, close) = if target.unnest { ("unnest(", ")") } else { ("", "") };
+            writeln!(
+                f,
+                "target {}: {} = {}{}{} : {}{}",
+                idx, target.name, open, target.expr, close, target.ty, hidden
+            )?;
         }
         for (idx, aggregate) in self.aggregates.iter().enumerate() {
             match &aggregate.arg {

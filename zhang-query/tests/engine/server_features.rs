@@ -448,6 +448,11 @@ fn b_case_the_budget_definitions_and_date_bounds_are_documented_in_both_referenc
 }
 
 #[test]
+fn unnest_is_documented_in_both_references() {
+    assert_documented(&["unnest(", "unnest(set) -> str", "SELECT unnest(tags) AS tag"]);
+}
+
+#[test]
 fn l_new_syntax_and_functions_are_documented_in_both_references() {
     assert_documented(&[
         "OFFSET",

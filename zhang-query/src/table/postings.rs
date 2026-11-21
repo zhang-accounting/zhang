@@ -123,17 +123,38 @@ impl Scope {
             lists.extend(under.map(|account| postings.account_rows(account)));
         }
         lists.retain(|rows| !rows.is_empty());
-        Some(match lists.as_slice() {
-            [] => Cow::Borrowed(&[]),
-            [rows] => Cow::Borrowed(rows),
-            _ => {
-                // the accounts' rows are disjoint
-                let mut rows = lists.concat();
-                rows.sort_unstable();
-                Cow::Owned(rows)
+        // the accounts' rows, each in ledger order, merged two by two: every row is read once per halving of the lists
+        let mut lists = lists.into_iter().map(Cow::Borrowed).collect::<Vec<_>>();
+        while lists.len() > 1 {
+            let mut pairs = lists.into_iter();
+            lists = Vec::with_capacity(pairs.len().div_ceil(2));
+            while let Some(first) = pairs.next() {
+                lists.push(match pairs.next() {
+                    Some(second) => Cow::Owned(merged(&first, &second)),
+                    None => first,
+                });
             }
-        })
+        }
+        Some(lists.pop().unwrap_or(Cow::Borrowed(&[])))
     }
+}
+
+/// The rows of `first` and `second`, each in ledger order and none in both, in ledger order.
+fn merged(first: &[u32], second: &[u32]) -> Vec<u32> {
+    let mut rows = Vec::with_capacity(first.len() + second.len());
+    let (mut left, mut right) = (first.iter().peekable(), second.iter().peekable());
+    while let (Some(a), Some(b)) = (left.peek(), right.peek()) {
+        if a < b {
+            rows.push(**a);
+            left.next();
+        } else {
+            rows.push(**b);
+            right.next();
+        }
+    }
+    rows.extend(left);
+    rows.extend(right);
+    rows
 }
 
 impl<'a> Dataset<'a> {
@@ -153,7 +174,8 @@ impl<'a> Dataset<'a> {
         let selected = scope.rows(postings);
 
         let count = selected.as_ref().map_or(postings.rows.len(), |rows| rows.len());
-        let mut entries: Vec<Entry<'a>> = Vec::with_capacity(if selected.is_none() { postings.entries.len() } else { 0 });
+        // a transaction has at least one of the rows
+        let mut entries: Vec<Entry<'a>> = Vec::with_capacity(count.min(postings.entries.len()));
         let mut rows = Vec::with_capacity(count);
         // the cached entry of the last row
         let mut current: Option<u32> = None;
@@ -170,7 +192,7 @@ impl<'a> Dataset<'a> {
                     id: cached_entry.id,
                     datetime: cached_entry.datetime,
                     parsed: MaybeOwned::Borrowed(parsed),
-                    heads: Cow::Borrowed(&cached_entry.heads),
+                    heads: Cow::Borrowed(postings.heads_of(cached_entry)),
                     date: cached_entry.date,
                     seq: cached_entry.entry,
                     errors: cached_entry.entry.and_then(|seq| entry_errors[seq as usize].as_ref()),
@@ -255,12 +277,11 @@ impl<'a> Dataset<'a> {
 }
 
 /// The rows of a stored transaction, the entry `entry` of the table, from the booked postings of
-/// its directive, grouped by the posting they were written as (`groups`, [`zhang_ast::written_groups`]):
-/// one row per booked leg, as beanquery lists a sale across several lots, with the lot the leg
-/// names and its per-unit price. The rows of a posting as written share its index, which is the
-/// row of the posting as written.
-pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &mut Accounts) -> Vec<CachedRow> {
-    let mut rows = Vec::with_capacity(groups.len());
+/// its directive, grouped by the posting they were written as (`groups`, [`zhang_ast::written_groups`]),
+/// added to `rows`: one row per booked leg, as beanquery lists a sale across several lots, with the
+/// lot the leg names and its per-unit price. The rows of a posting as written share its index, which
+/// is the row of the posting as written.
+pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &mut Accounts, rows: &mut Vec<CachedRow>) {
     for (posting_index, group) in groups.iter().enumerate() {
         let legs = group.legs;
         for leg in legs {
@@ -277,7 +298,6 @@ pub(super) fn booked_rows(entry: usize, groups: &[WrittenGroup<'_>], accounts: &
             });
         }
     }
-    rows
 }
 
 /// The units of the posting `leg` was written as, which a total price (`@@`) or a total cost
@@ -673,7 +693,19 @@ fn automatic(data: &Dataset<'_>, row: &Row<'_>) -> bool {
 mod tests {
     use zhang_ast::error::ErrorKind;
 
-    use super::{is_under, UNBALANCED};
+    use super::{is_under, merged, UNBALANCED};
+
+    #[test]
+    fn merged_rows_are_the_rows_of_both_in_order() {
+        // the rows of three accounts, interleaved in ledger order, and an account without rows
+        let rows = (0..300u32).collect::<Vec<_>>();
+        let of = |account: u32| rows.iter().copied().filter(|row| (row * 7 + row / 5) % 3 == account).collect::<Vec<_>>();
+        let (first, second, third) = (of(0), of(1), of(2));
+        assert_eq!(merged(&merged(&first, &second), &third), rows);
+        assert_eq!(merged(&third, &merged(&second, &first)), rows);
+        assert_eq!(merged(&first, &[]), first);
+        assert_eq!(merged(&[], &second), second);
+    }
 
     #[test]
     fn unbalanced_is_the_kind_of_unbalanced_transactions() {

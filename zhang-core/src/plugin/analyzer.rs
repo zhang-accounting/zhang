@@ -234,6 +234,7 @@ impl Outcome {
 /// Run the analyzer `plugin` on `ledger`, for at most `time_left`, and check what it answers.
 fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin, time_left: Duration) -> Outcome {
     let manifest = plugin.analyzer_manifest().expect("an analyzer of the catalog has a manifest");
+    let started = Instant::now();
     let input = analysis::input(ledger, manifest);
     if !analysis::reads_something(ledger, manifest, &input) {
         info!("analyzer {} has nothing to read in the ledger: its tables are empty", log_safe(&plugin.name));
@@ -243,17 +244,22 @@ fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPl
             read_clock: false,
         };
     }
-    let started = Instant::now();
     let input = match serde_json::to_vec(&input) {
         Ok(input) => input,
         Err(error) => return Outcome::failed(AnalysisFailure::new("trap", format!("its input cannot be written: {error}")), false),
     };
+    let encoded = Instant::now();
     let run = {
         // lent for the call only: once it returned, the host functions it may have kept read nothing
         let lend = Lend::new(ledger);
         plugin.execute_as_analyzer(ledger, &input, host.queries(lend.handle()), time_left)
     };
-    let outcome = match run.output.and_then(|output| check(ledger, host, plugin, manifest, &output)) {
+    let called = Instant::now();
+    let mut output_bytes = 0;
+    let outcome = match run.output.and_then(|output| {
+        output_bytes = output.len();
+        check(ledger, host, plugin, manifest, &output)
+    }) {
         Ok((data, diagnostics)) => Outcome {
             snapshot: Snapshot::ok(data),
             report: Ok(diagnostics),
@@ -262,9 +268,13 @@ fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPl
         Err(failure) => Outcome::failed(failure, run.read_clock),
     };
     info!(
-        "analyzer {} analysed the ledger in {:?}: {}",
+        "analyzer {} analysed the ledger in {:?} (input of {} bytes in {:?}, the call {:?}, output of {output_bytes} bytes checked and published in {:?}): {}",
         log_safe(&plugin.name),
         started.elapsed(),
+        input.len(),
+        encoded.duration_since(started),
+        called.duration_since(encoded),
+        called.elapsed(),
         match &outcome.report {
             Ok(diagnostics) => format!("{} diagnostics", diagnostics.len()),
             Err(failure) => format!("failed ({})", failure.reason),
@@ -279,10 +289,20 @@ fn check(
     ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin, manifest: &abi::Manifest, output: &[u8],
 ) -> Result<(Arc<dyn Any + Send + Sync>, Vec<Diagnostic>), AnalysisFailure> {
     let invalid = |message: String| AnalysisFailure::new("output", message);
+    let started = Instant::now();
     abi::check_size(output, abi::MAX_OUTPUT_BYTES, abi::MAX_OUTPUT_NODES, abi::MAX_OUTPUT_OBJECTS)
         .map_err(|why| invalid(format!("its output is too large to read: {}", log_safe(&why))))?;
+    let sized = Instant::now();
     let output: abi::Output = serde_json::from_slice(output).map_err(|e| invalid(format!("its output is not one: {}", log_safe(&e.to_string()))))?;
+    let read = Instant::now();
     let diagnostics = analysis::diagnostics(ledger, &plugin.name, manifest, plugin.is_budget_provider(), &output.diagnostics).map_err(invalid)?;
     let data = host.publish(ledger, &plugin.name, &output).map_err(invalid)?;
+    log::debug!(
+        "analyzer {}: its output sized in {:?}, read in {:?}, checked and published in {:?}",
+        log_safe(&plugin.name),
+        sized.duration_since(started),
+        read.duration_since(sized),
+        read.elapsed()
+    );
     Ok((data, diagnostics))
 }

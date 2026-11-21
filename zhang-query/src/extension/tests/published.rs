@@ -162,6 +162,78 @@ fn an_analyzers_tables_are_the_ledgers_own_and_read_its_snapshot() {
 }
 
 #[test]
+fn a_fact_after_the_first_may_leave_out_its_carried_cells_and_metadata() {
+    let mut stocked = ledger(TEXT);
+    attach(&mut stocked, &[("shop", shop(), false)]);
+    let output = |rows: Json| {
+        let mut output = shop_output();
+        output["series"]["stock"]["partitions"][0]["rows"] = rows;
+        output
+    };
+    publish(
+        &stocked,
+        "shop",
+        output(json!([
+            {"date": "2024-01-01", "opening": "0", "sold": "0", "closing": "10", "$meta": {"origin": ["Fuji"]}},
+            {"date": "2024-03-01", "opening": "10", "sold": "4"}
+        ])),
+    )
+    .unwrap();
+    assert_eq!(
+        rows(
+            &stocked,
+            "SELECT date, opening, sold, closing, meta('origin') FROM #shop_stock WHERE date <= 2024-03-01"
+        ),
+        texts(&[
+            &["2024-01-01", "0", "0", "10", "Fuji"],
+            &["2024-02-01", "10", "0", "10", "Fuji"],
+            &["2024-03-01", "10", "4", "10", "Fuji"],
+        ])
+    );
+    // the first fact has every cell, and a cell filled otherwise is never left out
+    let mut first = ledger(TEXT);
+    attach(&mut first, &[("shop", shop(), false)]);
+    let refused = publish(&first, "shop", output(json!([{"date": "2024-01-01", "opening": "0", "sold": "0"}]))).unwrap_err();
+    assert!(refused.ends_with("row 1: it has no closing"), "{refused}");
+    let refused = publish(
+        &first,
+        "shop",
+        output(json!([
+            {"date": "2024-01-01", "opening": "0", "sold": "0", "closing": "10"},
+            {"date": "2024-03-01", "opening": "10", "closing": "6"}
+        ])),
+    )
+    .unwrap_err();
+    assert!(refused.ends_with("row 2: it has no sold"), "{refused}");
+}
+
+#[test]
+fn a_row_may_list_its_cells_and_an_amount_be_a_pair() {
+    let mut listed = ledger(TEXT);
+    attach(&mut listed, &[("shop", shop(), false)]);
+    let mut output = shop_output();
+    output["tables"]["items"] = json!([
+        ["apple", ["1.50", "USD"], ["fruit"], {"origin": ["Fuji"]}],
+        ["pear", null, null]
+    ]);
+    publish(&listed, "shop", output).unwrap();
+    assert_eq!(
+        rows(&listed, "SELECT item, price, tags, meta('origin') FROM #shop_items"),
+        texts(&[&["apple", "1.50 USD", "fruit", "Fuji"], &["pear", "NULL", "NULL", "NULL"]])
+    );
+    // as many cells as columns, and maybe the metadata
+    let mut short = ledger(TEXT);
+    attach(&mut short, &[("shop", shop(), false)]);
+    let mut output = shop_output();
+    output["tables"]["items"] = json!([["apple", ["1.50", "USD"]]]);
+    let refused = publish(&short, "shop", output).unwrap_err();
+    assert!(
+        refused.ends_with("row 1: it lists 2 cells, where the table has 3 columns (and maybe the row's metadata after them)"),
+        "{refused}"
+    );
+}
+
+#[test]
 fn a_snapshot_is_read_once_its_analyzer_published_it() {
     let mut loaded = ledger(TEXT);
     let mut failed = ledger(TEXT);
