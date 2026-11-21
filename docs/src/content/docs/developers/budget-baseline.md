@@ -334,7 +334,11 @@ Against the first baseline (its two runs, A / B):
 
 Measured on 2026-11-21 on `main` at `fa8e8abb`, with the bench's end-to-end mode (`ZHANG_BUDGET_BASELINE_ONLY=e2e`).
 
-**This is the official comparison point of G1 and P4.** What the owner of RFC #698 accepts is end to end: the time of a load or a write together with the first budget page or errors page after it. With the budget plugin, each of the times below may grow by at most **max(5%, 50 ms)**, at 10,000 and at 100,000 transactions: at 10,000 transactions that is 50 ms, at 100,000 about 5%.
+**This is the official comparison point of G1 and P4.** What the owner of RFC #698 accepts is end to end: the time of a load or a write together with the first budget page or errors page after it. With the budget plugin, each of the times below may grow by at most **max(5%, 50 ms)**, at 10,000 and at 100,000 transactions: at 10,000 transactions that is 50 ms, at 100,000 about 5%. Whether a build stays within it is decided by [the paired rule](#comparing-a-build-with-the-baseline), not by these tables.
+
+:::caution[To be measured again]
+The allocator of the Linux builds is changing to mimalloc (#858). Once that is merged, this baseline is measured again, and the numbers below are replaced. The numbers were taken at a load average of 5.4 to 38.0 on a shared machine: their bands are informational, not acceptance thresholds.
+:::
 
 ### The timers
 
@@ -351,7 +355,9 @@ Each timer runs 2 rounds to warm up, then 20 timed rounds, one at a time, with n
 
 - **The page answers from the ledger with the change.** A write answers once the ledger with its transaction is swapped in (#818), and a waited-for reload once its ledger is. Each round checks it: the generation of the served ledger moved on by one, and the page's figure moved by what the change adds, the activity of `Groceries` in the month by the amount written, or the number of errors by one. A start checks that its page gives the figure of the ledger served.
 - **What it covers.** A write's or a reload's own time (the append, the load outside the write lock, the swap), then the page: the first query of a loaded ledger builds the query engine's cache of it and, for `budgets.month`, the budget snapshot, while the replaced ledger is being freed on another thread. A start covers a load and the app's construction, not the process start nor the reading of cold files (the files are in the OS cache).
-- **The file watcher.** It sees every write and edit; it gathers events until none came for 500 ms, then asks for a reload that loads nothing, as the files hold what the ledger was loaded from. The bench waits for that turn of the watcher, and 1 s more, before the next round, so it never runs into a timed round. With 100,000 transactions the watcher's check may run while the page of (a) or (b) is read: readers do not wait for it, but it shares the machine, as under `zhang serve`. (c) and (d) ask for the reload right after the edit: an edit that only the watcher reloads adds its quiet period, at least 500 ms, before the reload.
+- **The file watcher.** It sees every write and edit; it gathers events until none came for 500 ms, then asks for a reload that loads nothing, as the files hold what the ledger was loaded from. The bench waits for that turn of the watcher, and 1 s more, before the next round. With 100,000 transactions the watcher's check may run while the page of (a) or (b) is read: readers do not wait for it, but it shares the machine, as under `zhang serve`. (c) and (d) ask for the reload right after the edit: an edit that only the watcher reloads adds its quiet period, at least 500 ms, before the reload.
+- **Rounds the watcher overlaps.** The bench tells from the server's log when the watcher gathered a batch of changes, asked for a reload, or had one skipped, and whether a reload that was not the round's own started. A round in which any of that happened before the round's own write or reload started (or at all, in a start) may have waited for the watcher: it is **excluded** and run again, up to twice the rounds in all, so that each timer keeps 20 clean rounds. A round in which it happened only once the round's own reload had started is the watcher looking at the round's own write or edit, as under `zhang serve`: it is **kept**. The report gives both counts per timer, and the watcher's state of every timed round. In sample runs on `main`, no round overlapped with 10,000 transactions, and with 100,000 every round of (a) to (d) did, during (the watcher's batch comes 500 ms after the write's or edit's file events, while the round's own load still runs). (These flags came after the numbers below were taken.)
+- **Load average.** A run records the machine's 1-minute load average when it starts and when it ends, and marks itself invalid when either is above 4 (`ZHANG_BUDGET_BASELINE_MAX_LOAD` sets another threshold): run it again on a quieter machine.
 - The ledger grows by one transaction a round of (a) to (d), 88 in a run.
 
 ### Results
@@ -381,8 +387,39 @@ The e2e mode ran 5 times with 10,000 transactions and 3 times with 100,000, each
 | (f) start → errors | 1,882 | 1,959 | 1,832 – 1,911 | 1,885 – 1,960 | 1,794 – 1,980 | 1,881 + 1.0 | 94 |
 
 - The time is the load's: the first budget page after it adds 14 to 17 ms with 10,000 transactions and 154 to 185 ms with 100,000 (the query engine's cache and the budget snapshot of the new ledger); the errors page adds under 2 ms, and with 100,000 transactions 36 ms after a write.
-- **Noise against the allowance.** The runs' p50s moved by up to 25 ms for (a) and 100 ms for (e) with 10,000 transactions, and by up to 200 ms for (c) with 100,000; the p95s moved more. A single run of the plugin against this table can thus pass or fail the 50 ms of 10,000 transactions by noise alone. Compare the plugin with this baseline on the same machine, in the same session, alternating runs of each build (at least 5 at 10,000 and 3 at 100,000), and compare medians of the run p50s; a difference within the bands above is no regression.
+- **Noise against the allowance.** The runs' p50s moved by up to 25 ms for (a) and 100 ms for (e) with 10,000 transactions, and by up to 200 ms for (c) with 100,000; the p95s moved more. That is as wide as the allowance, or wider, so neither a single run against these tables nor a comparison with their bands can tell a regression: a build is compared with the native implementation in pairs, as the next section says.
 - The full bench (`cargo run --release -p zhang --example budget_baseline`) also runs these timers, after its other steps; its process has by then grown (to 0.9 GiB with 10,000 transactions and 4.3 GiB with 100,000) and its times are noisier, as (e) shows (290 ms at 10,000 in that run). The comparison point is the e2e mode.
+
+### Comparing a build with the baseline
+
+A build (the budget plugin) is compared with the native implementation run against run, on the same machine, in one session, with the load average under the threshold:
+
+1. Run the e2e mode of each build in **pairs**, alternating them (native, candidate, native, candidate, …, or in a random order within each pair), each run writing its report to a directory of its own:
+   ```sh
+   ZHANG_BUDGET_BASELINE_ONLY=e2e ZHANG_BUDGET_BASELINE_OUT=/tmp/cmp/native/01 \
+     cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m      # on the native build
+   ZHANG_BUDGET_BASELINE_ONLY=e2e ZHANG_BUDGET_BASELINE_OUT=/tmp/cmp/candidate/01 \
+     cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m      # on the candidate build
+   # then 02, 03, ...
+   ```
+2. For each timer, take the difference of the two runs' p50 in each pair (candidate − native), and an interval of the **median difference** from the order statistics: with `n` pairs sorted, `[d(k), d(n+1−k)]` covers the median with probability `1 − 2·P(Binomial(n, ½) < k)`, whatever the distribution of the differences. Take the largest `k` with a coverage of at least 90%:
+
+   | Pairs | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 |
+   |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+   | `k` | 1 | 1 | 1 | 2 | 2 | 2 | 3 | 3 | 4 | 4 | 4 |
+   | coverage | 93.8% | 96.9% | 98.4% | 93.0% | 96.1% | 97.9% | 93.5% | 96.1% | 90.8% | 94.3% | 96.5% |
+
+   With 5 pairs the interval is from the lowest to the highest difference.
+3. With the allowance max(5% of the median native p50, 50 ms): the timer **passes** when the interval's upper end is below the allowance, and **fails** when its lower end is above it. Otherwise it is **inconclusive**: add pairs, up to 15, and report it inconclusive if it still is.
+4. A verdict needs at least **10 pairs** for (c) and (e) with 10,000 transactions and for (a) and (c) with 100,000, whose run p50s spread wider than the allowance in this baseline, and at least **5 pairs** for the others; 10 also for any timer whose native runs in the comparison spread wider than the allowance.
+
+`budget_compare` applies the rule to the reports:
+
+```sh
+cargo run --release -p zhang --example budget_compare -- /tmp/cmp/native /tmp/cmp/candidate [--max-load 4]
+```
+
+It reads every report under each directory in the order of their paths, pairs the runs of each ledger by that order, skips a pair with a run whose load average was above `--max-load` (4 by default) when it started or ended (and says which), and prints, per timer, the pairs, the median native p50, the median difference, its interval and coverage, the allowance and the verdict, with how many more pairs an inconclusive timer needs. It exits with a failure when a timer fails.
 
 ### The errors page among the requests
 
@@ -415,6 +452,9 @@ ZHANG_BUDGET_BASELINE_OUT=/tmp/budget-baseline ZHANG_BUDGET_BASELINE_KEEP=/tmp/b
 # the load and the end-to-end timers of one ledger only, the G1/P4 comparison point
 ZHANG_BUDGET_BASELINE_ONLY=e2e cargo run --release -p zhang --example budget_baseline -- 100000tx-30b-60m
 
+# two sets of such runs compared by the paired rule
+cargo run --release -p zhang --example budget_compare -- /tmp/cmp/native /tmp/cmp/candidate
+
 # the load and the writes of one ledger only, to repeat them
 ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m
 
@@ -422,6 +462,6 @@ ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_
 cd /tmp/budget-ledgers/100000tx-30b-60m && LC_ALL=C sha256sum *.zhang | sha256sum
 ```
 
-A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only, `ZHANG_BUDGET_BASELINE_ONLY=e2e` the load and the end-to-end timers only. `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle at the end of the run. The bench uses the allocator of the binary: mimalloc, or the system's with `--no-default-features`.
+A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only, `ZHANG_BUDGET_BASELINE_ONLY=e2e` the load and the end-to-end timers only. Every run writes its report to `ZHANG_BUDGET_BASELINE_OUT` when it is set, a single ledger's too. A run whose load average went above `ZHANG_BUDGET_BASELINE_MAX_LOAD` (4 by default) is marked invalid. `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle at the end of the run. The bench uses the allocator of the binary: mimalloc, or the system's with `--no-default-features`.
 
 Run the whole bench at least twice, and compare the plugin with the native implementation in the same session, alternating them.
