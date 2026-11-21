@@ -204,6 +204,8 @@ The groundwork has landed; the budget tables, pages and queries still come from 
 - Settings: `allowed_origins` (loopback only by default), `max_rows`, `write_tag` and `timeout` (#804)
 - A `zhang:<name>` module loads a plugin built into the binary; each release also attaches `zhang-mcp-<version>.lua`
   for running your own copy (#805)
+- The plugin reports the Zhang release it ships with as its version (0.3.0), in `GET /api/plugins` and the MCP
+  `serverInfo`
 
 ### Plugin SDK
 
@@ -216,10 +218,15 @@ The groundwork has landed; the budget tables, pages and queries still come from 
 
 ### Analyzers and extension tables (experimental)
 
+The analyzer ABI (the manifest, the records, the output, `zhang_convert`, the SDK's `analysis` module) may change in
+any release until the budget migration of RFC #698 is complete (#855).
+
 - New `Analyzer` plugin type (WebAssembly, exports `manifest` and `analyze`): it runs on every load after booking and
   the checks, publishes diagnostics (`PluginError` with a `kind`) and tables that queries read as `#<ns>_<table>` and
   `postings.<ns>_<column>`. An analyzer reads no files, has no network, runs at most 10,000 queries, and a failing one
-  leaves the ledger loaded with one `PluginAnalysisFailed` error (#848, #849)
+  leaves the ledger loaded with one `PluginAnalysisFailed` error. The analyses of a load share
+  `ZHANG_PLUGIN_MAX_TIMEOUT`: each runs at most its own timeout and what the analyses before it left (#848, #849,
+  #855)
 - The SDK writes analyzers (`plugin!` with `analyzer:` and `manifest:`, `analysis::convert`) (#850)
 - Every ledger has its own query catalog, and `GET /api/query/schema` describes the served ledger's tables, with
   `provided_by` on the tables an extension provides (#839, #845, #848)
@@ -310,6 +317,10 @@ The groundwork has landed; the budget tables, pages and queries still come from 
   back at that time (#767, #842)
 - A beancount `document` path is relative to its file (`DocumentPathRelativeToRoot`, `DocumentNotFound`) (#508)
 - Writes refuse names that would not read back, by beancount's rules on a beancount ledger (#457)
+- Known limitation: tags and links are written bare, as the ledger has them. Beancount reads only ASCII tags and links
+  (letters, digits, `-`, `_`, `/`, `.`), so a ledger whose transactions carry a non-ASCII tag such as `#旅行` gives
+  output beancount does not read. A write to a beancount ledger refuses a new such tag, but keeps one the ledger
+  already uses
 
 ### Data sources and writes
 
@@ -381,8 +392,7 @@ The groundwork has landed; the budget tables, pages and queries still come from 
 ### Dependencies
 
 - extism 1.30.0 (wasmtime 43) and patched transitive crates and web packages clear the reported advisories (#561,
-  #562, #573, #578, #597); reqwest 0.13
-  (#625); self_update 1.3 (#609)
+  #562, #573, #578, #597, #853); reqwest 0.13 (#625); self_update 1.3 (#609)
 - Building the web UI from source needs Node 22.22 or newer (Vite 8, TypeScript 6, ESLint 10, i18next 26, React Router
   8) (#568, #576, #579, #583, #588)
 
