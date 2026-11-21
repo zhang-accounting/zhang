@@ -1,6 +1,6 @@
 [package]
 name = "zhang-server"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -11,9 +11,9 @@ build = "build.rs"
 frontend = ["rust-embed"]
 
 [dependencies]
-zhang-core = { version = "0.1", path = "../zhang-core", features = ["plugin_runtime", "openapi"] }
-zhang-ast = { version = "0.1", path = "../zhang-ast", features = ["openapi"] }
-zhang-query = { version = "0.1", path = "../zhang-query" }
+zhang-core = { version = "0.3", path = "../zhang-core", features = ["plugin_runtime", "openapi"] }
+zhang-ast = { version = "0.3", path = "../zhang-ast", features = ["openapi"] }
+zhang-query = { version = "0.3", path = "../zhang-query" }
 gotcha_core = { workspace = true }
 
 base64 = { workspace = true }
@@ -23,7 +23,7 @@ tokio = { workspace = true, features = ["fs"] }
 log = { workspace = true }
 itertools = { workspace = true }
 bigdecimal = { workspace = true }
-zhang-shared = { version = "0.1", path = "../zhang-shared" }
+zhang-shared = { version = "0.3", path = "../zhang-shared" }
 indexmap = { workspace = true }
 strum = { workspace = true }
 serde_json = { workspace = true }
@@ -60,7 +60,7 @@ tracing = { version = "0.1", features = ["log"] }
 chrono = { version = "0.4" }
 
 [dev-dependencies]
-beancount = { version = "0.1", path = "../extensions/beancount" }
+beancount = { version = "0.3", path = "../extensions/beancount" }
 # a paused clock, for the file watcher's debounce
 tokio = { workspace = true, features = ["test-util"] }
 zhang-testkit = { path = "../zhang-testkit", features = ["server"] }

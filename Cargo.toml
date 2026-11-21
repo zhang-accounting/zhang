@@ -32,6 +32,15 @@ default-members = [
     "zhang-testkit",
 ]
 
+# the version of the zhang release, shared by the crates that make up the server and the CLI (`version.workspace =
+# true`). A source build reports it in `zhang --version`, `/api/info` and the web UI; a release build reports the
+# tag's version instead (the release workflow writes it to `.build_version`, see zhang-cli/build.rs), so keep the two
+# equal when tagging. A bump also changes the `version = "0.x"` requirements of the members' path dependencies when
+# the minor version moves. Not covered: zhang-plugin-sdk and its examples (the plugin API's own version) and
+# bindings/wasm (the npm package's version, written from the tag by bindings/wasm/update-cargo-version.sh)
+[workspace.package]
+version = "0.3.0"
+
 [workspace.dependencies]
 base64 = "0.23"
 serde = { version = "1", features = ["derive"] }

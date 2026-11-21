@@ -763,6 +763,6 @@ Where they work:
 | Feature | Zhang |
 |---|---|
 | `processor` and `mapper` exports, flat config (options and meta), `allowed_hosts` | 0.2.0 |
-| `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, `zhang.allowed_hosts`, `zhang.timeout_ms`, every host function above but the write functions, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |
-| `zhang_write_preview`, `zhang_write_commit`, the `capabilities` export, `allowed_writes`, `zhang.allowed_writes` | the release after 0.2.0 with the write capability |
-| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, analyzers in Lua, `zhang.max_memory`, experimental until RFC #698 is complete | the release with analyzers (RFC #698) |
+| `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, `zhang.allowed_hosts`, `zhang.timeout_ms`, every host function above but the write functions, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | 0.3.0 |
+| `zhang_write_preview`, `zhang_write_commit`, the `capabilities` export, `allowed_writes`, `zhang.allowed_writes` | 0.3.0 |
+| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, analyzers in Lua, `zhang.max_memory`, experimental until RFC #698 is complete | 0.3.0 |
