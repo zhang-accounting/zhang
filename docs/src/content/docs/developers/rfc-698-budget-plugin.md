@@ -341,7 +341,7 @@ fill.
 
 | Failure | Effect |
 | --- | --- |
-| Trap, Lua error, timeout, out of memory, invalid or oversized output, an undeclared diagnostic kind, a value of the wrong type | **The ledger loads**, unlike a failing processor, which aborts the load. The snapshot is `failed`, and there is one diagnostic, `PluginAnalysisFailed`, a new generic kind with metas `plugin`, `reason` and `message`. It goes on the plugin's directive, or for a default plugin on the first directive it consumes. The tables answer the query error `table #budgets is unavailable: plugin zhang:budget failed (see the ledger errors)`. A query that reads one of its label columns fails alike (`column postings.budgets is unavailable: …`). Other plugins are unaffected. Until P5, when `zhang:budget` fails, the native budget checks, which still run on every load, stand in for its diagnostics (§2.6). |
+| Trap, Lua error, timeout, out of memory, invalid or oversized output, an undeclared diagnostic kind, a value of the wrong type | **The ledger loads**, unlike a failing processor, which aborts the load. The snapshot is `failed`, and there is one diagnostic, `PluginAnalysisFailed`, a new generic kind with metas `plugin`, `reason` and `message`. It goes on the plugin's directive, or for a default plugin on the first directive it consumes. The tables answer the query error `table #budgets is unavailable: plugin zhang:budget failed (see the ledger errors)`. A query that reads one of its label columns fails alike (`column postings.budgets is unavailable: …`). Other plugins are unaffected. Until P5, when `zhang:budget` fails, the native budget checks run after it and stand in for its diagnostics (§2.6). |
 | A query inside `analyze` fails | The plugin gets the error as a value, as routers do. Uncaught, the row above applies. |
 | An analyzer queries another's failed table | That query fails with the "unavailable" error. |
 
@@ -364,10 +364,13 @@ fill.
   account. A diagnostic has at most 32 metas; a meta's key and value, its kind and its message are each cut at
   4 KiB.
 
-**Native fallback until P5 (as built in P1.4).** The native budget checks run on every load, and their errors are
-kept aside. When the default `zhang:budget` declares the legacy budget kinds and publishes, its diagnostics replace
-them; when its analysis fails, the native errors stay, at their places and with their ids, next to the
-`PluginAnalysisFailed`. P5 deletes the native checks and this fallback with them.
+**Native fallback until P5 (as built in P1.4).** When the default `zhang:budget` declares the legacy budget kinds,
+the fold does not run the native budget checks: its diagnostics report those errors. When its analysis does not
+publish, the load runs the native checks after it, over the folded directives, and merges their errors where the fold
+reports its own: those of a budget directive or a transaction at it, those of the amounts no price converts after
+the fold. They are the only fold errors at those directives and after the fold's loop, so they keep the places and ids
+of a native fold, next to the `PluginAnalysisFailed`. A load whose analysis publishes runs no native budget code. P5
+deletes the native checks and this fallback with them.
 
 **Placement, which fixes the report order and with it the ids.** #835 pins `Ledger::errors` id-exact in *report
 order*, and ids are `of_error(place, kind, n)` with `n` counted in that order (`identify_errors`,

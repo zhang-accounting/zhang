@@ -529,8 +529,17 @@ async fn run(name: &str) {
     run_with(name, Budgets::Native).await
 }
 
-/// [`run`], the budgets computed by `budgets`.
-async fn run_with(name: &str, budgets: Budgets) {
+/// A case read from `budget_contract/<name>`: what `case.json` says, a copy of its ledger with the case's timezone,
+/// the main files it loads, and its clock.
+struct Case {
+    case: CaseFile,
+    copy: Scratch,
+    entries: Vec<String>,
+    now: Clock,
+}
+
+/// The case in `budget_contract/<name>`.
+fn read_case(name: &str) -> Case {
     let dir = cases_dir().join(name);
     let case_path = dir.join("case.json");
     let case: CaseFile = serde_json::from_value(golden::read_json(&case_path)).unwrap_or_else(|error| panic!("{}: {error}", case_path.display()));
@@ -557,9 +566,16 @@ async fn run_with(name: &str, budgets: Budgets) {
             copy.write(entry, &format!("{text}\noption \"timezone\" \"{timezone}\"\n"));
         }
     }
-    let ledger_dir = copy.dir().to_path_buf();
     let instant = chrono::DateTime::parse_from_rfc3339(&case.now).unwrap_or_else(|error| panic!("{name}: now {}: {error}", case.now));
     let now = Clock::Fixed(instant.to_utc());
+    Case { case, copy, entries, now }
+}
+
+/// [`run`], the budgets computed by `budgets`.
+async fn run_with(name: &str, budgets: Budgets) {
+    let dir = cases_dir().join(name);
+    let Case { case, copy, entries, now } = read_case(name);
+    let ledger_dir = copy.dir().to_path_buf();
     let requests = case.all_requests();
 
     for entry in &entries {
@@ -818,6 +834,115 @@ async fn budget_contract_as_an_analyzer() {
         run_with(case, Budgets::Analyzer).await;
     }
     budget_contract_schema_with(Budgets::Analyzer).await;
+}
+
+/// A `zhang:budget` that declares the budget errors and whose analysis traps: the WAT text of a module whose `manifest`
+/// answers so and whose `analyze` export traps.
+fn failing_budget_analyzer() -> String {
+    let manifest = json!({
+        "analysis_abi": 1,
+        "consumes": ["budget", "budget-add", "budget-transfer", "budget-close"],
+        "open_meta": ["budget"],
+        "diagnostics": [{"kind": "BudgetDoesNotExist"}, {"kind": "DefineDuplicatedBudget"}, {"kind": "BudgetClosed"},
+                        {"kind": "BudgetCommodityMismatch", "phase": "after_fold"}]
+    })
+    .to_string();
+    let exports = [
+        ("name", "\"zhang:budget\"".to_owned()),
+        ("version", "\"0.1.0\"".to_owned()),
+        ("supported_type", "[\"Analyzer\"]".to_owned()),
+        ("manifest", manifest),
+    ];
+    let mut wat = String::from(
+        "(module\n\
+         (import \"extism:host/env\" \"alloc\" (func $alloc (param i64) (result i64)))\n\
+         (import \"extism:host/env\" \"store_u8\" (func $store_u8 (param i64 i32)))\n\
+         (import \"extism:host/env\" \"output_set\" (func $output_set (param i64 i64)))\n\
+         (memory 1)\n\
+         (func $output_bytes (param $ptr i32) (param $len i32) (local $block i64) (local $i i32)\n\
+           (local.set $block (call $alloc (i64.extend_i32_u (local.get $len))))\n\
+           (block $done (loop $copy\n\
+             (br_if $done (i32.ge_u (local.get $i) (local.get $len)))\n\
+             (call $store_u8 (i64.add (local.get $block) (i64.extend_i32_u (local.get $i))) (i32.load8_u (i32.add (local.get $ptr) (local.get $i))))\n\
+             (local.set $i (i32.add (local.get $i) (i32.const 1)))\n\
+             (br $copy)))\n\
+           (call $output_set (local.get $block) (i64.extend_i32_u (local.get $len))))\n\
+         (func (export \"analyze\") (result i32) unreachable)\n",
+    );
+    let mut offset = 0;
+    for (export, text) in exports {
+        let escaped = text.bytes().map(|byte| format!("\\{byte:02x}")).collect::<String>();
+        wat.push_str(&format!(
+            "(data (i32.const {offset}) \"{escaped}\")\n(func (export \"{export}\") (result i32) (call $output_bytes (i32.const {offset}) (i32.const {})) (i32.const 0))\n",
+            text.len()
+        ));
+        offset += text.len() + 16;
+    }
+    assert!(offset < 65536, "the module's data fits its one page");
+    wat.push_str(")\n");
+    wat
+}
+
+/// Every case, with a `zhang:budget` that reports the budget errors and whose analysis fails: the load runs the native
+/// budget checks after it, and has the errors of the native fold, ids, places and order included, next to the failure.
+#[tokio::test(flavor = "multi_thread")]
+async fn budget_contract_errors_when_zhang_budget_fails() {
+    let module: Arc<[u8]> = Arc::from(failing_budget_analyzer().into_bytes());
+    let without_failures = |errors: Vec<Value>| errors.into_iter().filter(|error| error["kind"] != "PluginAnalysisFailed").collect::<Vec<_>>();
+    let mut failed_loads = 0;
+    for name in CASES {
+        let Case { copy, entries, now, .. } = read_case(name);
+        let dir = copy.dir().to_path_buf();
+        for entry in &entries {
+            let native = Ledger::load_with_clock(dir.clone(), entry.clone(), data_source_for(entry), now).expect("the ledger loads");
+            let mut options = zhang_server::analysis::load_options(Arc::new(PluginPolicy::default()));
+            options.default_plugins.push(DefaultPlugin {
+                module: "zhang:budget".to_owned(),
+                file: "budget.wat".to_owned(),
+                content: module.clone(),
+            });
+            let failed = Ledger::load_with_options(dir.clone(), entry.clone(), data_source_for(entry), now, options).expect("the ledger loads");
+            assert!(failed.plugins.reports_budget_errors(), "{name}/{entry}: the module stands for zhang:budget");
+            let failures = failed
+                .errors
+                .iter()
+                .filter(|error| error.error_type == zhang_ast::error::ErrorKind::PluginAnalysisFailed)
+                .count();
+            let status = &failed
+                .extensions
+                .analyzer("zhang:budget")
+                .and_then(|slot| slot.snapshot.get())
+                .expect("it ran or was skipped")
+                .status;
+            match status {
+                SnapshotStatus::Failed { .. } => {
+                    assert_eq!(failures, 1, "{name}/{entry}");
+                    failed_loads += 1;
+                }
+                SnapshotStatus::Skipped => assert_eq!(failures, 0, "{name}/{entry}"),
+                SnapshotStatus::Ok => panic!("{name}/{entry}: the analysis traps"),
+            }
+            assert_eq!(
+                without_failures(error_list(&failed, &dir)),
+                error_list(&native, &dir),
+                "{name}/{entry}: the native budget checks stand in for the failed analysis"
+            );
+            assert_eq!(
+                failed
+                    .errors
+                    .iter()
+                    .filter(|error| error.error_type != zhang_ast::error::ErrorKind::PluginAnalysisFailed)
+                    .map(|error| &error.id)
+                    .collect::<Vec<_>>(),
+                native.errors.iter().map(|error| &error.id).collect::<Vec<_>>(),
+                "{name}/{entry}: in the order of the native fold"
+            );
+        }
+    }
+    assert!(
+        failed_loads >= CASES.len(),
+        "the analysis failed in {failed_loads} loads: every case has budgets"
+    );
 }
 
 /// Every directory of `budget_contract/` is a case one of the tests above runs.
