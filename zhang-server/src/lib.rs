@@ -29,6 +29,7 @@ use tower_http::limit::RequestBodyLimitLayer;
 use zhang_core::clock::Clock;
 use zhang_core::data_source::DataSource;
 use zhang_core::error::IoErrorIntoZhangError;
+use zhang_core::extensions::SnapshotStatus;
 use zhang_core::inputs::ExtraInput;
 use zhang_core::ledger::Ledger;
 use zhang_core::{ZhangError, ZhangResult};
@@ -769,10 +770,25 @@ fn ledger_fingerprint(ledger: &Ledger) -> u64 {
         analysed |= types.contains(&PluginType::Analyzer);
     }
     // what an analyzer published is not hashed: it is a function of what is (the ledger, its options, the analyzer's
-    // code), but for the date when it read the time, which is hashed then
+    // code), but for the date when it read the time, which is hashed then, and for how its analysis ended, which the
+    // load decides too (a timeout, the memory, the time left of the load's analyses): each analyzer's status is hashed,
+    // so a load that failed where the one before published moves the generation, and a write token minted against
+    // one does not commit against the other
     if analysed && ledger.extra_inputs.contains(&ExtraInput::Clock) {
         if let Some(reading) = ledger.clock_reading() {
             reading.date_naive().hash(&mut hasher);
+        }
+    }
+    for slot in &ledger.extensions.analyzers {
+        slot.provider.hash(&mut hasher);
+        match slot.snapshot.get().map(|snapshot| &snapshot.status) {
+            None => hasher.write_u8(0),
+            Some(SnapshotStatus::Ok) => hasher.write_u8(1),
+            Some(SnapshotStatus::Skipped) => hasher.write_u8(2),
+            Some(SnapshotStatus::Failed { reason }) => {
+                hasher.write_u8(3);
+                reason.hash(&mut hasher);
+            }
         }
     }
     for directive in ledger.directives.iter().chain(&ledger.metas) {
@@ -1377,6 +1393,33 @@ mod generation_test {
         ledger.options.parse("title", "Another title", &mut vec![], &SpanInfo::default()).unwrap();
 
         assert_ne!(ledger_fingerprint(&ledger), before, "an option set otherwise");
+    }
+
+    /// How an analysis ended counts in the fingerprint: a load whose analyzer failed, where the same files published
+    /// before, moves the generation, and so does another reason of failure
+    #[test]
+    fn an_analyzers_status_changes_the_fingerprint() {
+        use zhang_core::extensions::{AnalyzerSlot, Snapshot};
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        std::fs::write(root.join("main.zhang"), LEDGER).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let mut ledger = Ledger::load(root, "main.zhang".to_owned(), source).expect("load ledger");
+        let fingerprint = |ledger: &mut Ledger, snapshot: Option<Snapshot>| {
+            let slot = AnalyzerSlot::new("shop");
+            if let Some(snapshot) = snapshot {
+                slot.snapshot.set(snapshot).unwrap();
+            }
+            ledger.extensions.analyzers = vec![slot];
+            ledger_fingerprint(ledger)
+        };
+        let published = fingerprint(&mut ledger, Some(Snapshot::ok(Arc::new(()))));
+        assert_eq!(fingerprint(&mut ledger, Some(Snapshot::ok(Arc::new(())))), published);
+        let timed_out = fingerprint(&mut ledger, Some(Snapshot::failed("timeout")));
+        assert_ne!(timed_out, published, "a failed analysis");
+        assert_ne!(fingerprint(&mut ledger, Some(Snapshot::failed("memory"))), timed_out, "another reason");
+        assert_ne!(fingerprint(&mut ledger, Some(Snapshot::skipped())), published, "a skipped analyzer");
     }
 
     /// a source that makes its directives itself, as a plugin does: none has a file or a place in one
