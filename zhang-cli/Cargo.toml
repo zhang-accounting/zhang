@@ -9,6 +9,11 @@ license = "Apache-2.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 build = "build.rs"
 
+[features]
+default = ["mimalloc"]
+# the allocator of the binary (`src/allocator.rs`); without it, the system's
+mimalloc = ["dep:mimalloc"]
+
 [dependencies]
 zhang-core = { version = "0.1", path = "../zhang-core" }
 zhang-ast = { version = "0.1", path = "../zhang-ast" }
@@ -32,6 +37,7 @@ opendal-http-transport-reqwest = "0.59"
 reqwest = { version = "0.13", default-features = false }
 
 chrono = "0.4"
+mimalloc = { version = "0.1", optional = true }
 
 [dev-dependencies]
 # the generated ledgers and the HTTP harness of the budget baseline (`examples/budget_baseline.rs`)
