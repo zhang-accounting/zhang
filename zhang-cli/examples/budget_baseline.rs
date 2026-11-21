@@ -52,6 +52,7 @@ use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::extensions::SnapshotStatus;
 use zhang_core::ledger::Ledger;
+use zhang_core::plugin_policy::{PluginPolicy, LEVEL_ENV};
 use zhang_server::broadcast::Broadcaster;
 use zhang_server::{create_server_app, start_fs_event_listener, start_reload_listener, ReloadSender};
 use zhang_testkit::budget_ledger::{Spec, MAIN};
@@ -584,13 +585,23 @@ fn input_counts(ledger: &Ledger) -> Value {
 
 // ---- how the ledger is loaded, and what analyzed it -------------------------------------------------------------
 
+/// The operator's plugin policy, as `zhang serve` reads it: the default one, at the level `ZHANG_PLUGINS` sets
+/// (`off`, `read`, `write`), which also starts and stops the default plugins such as `zhang:budget`.
+fn plugin_policy() -> PluginPolicy {
+    let mut policy = Settings::default().plugins.policy;
+    if let Ok(level) = std::env::var(LEVEL_ENV) {
+        policy.level = level.parse().unwrap_or_else(|error| panic!("{}: {}", LEVEL_ENV, error));
+    }
+    policy
+}
+
 /// Load the ledger of `dir` as `zhang serve` loads it (`load_served_ledger`): with the server's load options (the
-/// host of the analyzers' analyses, the default plugins, the operator's plugin policy, here the default one), on a
+/// host of the analyzers' analyses, the default plugins, the operator's plugin policy, [`plugin_policy`]), on a
 /// blocking thread; and with the fixed clock of `spec`, where `zhang serve` reads the system's. Its reloads, the
 /// reload listener's and the writes', keep the options.
 async fn load_as_served(dir: &Path, source: &Arc<dyn DataSource>, spec: &Spec) -> Ledger {
     let (root, data_source, clock) = (dir.to_path_buf(), source.clone(), spec.clock());
-    let options = zhang_server::analysis::load_options(Arc::new(Settings::default().plugins.policy));
+    let options = zhang_server::analysis::load_options(Arc::new(plugin_policy()));
     tokio::task::spawn_blocking(move || Ledger::load_with_options(root, MAIN.to_owned(), data_source, clock, options))
         .await
         .expect("the load runs")
@@ -616,15 +627,19 @@ fn analyzers(ledger: &Ledger) -> Vec<String> {
         .collect()
 }
 
-/// What was measured: the SHA-256 of the bench's executable, the build, and the commit `ZHANG_BUDGET_BASELINE_COMMIT`
-/// names, if any.
+/// What was measured: the SHA-256 of the bench's executable, the build; the commit `ZHANG_BUDGET_BASELINE_COMMIT`
+/// names, if any; and the plugin level.
 fn identity() -> Value {
     use sha2::{Digest, Sha256};
     let build = std::env::current_exe()
         .ok()
         .and_then(|exe| std::fs::read(exe).ok())
         .map(|bytes| Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>());
-    json!({"build": build, "commit": std::env::var("ZHANG_BUDGET_BASELINE_COMMIT").ok()})
+    json!({
+        "build": build,
+        "commit": std::env::var("ZHANG_BUDGET_BASELINE_COMMIT").ok(),
+        "plugins": format!("{:?}", plugin_policy().level).to_lowercase(),
+    })
 }
 
 // ---- the conditions of a run ------------------------------------------------------------------------------------
@@ -697,11 +712,16 @@ impl Conditions {
             .unwrap_or(1)
             .max(1);
         let one_minute = |it: &Option<String>| it.as_deref().and_then(|it| it.split_whitespace().next()).and_then(|it| it.parse::<f64>().ok());
-        let highest = one_minute(&start.load_average).into_iter().chain(one_minute(&self.load_average)).fold(0.0_f64, f64::max);
+        let highest = one_minute(&start.load_average)
+            .into_iter()
+            .chain(one_minute(&self.load_average))
+            .fold(0.0_f64, f64::max);
         let advisory = 0.5 * online as f64;
-        let allowed = std::fs::read_to_string("/proc/self/status")
-            .ok()
-            .and_then(|status| status.lines().find_map(|line| line.strip_prefix("Cpus_allowed_list:").map(|it| it.trim().to_owned())));
+        let allowed = std::fs::read_to_string("/proc/self/status").ok().and_then(|status| {
+            status
+                .lines()
+                .find_map(|line| line.strip_prefix("Cpus_allowed_list:").map(|it| it.trim().to_owned()))
+        });
         let report = json!({
             "valid": reasons.is_empty(),
             "reasons": reasons,
@@ -930,7 +950,12 @@ fn baseline(spec: Spec) -> Value {
         let schema = timed(&router, json_request(Method::GET, "/api/query/schema", &[], None)).await.json();
         let mut providers = schema["data"]["tables"]
             .as_array()
-            .map(|tables| tables.iter().filter_map(|table| table["provided_by"].as_str().map(str::to_owned)).collect::<Vec<_>>())
+            .map(|tables| {
+                tables
+                    .iter()
+                    .filter_map(|table| table["provided_by"].as_str().map(str::to_owned))
+                    .collect::<Vec<_>>()
+            })
             .unwrap_or_default();
         providers.sort();
         providers.dedup();

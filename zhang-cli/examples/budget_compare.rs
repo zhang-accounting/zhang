@@ -129,8 +129,8 @@ fn collect(dir: &Path, paths: &mut Vec<PathBuf>) {
     }
 }
 
-/// what must be the same in every run of one side: the build, the commit, the analyzers and what they published,
-/// the ledger, the CPUs and the worker threads
+/// what must be the same in every run of one side: the build, the commit, the plugin level, the analyzers and what
+/// they published, the ledger, the CPUs and the worker threads
 fn setup(report: &Value) -> Vec<(&'static str, String)> {
     let text = |value: &Value| match value {
         Value::Null => "-".to_owned(),
@@ -140,6 +140,7 @@ fn setup(report: &Value) -> Vec<(&'static str, String)> {
     vec![
         ("build", text(&report["identity"]["build"]).chars().take(16).collect()),
         ("commit", text(&report["identity"]["commit"])),
+        ("plugin level", text(&report["identity"]["plugins"])),
         ("analyzers after the load", text(&report["analyzers"]["after_load"])),
         ("analyzers at the end", text(&report["analyzers"]["at_end"])),
         ("table providers", text(&report["analyzers"]["schema_providers"])),
@@ -213,11 +214,19 @@ fn refusals(natives: &[Run], candidates: &[Run], options: &Options) -> Vec<Strin
         for (path, report) in &runs[1..] {
             for ((what, expected), (_, found)) in first.iter().zip(setup(report)) {
                 if *expected != found {
-                    refusals.push(format!("the {side} runs disagree on the {what}: {expected} in {}, {found} in {}", runs[0].0.display(), path.display()));
+                    refusals.push(format!(
+                        "the {side} runs disagree on the {what}: {expected} in {}, {found} in {}",
+                        runs[0].0.display(),
+                        path.display()
+                    ));
                 }
             }
         }
-        println!("   {side}: {} runs; {}", runs.len(), first.iter().map(|(what, value)| format!("{what} {value}")).collect::<Vec<_>>().join(", "));
+        println!(
+            "   {side}: {} runs; {}",
+            runs.len(),
+            first.iter().map(|(what, value)| format!("{what} {value}")).collect::<Vec<_>>().join(", ")
+        );
         setups.push(first);
     }
     for what in ["ledger", "CPUs", "worker threads"] {
@@ -261,7 +270,11 @@ fn compare(ledger: &str, natives: &[Run], candidates: &[Run], options: &Options)
         if skip.is_empty() {
             pairs.push((native, candidate));
         } else if options.include_invalid {
-            println!("   pair {} kept although {} (--include-invalid: a diagnosis, not a verdict for G1)", index + 1, skip.join("; "));
+            println!(
+                "   pair {} kept although {} (--include-invalid: a diagnosis, not a verdict for G1)",
+                index + 1,
+                skip.join("; ")
+            );
             pairs.push((native, candidate));
         } else {
             println!("   pair {} skipped: {}", index + 1, skip.join("; "));
@@ -286,8 +299,12 @@ fn compare(ledger: &str, natives: &[Run], candidates: &[Run], options: &Options)
     let mut failed = false;
     for timer in TIMERS {
         let at = |report: &Value| report["end_to_end"][timer].clone();
-        let timers = pairs.iter().map(|((native_path, native), (candidate_path, candidate))| ((native_path, at(native)), (candidate_path, at(candidate))));
-        let timers = timers.filter(|((_, native), (_, candidate))| native.is_object() && candidate.is_object()).collect::<Vec<_>>();
+        let timers = pairs
+            .iter()
+            .map(|((native_path, native), (candidate_path, candidate))| ((native_path, at(native)), (candidate_path, at(candidate))));
+        let timers = timers
+            .filter(|((_, native), (_, candidate))| native.is_object() && candidate.is_object())
+            .collect::<Vec<_>>();
         if timers.is_empty() {
             continue;
         }
@@ -308,7 +325,10 @@ fn compare(ledger: &str, natives: &[Run], candidates: &[Run], options: &Options)
         let excluded = format!("{}/{}", count(0, "watcher_before_excluded"), count(1, "watcher_before_excluded"));
         let during = format!("{}/{}", count(0, "watcher_during_kept"), count(1, "watcher_during_kept"));
         let p50 = |timer: &Value| timer["total"]["p50_ms"].as_f64();
-        let measured = timers.iter().filter_map(|(native, candidate)| Some((p50(&native.1)?, p50(&candidate.1)?))).collect::<Vec<_>>();
+        let measured = timers
+            .iter()
+            .filter_map(|(native, candidate)| Some((p50(&native.1)?, p50(&candidate.1)?)))
+            .collect::<Vec<_>>();
         let natives = measured.iter().map(|(native, _)| *native).collect::<Vec<_>>();
         let mut differences = measured.iter().map(|(native, candidate)| candidate - native).collect::<Vec<_>>();
         differences.sort_by(f64::total_cmp);
