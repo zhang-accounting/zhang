@@ -290,6 +290,24 @@ fn record_fields(directive: &Directive) -> Map<String, serde_json::Value> {
     }
 }
 
+/// `date` as `%Y-%m-%d` writes it, without parsing the format: the years of four digits, the others as chrono writes them.
+fn ymd(date: chrono::NaiveDate) -> String {
+    use chrono::Datelike;
+    match date.year() {
+        0..=9999 => format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day()),
+        _ => date.format("%Y-%m-%d").to_string(),
+    }
+}
+
+/// `time` as `%H:%M:%S` writes it, without parsing the format; a leap second as chrono writes it.
+fn hms(time: chrono::NaiveTime) -> String {
+    use chrono::Timelike;
+    match time.nanosecond() < 1_000_000_000 {
+        true => format!("{:02}:{:02}:{:02}", time.hour(), time.minute(), time.second()),
+        false => time.format("%H:%M:%S").to_string(),
+    }
+}
+
 /// The date of a record's directive.
 fn record_date(directive: &Directive) -> Option<&Date> {
     match directive {
@@ -307,6 +325,8 @@ fn record_date(directive: &Directive) -> Option<&Date> {
 pub fn input(ledger: &Ledger, manifest: &abi::Manifest) -> abi::Input {
     let timezone = &ledger.options.timezone;
     let mut records = vec![];
+    // the file of the record before, as a record names it: the directives of a file follow each other
+    let mut file_before: Option<(&std::path::Path, String)> = None;
     for (directive, outcome) in ledger.directives.iter().zip(&ledger.outcomes) {
         let (Some(seq), Some(kind)) = (outcome.seq, record_kind(&directive.data)) else {
             continue;
@@ -322,20 +342,26 @@ pub fn input(ledger: &Ledger, manifest: &abi::Manifest) -> abi::Input {
                 meta.entry(key).or_default().push(value.as_str().to_owned());
             }
         }
+        let file = directive.span.filename.as_deref().map(|file| match &file_before {
+            Some((before, name)) if *before == file => name.clone(),
+            _ => {
+                let name = ledger
+                    .path_in_ledger(file)
+                    .map_or_else(|| file.display().to_string(), |it| crate::data_source::slashed(&it));
+                file_before = Some((file, name.clone()));
+                name
+            }
+        });
         records.push(abi::Record {
             kind,
             seq,
-            date: date.naive_date().format("%Y-%m-%d").to_string(),
-            time: at.time().format("%H:%M:%S").to_string(),
+            date: ymd(date.naive_date()),
+            time: hms(at.time()),
             has_time: !matches!(date, Date::Date(_)),
             timestamp: at.timestamp(),
             fields: record_fields(&directive.data),
             meta,
-            file: directive.span.filename.as_deref().map(|file| {
-                ledger
-                    .path_in_ledger(file)
-                    .map_or_else(|| file.display().to_string(), |it| crate::data_source::slashed(&it))
-            }),
+            file,
             line: directive.span.line,
         });
     }
@@ -574,7 +600,35 @@ mod test {
     use zhang_ast::SpanInfo;
     use zhang_shared::plugin_abi::analysis as abi;
 
-    use super::{diagnostics, input, merge, Place, Reported, MAX_DIAGNOSTICS};
+    use super::{diagnostics, hms, input, merge, ymd, Place, Reported, MAX_DIAGNOSTICS};
+
+    #[test]
+    fn a_records_date_and_time_are_written_as_chrono_writes_them() {
+        use chrono::{NaiveDate, NaiveTime};
+        for (y, m, d) in [
+            (2024, 1, 5),
+            (1, 12, 31),
+            (0, 2, 29),
+            (999, 7, 4),
+            (9999, 12, 31),
+            (10000, 1, 1),
+            (-1, 6, 15),
+            (-12345, 3, 9),
+        ] {
+            let date = NaiveDate::from_ymd_opt(y, m, d).unwrap();
+            assert_eq!(ymd(date), date.format("%Y-%m-%d").to_string());
+        }
+        for (h, m, s, nano) in [
+            (0, 0, 0, 0),
+            (9, 5, 7, 123),
+            (23, 59, 59, 999_999_999),
+            (23, 59, 59, 1_000_000_000),
+            (12, 30, 59, 1_500_000_000),
+        ] {
+            let time = NaiveTime::from_hms_nano_opt(h, m, s, nano).unwrap();
+            assert_eq!(hms(time), time.format("%H:%M:%S").to_string());
+        }
+    }
     use crate::data_source::LocalFileSystemDataSource;
     use crate::data_type::text::ZhangDataType;
     use crate::domains::schemas::ErrorDomain;
