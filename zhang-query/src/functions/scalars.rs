@@ -227,6 +227,8 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = scalars![
         "Whether the two sets share an element, e.g. intersects(tags, :tags). A zhang extension.";
     set(Str...) -> Set = search::set,
         "A set of the given strings, e.g. intersects(tags, set('trip', 'food')); set() is the empty set. A zhang extension.";
+    unnest(Set) -> Str = search::unnest,
+        "Each element of a set, as a group key of its own: SELECT unnest(tags) AS tag, count(*) GROUP BY tag counts a row in the group of each of its tags, and a row without any in none. Only a whole target the query groups by. A zhang extension.";
     // ---- function library: comparison (zhang extensions) ----
     least(Bool, Bool) -> Bool = compare::least,
         "The smaller of two values, e.g. least(date_add(date, 6), :to); NULL if either is NULL. A zhang extension.";
