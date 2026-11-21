@@ -201,6 +201,9 @@ const PAGE: usize = 50_000;
 
 /// The booked legs of the postings of `accounts`, in ledger order, with the budgets of their account's `open` in effect
 /// at their transaction's date and time: an account at a time, a page at a time.
+// TODO(P1.5/P1.6): let BQL aggregate the activity per budget and month, so that the sums cross the boundary instead of
+// every leg; and test membership with a cheap `open_meta_has(account, key, value, date, time)` rather than the set of
+// `open_meta_values` per row
 fn legs(accounts: &BTreeSet<String>) -> Result<Vec<Leg>, Error> {
     let mut legs = vec![];
     for account in accounts {
