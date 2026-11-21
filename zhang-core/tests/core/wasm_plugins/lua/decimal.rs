@@ -315,6 +315,19 @@ fn a_decimal_value_is_a_parameter_and_a_text_and_refuses_what_is_not_exact() {
         error("/changed")
     );
     assert!(error("/sealed").ends_with("cannot change a protected metatable"), "{}", error("/sealed"));
+    // the value of a text is kept, and shared by none: what a script changes in its copy changes nothing else
+    assert_eq!(case("/kept"), json!(["7.5", "7.5", "8.5", "0"]));
+    // nor does replacing the library functions, or those of its json table, change what zhang.decimal computes
+    assert_eq!(
+        case("/patched"),
+        json!([
+            "3.75",
+            format!("2{}1.0", "0".repeat(29)),
+            format!("-1{}.75", "0".repeat(30)),
+            "decimal must be a string or an integer, got 0.5",
+            {"type": "decimal", "value": null}
+        ])
+    );
     assert!(
         error("/table-operand").ends_with("decimal must be a string or an integer, got table"),
         "{}",

@@ -65,6 +65,28 @@ local cases = {
     return json.encode(x)
   end,
   ["/sealed"] = function() return setmetatable(d("1"), {}) end,
+  -- the value of a text is kept for its later uses, and a script gets a copy of it: changing that changes nothing else
+  ["/kept"] = function()
+    local x = d("7.5")
+    x.small, x.scale, x.value = 999, 0, "999"
+    local zero = d.sum({})
+    zero.small, zero.value = 5, "5"
+    return { tostring(d("7.5")), tostring(d("7.5") + 0), tostring(d("1") + "7.5"), tostring(d.sum({}) + 0) }
+  end,
+  -- a script that replaces library functions, or those of its json table, changes its own calls only: zhang.decimal,
+  -- read after this, computes with the functions as they were before the script ran
+  ["/patched"] = function()
+    local long = "1" .. ("0"):rep(30) .. ".5"
+    local function broken() return "F" end
+    string.format, string.sub, string.rep, string.find, string.match = broken, broken, broken, broken, broken
+    table.concat = broken
+    math.type = function() return "integer" end
+    json.null, json.object = "null", broken
+    return {
+      tostring(d("1.5") + "2.25"), tostring(d(long) + long), tostring(d("-" .. long) - "0.25"),
+      select(2, pcall(d, 0.5)), d(nil),
+    }
+  end,
   ["/table-operand"] = function() return d.add({}, "1") end,
 }
 

@@ -7,6 +7,9 @@ use zhang_shared::plugin_abi::analysis as abi;
 use super::*;
 
 const ANALYZER: &[u8] = br#"
+-- what the script replaces at its top level, before its manifest is written, changes its own calls only
+string.format, table.concat = function() return "F" end, function() return "C" end
+json.object, json.array = function() return {} end, function() return {} end
 local M = {
   name = "shop", version = "0.1.0", types = { "Analyzer", "Router" },
   analysis_abi = 1,
@@ -37,7 +40,8 @@ fn a_lua_analyzer_declares_its_manifest_in_its_module_table() {
     assert_eq!(registered(&ledger), vec![("shop".to_owned(), vec![PluginType::Analyzer, PluginType::Router])]);
     let analyzers = ledger.plugins.analyzers().collect::<Vec<_>>();
     assert_eq!(analyzers.len(), 1);
-    // the empty maps of the manifest are objects, where Lua would write `{}` as `[]`, and the empty lists lists
+    // the empty maps of the manifest are objects, where Lua would write `{}` as `[]`, and the empty lists lists, even
+    // though the script replaced json.object in its own json table
     let expected: abi::Manifest = serde_json::from_value(json!({
         "analysis_abi": 1,
         "namespace": "shop",

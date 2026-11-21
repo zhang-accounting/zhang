@@ -501,7 +501,7 @@ In v1 a plugin adds no column to any other core table and no scalar function (§
  "columns": [
   {"table": "postings", "name": "budgets", "type": "set", "kind": "labels",
    "description": "The budgets the posting counts toward, …",
-   "predicate": "account IN :accounts AND seq > :defined_seq AND :label IN open_meta_values(account, 'budget', date, time) AND (:close_date IS NULL OR (:close_time IS NULL AND date <= :close_date) OR (:close_time IS NOT NULL AND (date < :close_date OR (date = :close_date AND time <= :close_time)))) AND currency(convert(position, :commodity, date)) = :commodity",
+   "predicate": "account IN :accounts AND seq > :defined_seq AND open_meta_has(account, 'budget', :label, date, time) AND (:close_date IS NULL OR (:close_time IS NULL AND date <= :close_date) OR (:close_time IS NOT NULL AND (date < :close_date OR (date = :close_date AND time <= :close_time)))) AND currency(convert(position, :commodity, date)) = :commodity",
    "params": {"accounts": "set", "defined_seq": "int", "close_date": "date", "close_time": "str", "commodity": "str"}}]}
 ```
 
@@ -592,6 +592,10 @@ The label predicate needs the `budget` metas of the `open` in effect at a time. 
 `AccountLifecycle::budgets` to keep each `open`'s metadata, and adds `Ledger::open_meta_values_at(account, key, at)`
 and the BQL function `open_meta_values(account, key, date[, time]) -> Set`. `account_budgets(account, date)` stays as
 a documented alias of `open_meta_values(account, 'budget', date)`: compat mapping, with no rule behind it.
+
+**As built (#862):** the label predicate tests membership with `open_meta_has(account, key, value, date[, time])`,
+which answers `value IN open_meta_values(…)` but reads the posting's account and time in place and looks the value up
+in the `open`'s set without copying it: about 37 ns a row against 300 at 100,000 transactions.
 
 ### 3.7 Date-bounded generation for `#budgets` (#698 open question 2)
 
@@ -714,8 +718,11 @@ gives `190.8450704225352112676056338 USD`, and a product keeps its scale (`10355
   it; the parity test compares 12,000 random pairs and sums of lists, up to the 1,000 digits a value may have (the
   bound of `zhang_convert`). The native budget code does not always keep it: `&a + &b`, `x += y` of an owned `y` and
   `x -= &y` give the other operand unchanged when one is zero, whatever the zero's scale (`budgets.rs`), so `0.00 + 500`
-  is `500` there and `500.00` in `zhang.decimal`. The two differ only when a zero has the larger scale; G1 must
-  reproduce such cases explicitly where #835 pins them.
+  is `500` there and `500.00` in `zhang.decimal`. The two differ only when a zero has the larger scale.
+  **Decided (2026-11-21):** `zhang.decimal` keeps `500.00`, the semantics `zhang-shared/src/decimal.rs` documents
+  (Python's decimal, as beancount computes), of which the native `500` is a quirk of bigdecimal 0.4.3 (its owned
+  `a + b` keeps the scale). The native budget code is aligned in P3, not before; the Lua plugins guide names the
+  difference.
 - **`api_version` stays 1.** No release has shipped a Lua API: v0.2.0 predates Lua scripts, so routers, analyzers,
   `zhang.decimal` and `zhang.convert` are version 1, the API of the first release with Lua scripts, as the rule of the
   Lua plugins guide reads (a release that adds to the `zhang` table raises it).

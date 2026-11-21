@@ -62,7 +62,9 @@ cd zhang-core/src/plugin/lua && shasum -a 256 -c lua-runtime.wasm.sha256
   (`DECIMAL_LIBRARY`), read the first time a script uses `zhang.decimal`, and the code of the analyzer's exports
   (`ANALYZER`), read by `manifest` and `analyze` only. A call that uses neither, a router request, costs about 0.1 ms
   more than before analyzers and decimals (0.88 ms against 0.80 ms for a script that does nothing, the instance
-  included).
+  included). Those chunks run in an environment of the library functions the prelude took before the script ran, and
+  the script's `json` is a copy of the codec's table, so a script that replaces `string.format` or `json.object`
+  changes its own calls only.
 
 ## Canonical bytes and CI
 

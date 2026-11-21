@@ -198,10 +198,22 @@ local raw, codec, base, source, script_name, entry, input, decimal_source, analy
 local type, error, pairs, ipairs, next, tostring, tonumber, select, setmetatable, getmetatable, rawget, rawset, rawequal, xpcall, pcall =
       type, error, pairs, ipairs, next, tostring, tonumber, select, setmetatable, getmetatable, rawget, rawset, rawequal, xpcall, pcall
 local sbyte, schar, sgsub, ssub, slower, sformat = string.byte, string.char, string.gsub, string.sub, string.lower, string.format
-local concat, utf8len, mtype = table.concat, utf8.len, math.type
+local concat, utf8len, mtype, mtointeger = table.concat, utf8.len, math.type, math.tointeger
 local rawload, traceback = base.load, base.debug.traceback
 
+-- The prelude, and the chunks it reads on demand (zhang.decimal, the analyzer's exports), use the library functions
+-- as they are now, before the script runs: a script that replaces `string.format`, `table.concat`, `math.type` or a
+-- field of its `json` table changes its own calls, and none of theirs. CHUNKS is the environment of those chunks.
+local CHUNKS = {
+  type = type, error = error, tostring = tostring, tonumber = tonumber, setmetatable = setmetatable,
+  getmetatable = getmetatable, rawget = rawget, rawequal = rawequal, pairs = pairs, ipairs = ipairs, next = next,
+  string = {format = sformat, sub = ssub, rep = string.rep, find = string.find, match = string.match},
+  table = {concat = concat},
+  math = {type = mtype},
+}
+
 -- ---- json: the C codec of json.cpp (null, encode, decode, and the sealed object/array markers) --------------------
+-- the script gets a copy of the table (see the sandbox), so this one keeps its functions whatever the script does
 local json = codec
 
 -- ---- base64, for bytes that are not UTF-8: file contents from the host, response bodies to it -----------------
@@ -293,7 +305,7 @@ local DECIMAL_SEAL = "zhang.decimal"
 local decimal_library
 local function decimal()
   if decimal_library == nil then
-    local chunk, err = rawload(decimal_source, "=zhang.decimal", "t", base)
+    local chunk, err = rawload(decimal_source, "=zhang.decimal", "t", CHUNKS)
     if not chunk then error(err) end
     decimal_library = chunk(json)
   end
@@ -363,7 +375,7 @@ function zhang.query_builtin(name, params)
   if params ~= nil then
     if type(params) ~= "table" then error("zhang.query_builtin expects the parameters as a table, got " .. type(params), 2) end
     for key, param in pairs(params) do
-      if math.type(param) == "float" then
+      if mtype(param) == "float" then
         error(sformat("parameter :%s is the float %s: give a decimal as a string, such as \"%s\"", tostring(key), tostring(param), tostring(param)), 2)
       end
       if type(param) == "table" and getmetatable(param) == nil then param = json.array(param) end
@@ -443,7 +455,7 @@ end
 local function first_float(value, path)
   local kind = type(value)
   if kind == "number" then
-    if math.type(value) == "float" then return path, value end
+    if mtype(value) == "float" then return path, value end
   elseif kind == "table" then
     for key, item in pairs(value) do
       local at, found = first_float(item, path .. (type(key) == "number" and ("[" .. key .. "]") or ("." .. tostring(key))))
@@ -482,7 +494,10 @@ end
 local env = setmetatable({}, {__index = base, __metatable = "sandbox"})
 env._G = env
 env.zhang = zhang
-env.json = json
+-- a copy of the codec's table: what the script replaces in it stays in its own calls
+local script_json = {}
+for key, value in pairs(json) do script_json[key] = value end
+env.json = script_json
 
 -- `load` reads text chunks only (a binary chunk is refused as if the mode were "t") and runs them in the
 -- script's environment unless one is given
@@ -567,7 +582,7 @@ elseif entry == "router" then
   end
   local wire = json.object()
   local status = response.status
-  if math.type(status) == "float" and math.tointeger(status) then status = math.tointeger(status) end
+  if mtype(status) == "float" and mtointeger(status) then status = mtointeger(status) end
   wire.status = status
   local headers, has_content_type = json.object(), false
   if type(response.headers) == "table" then
@@ -596,7 +611,7 @@ elseif entry == "router" then
   return true, json.encode(wire)
 elseif entry == "manifest" or entry == "analyze" then
   -- the analyzer's exports, whose code is a chunk of its own (ANALYZER), read by these two entries only
-  local chunk, err = rawload(analyzer_source, "=zhang.analyzer", "t", base)
+  local chunk, err = rawload(analyzer_source, "=zhang.analyzer", "t", CHUNKS)
   if not chunk then return fail(err) end
   local analyzer = chunk(json)
   if entry == "manifest" then
@@ -638,7 +653,8 @@ static const char DECIMAL_LIBRARY[] = R"lua(
 -- Next to `type` and `value`, a value holds its parsed form, which the arithmetic reads: `neg`, `scale` (its digits
 -- after the point), and either `small`, its signed coefficient when that has at most SMALL digits, or `mag`, its
 -- digits without a leading zero (`mag` of a small one is added when the long arithmetic needs it). A value never
--- changes once made, so the value of a text is made once and kept, up to 4096 texts at a time.
+-- changes once made, so the value of a text is made once and kept, up to 4096 texts at a time, for the arithmetic: a
+-- script only ever gets values of its own, the results of the arithmetic and copies of kept ones (`make`).
 --
 -- Errors name the script's line: a function given `level` raises at that level counted from itself, and never makes
 -- a tail call on the way, which would take a level off the stack.
@@ -706,8 +722,6 @@ local function long_value(neg, mag, scale)
   end
   return setmetatable({type = "decimal", value = plain(neg, mag, scale), neg = neg, scale = scale, mag = mag}, DECIMAL)
 end
-
-local ZERO = small_value(0, 0)
 
 -- the digits of a value, without a leading zero
 local function mag_of(value)
@@ -921,8 +935,13 @@ end
 -- take any operand a decimal value takes, strings included
 local function make_decimal(value)
   if value == nil or rawequal(value, json.null) then return {type = "decimal", value = json.null} end
-  local made = operand(value, 4)
-  return made
+  if is_decimal(value) then return value end
+  -- a copy: the value of a text is kept for its later uses (parse), and the script may change the table it gets
+  local kept = operand(value, 4)
+  return setmetatable(
+    {type = "decimal", value = kept.value, neg = kept.neg, scale = kept.scale, small = kept.small, mag = kept.mag},
+    DECIMAL
+  )
 end
 
 return {
@@ -938,7 +957,7 @@ return {
   -- the sum of a list of operands, "0" for none
   sum = function(list)
     if type(list) ~= "table" then error("zhang.decimal.sum expects a list of decimals, got " .. type(list), 2) end
-    local total = ZERO
+    local total = small_value(0, 0)
     for index = 1, #list do total = add(total, operand(list[index], 3), false) end
     return total
   end,
