@@ -27,11 +27,13 @@
 //! of their accounts only, and `#documents` reads the transactions that name documents.
 
 use std::collections::{BTreeSet, HashMap};
+use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use chrono::{DateTime, FixedOffset, NaiveDate};
+use rustc_hash::FxBuildHasher;
 use uuid::Uuid;
-use zhang_ast::{written_groups, Directive, Transaction};
+use zhang_ast::{written_groups_into, Date, Directive, Transaction};
 use zhang_core::derived::DerivedData;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
@@ -122,7 +124,7 @@ impl LedgerCache {
                 .rows
                 .iter()
                 .map(|row| match &ledger.outcomes[row.directive as usize].detail {
-                    Detail::Transaction { errors, .. } => {
+                    Detail::Transaction { errors, .. } if !errors.is_empty() => {
                         let kinds = errors.iter().map(|error| ledger.errors[*error].error_type.to_string());
                         Some(kinds.collect::<BTreeSet<_>>()).filter(|kinds| !kinds.is_empty())
                     }
@@ -225,17 +227,20 @@ pub(crate) struct Postings {
     pub entries: Vec<CachedEntry>,
     /// the booked rows, in ledger order
     pub rows: Vec<CachedRow>,
+    /// the postings as written of every transaction, one after the other ([`CachedEntry::heads`])
+    heads: Vec<Head>,
     /// the accounts of the rows
     accounts: Accounts,
     /// the indexes of the rows of every account (by its index in `accounts`), in ledger order
     account_rows: Vec<Vec<u32>>,
 }
 
-/// The names of the accounts of the rows, numbered in the order they first appear.
+/// The names of the accounts of the rows, numbered in the order they first appear. Every row looks its account up, so
+/// the names are hashed with a fast hash rather than a DoS-resistant one: they come from the ledger, not from a client.
 #[derive(Default)]
 pub(crate) struct Accounts {
     names: Vec<Box<str>>,
-    numbers: HashMap<Box<str>, u32>,
+    numbers: HashMap<Box<str>, u32, FxBuildHasher>,
 }
 
 impl Accounts {
@@ -273,8 +278,8 @@ pub(crate) struct CachedEntry {
     pub parsed: u32,
     /// its row of `#entries` (an index into [`Entries::rows`]): its `seq`, which its errors are found by
     pub entry: Option<u32>,
-    /// its postings as written, by `posting_index`
-    pub heads: Box<[Head]>,
+    /// its postings as written, by `posting_index`: a range of [`Postings::heads`], read with [`Postings::heads_of`]
+    heads: Range<u32>,
 }
 
 /// One booked row of the `postings` table.
@@ -285,7 +290,9 @@ pub(crate) struct CachedRow {
     pub posting_index: u32,
     /// the number of its account in [`Postings::account_name`]
     pub account: u32,
-    /// the units: the posting's, or a part of them when booking split the posting across lots
+    /// the units: the posting's, or a part of them when booking split the posting across lots. They are a copy, read
+    /// from the rows one after the other, where the units of the directive lie wherever the load put them: a query that
+    /// reads the units of every row reads the copies about twice as fast at 100,000 transactions
     pub units: Amount,
     /// the cost and price of the row; most rows have neither
     pub lot: Option<Box<Lot>>,
@@ -302,49 +309,77 @@ pub(crate) struct Lot {
 impl Postings {
     fn build(ledger: &Ledger, entries: &Entries) -> Postings {
         let timezone = ledger.options.timezone;
-        let mut cached = vec![];
-        let mut accounts = Accounts::default();
-        let mut rows = Vec::new();
         // the transactions the load accepted, in the order zhang processed them
-        for info in &entries.rows {
-            let (Some(id), Directive::Transaction(parsed)) = (info.txn, &ledger.directives[info.directive as usize].data) else {
-                continue;
-            };
-            let entry = cached.len();
-            let groups = written_groups(&parsed.postings);
-            let mut leg = 0;
-            let heads = groups
+        let transactions = || {
+            entries
+                .rows
                 .iter()
-                .map(|group| {
-                    // as written, or as booking left it
-                    let automatic = group.written.map_or(group.legs[0].units.is_none(), |written| written.units.is_none());
-                    let head = Head { leg, automatic };
-                    leg += group.legs.len() as u32;
-                    head
+                .filter_map(|info| match (info.txn, &ledger.directives[info.directive as usize].data) {
+                    (Some(id), Directive::Transaction(parsed)) => Some((info, id, parsed)),
+                    _ => None,
                 })
-                .collect();
-            let datetime = parsed.date.to_timezone_datetime(&timezone).fixed_offset();
+        };
+        // a leg is at most one row, and a posting as written at least one leg
+        let legs = transactions().map(|(_, _, parsed)| parsed.postings.len()).sum();
+        let mut cached = Vec::with_capacity(entries.transactions.len());
+        let mut rows = Vec::with_capacity(legs);
+        let mut heads = Vec::with_capacity(legs);
+        let mut accounts = Accounts::default();
+        // the date of the transaction before, and when zhang books it: transactions come in date order, so most share
+        // the date of the one before, and its conversion to the ledger's timezone
+        let mut previous: Option<(&Date, DateTime<FixedOffset>)> = None;
+        let mut groups = vec![];
+        for (info, id, parsed) in transactions() {
+            let entry = cached.len();
+            written_groups_into(&parsed.postings, &mut groups);
+            let first = heads.len() as u32;
+            let mut leg = 0;
+            heads.extend(groups.iter().map(|group| {
+                // as written, or as booking left it
+                let automatic = group.written.map_or(group.legs[0].units.is_none(), |written| written.units.is_none());
+                let head = Head { leg, automatic };
+                leg += group.legs.len() as u32;
+                head
+            }));
+            let datetime = match previous {
+                Some((date, datetime)) if *date == parsed.date => datetime,
+                _ => {
+                    let datetime = parsed.date.to_timezone_datetime(&timezone).fixed_offset();
+                    previous = Some((&parsed.date, datetime));
+                    datetime
+                }
+            };
             cached.push(CachedEntry {
                 id,
                 date: datetime.date_naive(),
                 datetime,
                 parsed: info.directive,
                 entry: Some(info.seq),
-                heads,
+                heads: first..heads.len() as u32,
             });
-            rows.extend(postings::booked_rows(entry, &groups, &mut accounts));
+            postings::booked_rows(entry, &groups, &mut accounts, &mut rows);
         }
 
-        let mut account_rows = vec![vec![]; accounts.names.len()];
+        let mut sizes = vec![0; accounts.names.len()];
+        for row in &rows {
+            sizes[row.account as usize] += 1;
+        }
+        let mut account_rows = sizes.into_iter().map(Vec::with_capacity).collect::<Vec<_>>();
         for (idx, row) in rows.iter().enumerate() {
             account_rows[row.account as usize].push(idx as u32);
         }
         Postings {
             entries: cached,
             rows,
+            heads,
             accounts,
             account_rows,
         }
+    }
+
+    /// The postings as written of the transaction `entry`, by `posting_index`.
+    pub fn heads_of(&self, entry: &CachedEntry) -> &[Head] {
+        &self.heads[entry.heads.start as usize..entry.heads.end as usize]
     }
 
     /// The name of the account with this number.

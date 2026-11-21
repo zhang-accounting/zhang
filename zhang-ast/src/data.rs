@@ -219,15 +219,23 @@ pub struct WrittenGroup<'a> {
 /// [`WrittenGroup::written`]) is one group with all its legs; every other posting is a group of
 /// its own.
 pub fn written_groups(postings: &[Posting]) -> Vec<WrittenGroup<'_>> {
+    let mut groups = Vec::with_capacity(postings.len());
+    written_groups_into(postings, &mut groups);
+    groups
+}
+
+/// [`written_groups`] into `groups`, which it clears first: a reader of many transactions groups them all in one list.
+pub fn written_groups_into<'a>(postings: &'a [Posting], groups: &mut Vec<WrittenGroup<'a>>) {
+    groups.clear();
     // the runs of adjacent legs sharing an index and an account, counted per index
-    let mut runs: HashMap<usize, usize> = HashMap::new();
+    let mut runs = RunCounts::default();
     let mut last_run: Option<(usize, &Account)> = None;
     for posting in postings {
         match &posting.written {
             Some(form) => {
                 let run = (form.index, &posting.account);
                 if last_run != Some(run) {
-                    *runs.entry(form.index).or_default() += 1;
+                    runs.add(form.index);
                 }
                 last_run = Some(run);
             }
@@ -235,12 +243,11 @@ pub fn written_groups(postings: &[Posting]) -> Vec<WrittenGroup<'_>> {
         }
     }
 
-    let mut groups = Vec::with_capacity(postings.len());
     let mut start = 0;
     while start < postings.len() {
         let posting = &postings[start];
         match &posting.written {
-            Some(form) if runs.get(&form.index) == Some(&1) => {
+            Some(form) if runs.get(form.index) == 1 => {
                 let mut end = start + 1;
                 while end < postings.len()
                     && postings[end].written.as_ref().is_some_and(|it| it.index == form.index)
@@ -263,7 +270,42 @@ pub fn written_groups(postings: &[Posting]) -> Vec<WrittenGroup<'_>> {
             }
         }
     }
-    groups
+}
+
+/// How many runs of adjacent legs carry each written index, for [`written_groups`]: the first few indexes in a list
+/// searched in place, as a transaction has a few postings, the others in a map, so that neither a short transaction
+/// allocates nor a long one searches a long list.
+#[derive(Default)]
+struct RunCounts {
+    few: [(usize, usize); RunCounts::FEW],
+    /// how many of `few` are taken
+    len: usize,
+    /// the indexes that came after `few` was full
+    more: HashMap<usize, usize>,
+}
+
+impl RunCounts {
+    const FEW: usize = 8;
+
+    /// Count one more run of `index`.
+    fn add(&mut self, index: usize) {
+        if let Some((_, count)) = self.few[..self.len].iter_mut().find(|(it, _)| *it == index) {
+            *count += 1;
+        } else if self.len < RunCounts::FEW {
+            self.few[self.len] = (index, 1);
+            self.len += 1;
+        } else {
+            *self.more.entry(index).or_default() += 1;
+        }
+    }
+
+    /// The runs of `index`.
+    fn get(&self, index: usize) -> usize {
+        match self.few[..self.len].iter().find(|(it, _)| *it == index) {
+            Some((_, count)) => *count,
+            None => self.more.get(&index).copied().unwrap_or(0),
+        }
+    }
 }
 
 /// The units of a group of booked legs ([`written_groups`]): their sum, in the commodity of the

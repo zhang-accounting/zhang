@@ -188,3 +188,51 @@ fn a_complete_split_is_restored_even_when_other_indexes_are_incomplete() {
         vec![posting("Assets:S", Some(amount(-15, "USD")), Some(cost(None, None))), fee, copied_fee]
     );
 }
+
+#[test]
+fn a_long_transaction_is_grouped_like_a_short_one() {
+    // more written postings than `written_groups` counts in place: the indexes past the first ones are counted apart,
+    // and a duplicated index among them is still kept as booked, whichever side of the first ones its runs fall on
+    let sale = written(3, Some(amount(-15, "USD")), Some(cost(None, None)));
+    let mut postings = vec![];
+    for index in 0..12 {
+        if index == 3 {
+            let mut first = posting("Assets:S", Some(amount(-10, "USD")), Some(cost(Some(amount(10, "CNY")), Some("2024-05-16"))));
+            first.written = sale.clone();
+            let mut second = posting("Assets:S", Some(amount(-5, "USD")), Some(cost(Some(amount(11, "CNY")), Some("2024-05-17"))));
+            second.written = sale.clone();
+            postings.extend([first, second]);
+            continue;
+        }
+        let mut fee = posting(&format!("Expenses:Fee{index}"), Some(amount(1, "CNY")), None);
+        fee.written = written(index, None, None);
+        postings.push(fee);
+    }
+    // index 1 again, on another account, after the first ones, and index 10 again, adjacent to its first run
+    let mut early_copy = posting("Expenses:Copy", Some(amount(1, "CNY")), None);
+    early_copy.written = written(1, None, None);
+    let mut late_copy = posting("Expenses:Copy", Some(amount(1, "CNY")), None);
+    late_copy.written = written(10, None, None);
+    postings.push(early_copy.clone());
+    postings.insert(12, late_copy.clone());
+
+    let result = written_postings(postings);
+
+    let as_booked = |mut it: Posting| {
+        it.written = None;
+        it
+    };
+    let mut expected = vec![];
+    for index in 0..12 {
+        match index {
+            3 => expected.push(posting("Assets:S", Some(amount(-15, "USD")), Some(cost(None, None)))),
+            1 | 10 => expected.push(posting(&format!("Expenses:Fee{index}"), Some(amount(1, "CNY")), None)),
+            _ => expected.push(posting(&format!("Expenses:Fee{index}"), None, None)),
+        }
+        if index == 10 {
+            expected.push(as_booked(late_copy.clone()));
+        }
+    }
+    expected.push(as_booked(early_copy));
+    assert_eq!(result, expected);
+}
