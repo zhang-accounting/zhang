@@ -246,6 +246,115 @@ local function after_close(close)
   return "date > :close_date"
 end
 
+-- ---- the running figures of a budget, month by month ----------------------------------------------------------
+-- For each month of `months` (sorted), what was added `added[month]` and spent `spent[month]` (each a decimal value,
+-- the text of one or nil for none): the assigned amount (the available amount before, plus what was added) and the
+-- available amount after (assigned minus spent), as zhang's native budget code computes them with BigDecimal: a sum
+-- keeps the larger scale of the two, but for `assigned` when one of them is zero, which is then the other one as it
+-- is (`&a + &b`, add_running). The texts are listed, 3 per month: assigned, available, and a spare slot.
+-- Fewer decimal values: the facts of #budgets are most of what an analysis computes in Lua.
+--
+-- `running` computes them over Lua integers, a figure as a coefficient and a scale, while every coefficient stays
+-- well within 64 bits; it gives nil for a budget past that, which `running_decimal` computes with zhang.decimal.
+local POW10 = { [0] = 1 }
+for i = 1, 18 do POW10[i] = POW10[i - 1] * 10 end
+-- a coefficient below LIMIT in magnitude, at a scale of at most 18, adds to another such one without overflow,
+-- even scaled up to the larger scale
+local LIMIT = POW10[17]
+local sformat, smatch = string.format, string.match
+local POINT, NEGATIVE_POINT = {}, {}
+for i = 1, 18 do
+  POINT[i] = "%d.%0" .. i .. "d"
+  NEGATIVE_POINT[i] = "-%d.%0" .. i .. "d"
+end
+
+-- the text of the coefficient `v` at `scale`, as zhang.decimal writes it (plain_decimal)
+local function text_of(v, scale)
+  if scale == 0 then return sformat("%d", v) end
+  local unit = POW10[scale]
+  if v < 0 then return sformat(NEGATIVE_POINT[scale], -v // unit, -v % unit) end
+  return sformat(POINT[scale], v // unit, v % unit)
+end
+
+-- the coefficient and the scale of `value` (a decimal value or the text of one), or nil past what `running` adds
+local parsed = {}
+local function figure(value)
+  if type(value) == "table" then
+    local small, scale = value.small, value.scale
+    if small and scale <= 18 and small < LIMIT and small > -LIMIT then return small, scale end
+    return nil
+  end
+  local found = parsed[value]
+  if found then return found[1], found[2] end
+  local sign, int, fraction = smatch(value, "^(%-?)(%d+)%.?(%d*)$")
+  if not sign or #int + #fraction > 17 or #fraction > 18 then return nil end
+  local v = math.tointeger(tonumber(int .. fraction))
+  if sign == "-" then v = -v end
+  parsed[value] = { v, #fraction }
+  return v, #fraction
+end
+
+-- `v` at a scale `up` digits larger, or nil past LIMIT
+local function scaled(v, up)
+  if up > 17 or v >= POW10[17 - up] or v <= -POW10[17 - up] then return nil end
+  return v * POW10[up]
+end
+
+-- a + b of two coefficients at their scales, at the larger one, or nil past LIMIT
+local function plus(a, sa, b, sb)
+  if sa < sb then
+    a, sa = scaled(a, sb - sa), sb
+  elseif sb < sa then
+    b = scaled(b, sa - sb)
+  end
+  if not a or not b then return nil end
+  local sum = a + b
+  if sum >= LIMIT or sum <= -LIMIT then return nil end
+  return sum, sa
+end
+
+local function running(months, added, spent)
+  local figures = {}
+  -- the available amount, zero to begin with
+  local v, scale = 0, 0
+  for at, month in ipairs(months) do
+    local put, ps = 0, 0
+    if added[month] then
+      put, ps = figure(added[month])
+      if not put then return nil end
+    end
+    -- assigned: available plus put, or one of them as it is when the other is zero
+    local a, sa
+    if put == 0 then a, sa = v, scale
+    elseif v == 0 then a, sa = put, ps
+    else
+      a, sa = plus(v, scale, put, ps)
+      if not a then return nil end
+    end
+    local out, os = 0, 0
+    if spent[month] then
+      out, os = figure(spent[month])
+      if not out then return nil end
+    end
+    v, scale = plus(a, sa, -out, os)
+    if not v then return nil end
+    local at3 = 3 * at
+    figures[at3 - 2], figures[at3 - 1] = text_of(a, sa), text_of(v, scale)
+  end
+  return figures
+end
+
+local function running_decimal(months, added, spent)
+  local figures, available = {}, ZERO
+  for at, month in ipairs(months) do
+    local assigned = add_running(available, added[month] or ZERO)
+    available = assigned - (spent[month] or ZERO)
+    local at3 = 3 * at
+    figures[at3 - 2], figures[at3 - 1] = tostring(assigned), tostring(available)
+  end
+  return figures
+end
+
 -- ---- analyze ----------------------------------------------------------------------------------------------------
 
 function M.analyze(input)
@@ -652,20 +761,20 @@ function M.analyze(input)
     for month in pairs(of_activity) do if month >= first then months[month] = true end end
     -- the first fact has every cell; a later one leaves out the cells filled with `carry` that it repeats, and the
     -- metadata, which zhang then copies from the fact before it
-    local rows, available, was_closed = {}, ZERO, nil
-    for _, month in ipairs(sorted(months)) do
-      local put, spent = of_added[month] or ZERO, of_activity[month] or ZERO
-      local assigned = add_running(available, put)
-      available = assigned - spent
+    local list = sorted(months)
+    local figures = running(list, of_added, of_activity) or running_decimal(list, of_added, of_activity)
+    local rows, was_closed = {}, nil
+    for at, month in ipairs(list) do
+      local at3 = 3 * at
       -- an amount as the pair of its number and its commodity
-      local row = { date = month, assigned = { assigned, commodity }, added = { put, commodity },
-        activity = { spent, commodity }, available = { available, commodity } }
+      local row = { date = month, assigned = { figures[at3 - 2], commodity }, added = { of_added[month] or "0", commodity },
+        activity = { of_activity[month] or "0", commodity }, available = { figures[at3 - 1], commodity } }
       local closed = close_month ~= nil and close_month <= month
       if closed ~= was_closed then row.closed, was_closed = closed, closed end
-      if #rows == 0 then
+      if at == 1 then
         row.alias, row.category, row.currency, row.accounts, row["$meta"] = alias, category, commodity, of_budget, record.meta
       end
-      rows[#rows + 1] = row
+      rows[at] = row
     end
     -- its own last month, or the last month with a transaction when that is later
     local until_month, until_seq = month_of(budget.latest_date), budget.latest_seq
