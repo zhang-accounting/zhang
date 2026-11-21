@@ -345,7 +345,7 @@ fn route(request: Request) -> Result<Response, Error> {
 ## 分析器
 
 :::caution[实验性]
-`Analyzer` 类型是实验性的。在 RFC #698 的预算迁移完成之前，它的 ABI 可能在任何发布版中改变：清单、记录、输出、`zhang_convert` 以及 SDK 的 `analysis` 模块。P1.6 会加入用 Lua 编写的分析器和新的 Lua `api_version`。在此之前可能会有发布版，为它编写的分析器在下一个发布版中可能需要修改才能加载。
+`Analyzer` 类型是实验性的。在 RFC #698 的预算迁移完成之前，它的 ABI 可能在任何发布版中改变：清单、记录、输出、`zhang_convert`、SDK 的 `analysis` 模块以及 Lua 脚本的分析器。在此之前可能会有发布版，为它编写的分析器在下一个发布版中可能需要修改才能加载。
 :::
 
 分析器在账本加载完成后读取账本，并发布它的发现：**诊断**，会加入账本的错误列表；以及**表**的行，查询读取它们就像读取张记账自己的表一样（`SELECT * FROM #shop_items`）。它不修改账本中的任何内容。这是用于派生数据的插件类型，例如预算：[RFC #698](/developers/rfc-698-budget-plugin/) 把预算迁移到官方插件 `zhang:budget` 中。
@@ -460,9 +460,13 @@ fn analyze(input: Input) -> Result<Output, Error> {
 
 `zhang-plugin-sdk/examples/budget` 是一个完整的分析器：根据预算记录和查询计算张记账的预算、预算表和预算错误。张记账的测试用它替代原生预算代码运行，并检查它对预算页面的回答完全相同，包括错误及其 id。
 
+### 用 Lua 编写
+
+模块表声明 `types = { "Analyzer" }` 的 Lua 脚本就是一个分析器：清单是模块表的字段，`analyze` 是一个接收记录、返回输出的函数，`zhang.convert` 和 `zhang.decimal` 精确地换算和累加。示例和规则见 [Lua 插件](/zh-cn/guides/lua-plugins/#分析器)。
+
 ## Lua 插件
 
-router 插件可以是一个 Lua 脚本而不是模块：`plugin "plugins/report.lua"`。张记账内嵌了一个 Lua 5.4 解释器，它本身就是由仓库中 `tools/lua-runtime` 构建的 wasm 插件；加载时张记账把它和脚本配对：沙箱运行的模块是解释器，脚本通过两个保留配置键交给它，`zhang.script`（源码）和 `zhang.script_name`（指令中写的模块路径，错误消息用它指名）。其余都走 wasm 路径：注册时从脚本返回的模块表读取 `name`、`version` 和 `supported_type`，同名时先声明的 router 提供路由（后声明的会被报告），指令的能力和 `timeout` 照常生效，每个请求都是全新的实例，`GET /api/plugins` 列出脚本自己的名字和版本。
+router 或分析器可以是一个 Lua 脚本而不是模块：`plugin "plugins/report.lua"`。张记账内嵌了一个 Lua 5.4 解释器，它本身就是由仓库中 `tools/lua-runtime` 构建的 wasm 插件；加载时张记账把它和脚本配对：沙箱运行的模块是解释器，脚本通过两个保留配置键交给它，`zhang.script`（源码）和 `zhang.script_name`（指令中写的模块路径，错误消息用它指名）。其余都走 wasm 路径：注册时从脚本返回的模块表读取 `name`、`version`、`supported_type` 以及分析器的 `manifest`，同名时先声明的 router 提供路由（后声明的会被报告），指令的能力和 `timeout` 照常生效，每个请求都是全新的实例，`GET /api/plugins` 列出脚本自己的名字和版本。
 
 ```lua
 local M = { name = "report", version = "0.1.0", types = { "Router" } }
@@ -475,7 +479,7 @@ end
 return M
 ```
 
-本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_builtin`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。本版本中 Lua 脚本只能是 router：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为 Lua 没有精确的十进制运算，宿主会收回被改成 JSON 数字的金额，而且 JSON 库对账本的全部指令来说太慢（[原因](/zh-cn/guides/lua-plugins/#本版本只支持-router)）。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
+本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_builtin`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.convert`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。`zhang.decimal` 在解释器中精确地加、减和比较小数。本版本中 Lua 脚本可以是 router 和分析器：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为 `zhang.decimal` 不做乘法和除法，而宿主会收回被改成 JSON 数字的金额（[原因](/zh-cn/guides/lua-plugins/#暂不支持-processor-和-mapper)）。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
 
 ## 写入
 
@@ -620,4 +624,4 @@ fn route(request: Request) -> Result<Response, Error> {
 | `processor` 和 `mapper` 导出函数、扁平配置（选项和元数据）、`allowed_hosts` | 0.2.0 |
 | 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、`zhang.allowed_hosts`、`zhang.timeout_ms`、上面除写入函数之外的所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
 | `zhang_write_preview`、`zhang_write_commit`、`capabilities` 导出函数、`allowed_writes`、`zhang.allowed_writes` | 0.2.0 之后带有写入能力的发布版 |
-| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert`，在 RFC #698 完成之前是实验性的 | 带有分析器的发布版（RFC #698） |
+| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert`、Lua 分析器，在 RFC #698 完成之前是实验性的 | 带有分析器的发布版（RFC #698） |

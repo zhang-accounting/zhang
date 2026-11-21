@@ -1,9 +1,11 @@
 // The Lua interpreter zhang pairs with every `plugin "x.lua"` directive: an Extism plugin exporting the plugin
-// ABI v1 identity functions, `capabilities` and `router`, which run the script the host hands over in the config key
-// `zhang.script` (named `zhang.script_name` in messages). Lua 5.4.8 (lua.wasm's onelua.c, compiled as C++ so its
-// error handling rides wasm exception handling) and the JSON codec of json.cpp are linked in; this file is the glue.
+// ABI v1 identity functions, `capabilities`, `router`, and the analyzer's `manifest` and `analyze`, which run the
+// script the host hands over in the config key `zhang.script` (named `zhang.script_name` in messages). Lua 5.4.8
+// (lua.wasm's onelua.c, compiled as C++ so its error handling rides wasm exception handling) and the JSON codec of
+// json.cpp are linked in; this file is the glue.
 //
-// Sections: imports, memory budget, bridges, prelude (the `zhang`/`json` API, the sandbox, dispatch), exports.
+// Sections: imports, memory budget, bridges, prelude (the `zhang`/`json` API, `zhang.decimal`, the sandbox,
+// dispatch), exports.
 //
 // Every call gets a fresh Lua state: no Lua value survives between requests or between plugins. The host
 // functions are C closures the prelude receives as arguments and keeps as upvalues of the `zhang` table; they
@@ -38,6 +40,8 @@ EXTISM_IMPORT_USER("zhang_query") extern uint64_t host_query(uint64_t);
 EXTISM_IMPORT_USER("zhang_query_params") extern uint64_t host_query_params(uint64_t);
 EXTISM_IMPORT_USER("zhang_query_schema") extern uint64_t host_query_schema(void);
 EXTISM_IMPORT_USER("zhang_query_builtin") extern uint64_t host_query_builtin(uint64_t);
+// the ledger's prices, for an analysis (and a router): a batch of amounts converted as a query's convert() converts
+EXTISM_IMPORT_USER("zhang_convert") extern uint64_t host_convert(uint64_t);
 EXTISM_IMPORT_USER("zhang_read_file") extern uint64_t host_read_file(uint64_t);
 EXTISM_IMPORT_USER("zhang_list_dir") extern uint64_t host_list_dir(uint64_t);
 EXTISM_IMPORT_USER("zhang_emit_error") extern void host_emit_error(uint64_t);
@@ -128,6 +132,7 @@ static int bridge_query_schema(lua_State *L) { return push_handle(L, host_query_
 static int bridge_query_builtin(lua_State *L) { return call_with_text(L, host_query_builtin); }
 static int bridge_query(lua_State *L) { return call_with_text(L, host_query); }
 static int bridge_query_params(lua_State *L) { return call_with_text(L, host_query_params); }
+static int bridge_convert(lua_State *L) { return call_with_text(L, host_convert); }
 static int bridge_read_file(lua_State *L) { return call_with_text(L, host_read_file); }
 static int bridge_list_dir(lua_State *L) { return call_with_text(L, host_list_dir); }
 static int bridge_write_preview(lua_State *L) { return call_with_text(L, host_write_preview); }
@@ -171,6 +176,7 @@ static const luaL_Reg BRIDGES[] = {
     {"query_params", bridge_query_params},
     {"query_schema", bridge_query_schema},
     {"query_builtin", bridge_query_builtin},
+    {"convert", bridge_convert},
     {"read_file", bridge_read_file},
     {"list_dir", bridge_list_dir},
     {"write_preview", bridge_write_preview},
@@ -188,14 +194,26 @@ static const luaL_Reg BRIDGES[] = {
 // the wrong shape is reported without one.
 
 static const char PRELUDE[] = R"lua(
-local raw, codec, base, source, script_name, entry, input = ...
-local type, error, pairs, ipairs, tostring, select, setmetatable, getmetatable, rawset, xpcall, pcall =
-      type, error, pairs, ipairs, tostring, select, setmetatable, getmetatable, rawset, xpcall, pcall
+local raw, codec, base, source, script_name, entry, input, decimal_source, analyzer_source = ...
+local type, error, pairs, ipairs, next, tostring, tonumber, select, setmetatable, getmetatable, rawget, rawset, rawequal, xpcall, pcall =
+      type, error, pairs, ipairs, next, tostring, tonumber, select, setmetatable, getmetatable, rawget, rawset, rawequal, xpcall, pcall
 local sbyte, schar, sgsub, ssub, slower, sformat = string.byte, string.char, string.gsub, string.sub, string.lower, string.format
-local concat, utf8len = table.concat, utf8.len
+local concat, utf8len, mtype, mtointeger = table.concat, utf8.len, math.type, math.tointeger
 local rawload, traceback = base.load, base.debug.traceback
 
+-- The prelude, and the chunks it reads on demand (zhang.decimal, the analyzer's exports), use the library functions
+-- as they are now, before the script runs: a script that replaces `string.format`, `table.concat`, `math.type` or a
+-- field of its `json` table changes its own calls, and none of theirs. CHUNKS is the environment of those chunks.
+local CHUNKS = {
+  type = type, error = error, tostring = tostring, tonumber = tonumber, setmetatable = setmetatable,
+  getmetatable = getmetatable, rawget = rawget, rawequal = rawequal, pairs = pairs, ipairs = ipairs, next = next,
+  string = {format = sformat, sub = ssub, rep = string.rep, find = string.find, match = string.match},
+  table = {concat = concat},
+  math = {type = mtype},
+}
+
 -- ---- json: the C codec of json.cpp (null, encode, decode, and the sealed object/array markers) --------------------
+-- the script gets a copy of the table (see the sandbox), so this one keeps its functions whatever the script does
 local json = codec
 
 -- ---- base64, for bytes that are not UTF-8: file contents from the host, response bodies to it -----------------
@@ -271,7 +289,8 @@ end
 
 local zhang = {
   -- the version of this API, raised by every release that adds to the `zhang` table (the guide lists what each
-  -- version added), so a script checks `zhang.api_version >= n` before it uses what version n brought
+  -- version added), so a script checks `zhang.api_version >= n` before it uses what version n brought. 1 is the API
+  -- of the first release with Lua scripts: routers, analyzers, zhang.decimal values and zhang.convert
   api_version = 1,
   str = constructor("str"),
   int = constructor("int"),
@@ -279,14 +298,33 @@ local zhang = {
   date = constructor("date"),
 }
 
--- a decimal is a string such as "12.50" or an integer: a Lua float is refused, as the read-side twin of the
--- write batch's lint, so a rounded value never reaches a query either
-function zhang.decimal(value)
-  if value == nil then value = json.null
-  elseif math.type(value) == "float" then error("decimal must be a string or an integer, got " .. tostring(value), 2)
+-- ---- zhang.decimal: exact decimal values (RFC #698 §4) ------------------------------------------------------------
+-- The library is a chunk of its own (DECIMAL_LIBRARY), read the first time a script calls zhang.decimal or reads one
+-- of its functions. A value it made has a metatable whose __metatable is "zhang.decimal"
+local DECIMAL_SEAL = "zhang.decimal"
+local decimal_library
+local function decimal()
+  if decimal_library == nil then
+    local chunk, err = rawload(decimal_source, "=zhang.decimal", "t", CHUNKS)
+    if not chunk then error(err) end
+    decimal_library = chunk(json)
   end
-  return {type = "decimal", value = value}
+  return decimal_library
 end
+zhang.decimal = setmetatable({}, {
+  -- a call makes a value; `make` raises at the line of the script calling this function
+  __call = function(_, value)
+    local made = decimal().make(value)
+    return made
+  end,
+  -- a function of the library, kept in the table once read
+  __index = function(table, key)
+    local found = decimal()[key]
+    if key ~= "make" and found ~= nil then rawset(table, key, found) else found = nil end
+    return found
+  end,
+  __metatable = "zhang.decimal library",
+})
 
 function zhang.set(value)
   if value == nil then value = json.null
@@ -320,6 +358,8 @@ function zhang.query_params(bql, params)
       if type(param) ~= "table" or type(param.type) ~= "string" then
         error("parameter :" .. tostring(name) .. " must be made with zhang.str/int/decimal/bool/date/set or be a {type = ..., value = ...} table", 2)
       end
+      -- a decimal value crosses as the typed parameter it is; json.encode alone would write its text
+      if getmetatable(param) == DECIMAL_SEAL then param = {type = "decimal", value = rawget(param, "value")} end
       bound[name] = param
     end
   end
@@ -335,7 +375,7 @@ function zhang.query_builtin(name, params)
   if params ~= nil then
     if type(params) ~= "table" then error("zhang.query_builtin expects the parameters as a table, got " .. type(params), 2) end
     for key, param in pairs(params) do
-      if math.type(param) == "float" then
+      if mtype(param) == "float" then
         error(sformat("parameter :%s is the float %s: give a decimal as a string, such as \"%s\"", tostring(key), tostring(param), tostring(param)), 2)
       end
       if type(param) == "table" and getmetatable(param) == nil then param = json.array(param) end
@@ -348,6 +388,32 @@ end
 
 function zhang.query_schema()
   local value = unwrap(raw.query_schema())
+  return value
+end
+
+-- amounts converted with the ledger's prices, as a query's convert(position, currency, date) converts them: a list
+-- of {amount = {number = "12.50", currency = "USD"}, target = "CNY", date = "2024-01-31", via = "USD"?} in, and for
+-- each the converted {number, currency}, exact, or json.null when no price converts it. A number is a string, an
+-- integer or a decimal value; a float is refused before anything is sent
+function zhang.convert(conversions)
+  if type(conversions) ~= "table" then
+    error("zhang.convert expects a list of {amount = {number = ..., currency = ...}, target = ..., date = ...}, got " .. type(conversions), 2)
+  end
+  local batch = json.array()
+  for index, conversion in ipairs(conversions) do
+    local amount = type(conversion) == "table" and conversion.amount
+    if type(amount) ~= "table" then
+      error(sformat("conversion %d must be {amount = {number = ..., currency = ...}, target = ..., date = ...}", index), 2)
+    end
+    local number = amount.number
+    if mtype(number) == "float" then
+      error(sformat("conversion %d: amount `%s` must be a string, such as \"%s\"", index, tostring(number), tostring(number)), 2)
+    elseif mtype(number) == "integer" then
+      number = tostring(number)
+    end
+    batch[index] = {amount = {number = number, currency = amount.currency}, target = conversion.target, date = conversion.date, via = conversion.via}
+  end
+  local value = unwrap(raw.convert(json.encode(batch)))
   return value
 end
 
@@ -389,7 +455,7 @@ end
 local function first_float(value, path)
   local kind = type(value)
   if kind == "number" then
-    if math.type(value) == "float" then return path, value end
+    if mtype(value) == "float" then return path, value end
   elseif kind == "table" then
     for key, item in pairs(value) do
       local at, found = first_float(item, path .. (type(key) == "number" and ("[" .. key .. "]") or ("." .. tostring(key))))
@@ -428,7 +494,10 @@ end
 local env = setmetatable({}, {__index = base, __metatable = "sandbox"})
 env._G = env
 env.zhang = zhang
-env.json = json
+-- a copy of the codec's table: what the script replaces in it stays in its own calls
+local script_json = {}
+for key, value in pairs(json) do script_json[key] = value end
+env.json = script_json
 
 -- `load` reads text chunks only (a binary chunk is refused as if the mode were "t") and runs them in the
 -- script's environment unless one is given
@@ -481,9 +550,9 @@ elseif entry == "supported_type" then
   local declared = json.array()
   for _, kind in ipairs(types) do
     if kind == "Processor" or kind == "Mapper" then
-      return fail(script_name .. ": Lua processors and mappers are not supported yet (#698 P1): Lua has no exact decimal arithmetic, and the host would take back an amount turned into a JSON number")
-    elseif kind ~= "Router" then
-      return fail(sformat('%s: unknown plugin type %q; Lua scripts declare types = {"Router"}', script_name, tostring(kind)))
+      return fail(script_name .. ": Lua processors and mappers are not supported yet (#698 P1): zhang.decimal adds, subtracts and compares but does not multiply or divide, and the host would take back an amount turned into a JSON number")
+    elseif kind ~= "Router" and kind ~= "Analyzer" then
+      return fail(sformat('%s: unknown plugin type %q; Lua scripts declare types = {"Router"}, {"Analyzer"} or both', script_name, tostring(kind)))
     end
     declared[#declared + 1] = kind
   end
@@ -513,7 +582,7 @@ elseif entry == "router" then
   end
   local wire = json.object()
   local status = response.status
-  if math.type(status) == "float" and math.tointeger(status) then status = math.tointeger(status) end
+  if mtype(status) == "float" and mtointeger(status) then status = mtointeger(status) end
   wire.status = status
   local headers, has_content_type = json.object(), false
   if type(response.headers) == "table" then
@@ -540,8 +609,450 @@ elseif entry == "router" then
     end
   end
   return true, json.encode(wire)
+elseif entry == "manifest" or entry == "analyze" then
+  -- the analyzer's exports, whose code is a chunk of its own (ANALYZER), read by these two entries only
+  local chunk, err = rawload(analyzer_source, "=zhang.analyzer", "t", CHUNKS)
+  if not chunk then return fail(err) end
+  local analyzer = chunk(json)
+  if entry == "manifest" then
+    -- an analyzer's manifest is fields of its module table (zhang_shared::plugin_abi::analysis::Manifest), read once
+    -- while it registers
+    local encoded, text = pcall(json.encode, analyzer.manifest(module))
+    if not encoded then return fail(script_name .. ": the analyzer's manifest cannot be written as JSON: " .. tostring(text)) end
+    return true, text
+  end
+  local handler = module.analyze
+  if type(handler) ~= "function" then return fail(script_name .. ": the module table has no `analyze` function") end
+  local ok, output = xpcall(handler, traceback, json.decode(input))
+  if not ok then return fail(output) end
+  -- anything but a table is passed on as it is, so the host refuses it as no output
+  if type(output) == "table" then output = analyzer.output(output) end
+  local encoded, text = pcall(json.encode, output)
+  if not encoded then return fail(script_name .. ": what `analyze` returned cannot be written as JSON: " .. tostring(text)) end
+  return true, text
 end
 return fail("unknown entry point " .. tostring(entry))
+)lua";
+
+// ---- zhang.decimal: the library, a chunk the prelude reads the first time a script uses it ------------------------
+
+static const char DECIMAL_LIBRARY[] = R"lua(
+-- zhang.decimal, read by the prelude the first time a script uses it (a call that does not, a router answering a
+-- request with queries, say, does not pay for reading it): the prelude runs this chunk with the json table, and gets
+-- the library's functions back, and `make`, the constructor.
+--
+-- A decimal value is the table {type = "decimal", value = text} the constructor has always made, now with the sealed
+-- metatable DECIMAL. `text` is the number in plain notation as zhang writes one (`plain_decimal` of zhang-shared): an
+-- optional "-", the digits, and "." with the fractional digits when its scale is not 0; never "-0". It is still a
+-- query parameter, json.encode writes it as its text (json.cpp reads `__jsontype = "decimal"`), and it adds,
+-- subtracts and compares exactly, in Lua over its digits: a sum or a difference keeps the larger scale of the two, as
+-- BigDecimal's `a + b` and `&a - &b` do, and a comparison is by value. There is no multiplication and no division:
+-- those stay in the host (queries, zhang.convert). A number of more than MAX_DIGITS digits is refused, as zhang_convert
+-- refuses one.
+--
+-- Next to `type` and `value`, a value holds its parsed form, which the arithmetic reads: `neg`, `scale` (its digits
+-- after the point), and either `small`, its signed coefficient when that has at most SMALL digits, or `mag`, its
+-- digits without a leading zero (`mag` of a small one is added when the long arithmetic needs it). A value never
+-- changes once made, so the value of a text is made once and kept, up to 4096 texts at a time, for the arithmetic: a
+-- script only ever gets values of its own, the results of the arithmetic and copies of kept ones (`make`).
+--
+-- Errors name the script's line: a function given `level` raises at that level counted from itself, and never makes
+-- a tail call on the way, which would take a level off the stack.
+local json = ...
+local type, error, tostring, tonumber, setmetatable, getmetatable, rawget, rawequal =
+      type, error, tostring, tonumber, setmetatable, getmetatable, rawget, rawequal
+local sformat, ssub, srep, sfind, smatch, concat, mtype =
+      string.format, string.sub, string.rep, string.find, string.match, table.concat, math.type
+local MAX_DIGITS = 1000
+-- a coefficient of at most SMALL digits adds in a Lua integer (a sum of two stays below 2^63); longer ones are added
+-- SMALL digits at a time
+local SMALL = 18
+local POW10, PAD, POINT, NEGATIVE_POINT, FIT = {[0] = 1}, {}, {}, {}, {}
+for i = 1, SMALL do
+  POW10[i] = POW10[i - 1] * 10
+  PAD[i] = "%0" .. i .. "d"
+  POINT[i] = "%d.%0" .. i .. "d"
+  NEGATIVE_POINT[i] = "-%d.%0" .. i .. "d"
+end
+-- a coefficient smaller than FIT[k] in magnitude still has at most SMALL digits with k zeros after it
+for k = 0, SMALL do FIT[k] = POW10[SMALL - k] end
+
+local DECIMAL_SEAL = "zhang.decimal"
+local DECIMAL = {__jsontype = "decimal", __metatable = DECIMAL_SEAL, __name = "zhang.decimal"}
+
+-- the text of a decimal in plain notation, from its digits
+local function plain(neg, mag, scale)
+  local text = mag
+  if scale > 0 then
+    local n = #mag
+    if n > scale then text = ssub(mag, 1, n - scale) .. "." .. ssub(mag, n - scale + 1)
+    else text = "0." .. srep("0", scale - n) .. mag end
+  end
+  if neg then return "-" .. text end
+  return text
+end
+
+-- the value of the signed coefficient `v` at `scale`, |v| < 2 * 10^SMALL
+local function small_value(v, scale)
+  local neg = v < 0
+  local magnitude = neg and -v or v
+  local text
+  if scale == 0 then
+    text = sformat("%d", v)
+  elseif scale <= SMALL then
+    local unit = POW10[scale]
+    text = sformat(neg and NEGATIVE_POINT[scale] or POINT[scale], magnitude // unit, magnitude % unit)
+  else
+    local digits = sformat("%d", magnitude)
+    text = (neg and "-0." or "0.") .. srep("0", scale - #digits) .. digits
+  end
+  if magnitude >= POW10[SMALL] then
+    return setmetatable({type = "decimal", value = text, neg = neg, scale = scale, mag = sformat("%d", magnitude)}, DECIMAL)
+  end
+  return setmetatable({type = "decimal", value = text, neg = neg, scale = scale, small = v}, DECIMAL)
+end
+
+-- the value of the digits `mag` (no leading zero) at `scale`, negative when `neg` and not zero
+local function long_value(neg, mag, scale)
+  if #mag <= SMALL then
+    local v = tonumber(mag)
+    if neg then v = -v end
+    local made = small_value(v, scale)
+    return made
+  end
+  return setmetatable({type = "decimal", value = plain(neg, mag, scale), neg = neg, scale = scale, mag = mag}, DECIMAL)
+end
+
+-- the digits of a value, without a leading zero
+local function mag_of(value)
+  local mag = value.mag
+  if not mag then
+    local small = value.small
+    mag = sformat("%d", small < 0 and -small or small)
+    value.mag = mag
+  end
+  return mag
+end
+
+local function shown(text)
+  if #text > 40 then return sformat("%q… (%d bytes)", ssub(text, 1, 40), #text) end
+  return sformat("%q", text)
+end
+
+-- the values of the texts read so far
+local parsed, parsed_count = {}, 0
+
+-- the value of `text`: an optional sign, digits, and a point with digits, at least one digit in all
+local function parse(text, level)
+  local found = parsed[text]
+  if found then return found end
+  if #text > MAX_DIGITS + 2 then error(sformat("decimal %s has more than %d digits", shown(text), MAX_DIGITS), level) end
+  local sign, int, fraction = smatch(text, "^([+-]?)(%d*)%.?(%d*)$")
+  if not sign or #int + #fraction == 0 then
+    error(sformat("decimal must be a number in plain notation, such as \"-12.50\", got %s", shown(text)), level)
+  end
+  if #int + #fraction > MAX_DIGITS then error(sformat("decimal %s has more than %d digits", shown(text), MAX_DIGITS), level) end
+  local digits = int .. fraction
+  local first = sfind(digits, "[1-9]")
+  local value = long_value(sign == "-" and first ~= nil, first and ssub(digits, first) or "0", #fraction)
+  if parsed_count >= 4096 then parsed, parsed_count = {}, 0 end
+  parsed[text] = value
+  parsed_count = parsed_count + 1
+  return value
+end
+
+local function is_decimal(value)
+  return type(value) == "table" and getmetatable(value) == DECIMAL_SEAL
+end
+
+-- the value of an operand: a decimal value, a string in plain notation, or an integer. A float is refused, as the
+-- read-side twin of the write batch's lint, so a rounded number never reaches a sum or a query
+local function operand(value, level)
+  local kind, found = type(value), nil
+  if kind == "table" then
+    if getmetatable(value) == DECIMAL_SEAL then return value end
+    if rawget(value, "type") == "decimal" then error("a NULL decimal has no value to compute with", level) end
+    error("decimal must be a string or an integer, got table", level)
+  elseif kind == "string" then
+    found = parse(value, level + 1)
+  elseif mtype(value) == "integer" then
+    found = parse(sformat("%d", value), level + 1)
+  elseif kind == "number" then
+    error("decimal must be a string or an integer, got " .. tostring(value), level)
+  else
+    error("decimal must be a string or an integer, got " .. kind, level)
+  end
+  return found
+end
+
+local function trim(digits)
+  local first = sfind(digits, "[1-9]")
+  if first then return ssub(digits, first) end
+  return "0"
+end
+
+-- the digits of a + b (`sign` 1) or a - b (`sign` -1, a >= b), two strings of digits of the same length, SMALL digits
+-- at a time from the right
+local function combine(a, b, sign)
+  local parts, carry, stop = {}, 0, #a
+  for at = (stop + SMALL - 1) // SMALL, 1, -1 do
+    local start = stop - SMALL + 1
+    if start < 1 then start = 1 end
+    local width = stop - start + 1
+    local part = tonumber(ssub(a, start, stop)) + sign * (tonumber(ssub(b, start, stop)) + carry)
+    if part >= POW10[width] then part, carry = part - POW10[width], 1
+    elseif part < 0 then part, carry = part + POW10[width], 1
+    else carry = 0 end
+    parts[at] = sformat(PAD[width], part)
+    stop = start - 1
+  end
+  local digits = concat(parts)
+  if carry == 1 then return "1" .. digits end
+  return digits
+end
+
+-- the digits of a value at a scale at least its own
+local function digits_at(value, scale)
+  local mag = mag_of(value)
+  if scale == value.scale or mag == "0" then return mag end
+  return mag .. srep("0", scale - value.scale)
+end
+
+-- a + b, or a - b when `subtract`, over their digits
+local function long_add(a, b, subtract)
+  local scale = a.scale
+  if b.scale > scale then scale = b.scale end
+  local ma, mb = digits_at(a, scale), digits_at(b, scale)
+  local bneg = b.neg
+  if subtract and mb ~= "0" then bneg = not bneg end
+  if #ma < #mb then ma = srep("0", #mb - #ma) .. ma elseif #mb < #ma then mb = srep("0", #ma - #mb) .. mb end
+  if a.neg == bneg then return long_value(a.neg, trim(combine(ma, mb, 1)), scale) end
+  if ma == mb then return long_value(false, "0", scale) end
+  if ma > mb then return long_value(a.neg, trim(combine(ma, mb, -1)), scale) end
+  return long_value(bneg, trim(combine(mb, ma, -1)), scale)
+end
+
+-- a + b, or a - b when `subtract`: exact, at the larger scale of the two
+local function add(a, b, subtract)
+  local x, y, sa, sb = a.small, b.small, a.scale, b.scale
+  if x and y then
+    if sa == sb then
+      if subtract then return small_value(x - y, sa) end
+      return small_value(x + y, sa)
+    end
+    local scale, da, db = sa, 0, 0
+    if sa < sb then scale, da = sb, sb - sa else db = sa - sb end
+    local fa, fb = FIT[da], FIT[db]
+    if fa and fb and x < fa and x > -fa and y < fb and y > -fb then
+      x, y = x * POW10[da], y * POW10[db]
+      if subtract then return small_value(x - y, scale) end
+      return small_value(x + y, scale)
+    end
+  end
+  return long_add(a, b, subtract)
+end
+
+-- -1, 0 or 1 as a is less than, equal to or greater than b, by value
+local function compare(a, b)
+  local an = a.neg
+  if an ~= b.neg then return an and -1 or 1 end
+  local x, y, sa, sb = a.small, b.small, a.scale, b.scale
+  if x and y then
+    if sa ~= sb then
+      local da, db = 0, 0
+      if sa < sb then da = sb - sa else db = sa - sb end
+      local fa, fb = FIT[da], FIT[db]
+      if fa and fb and x < fa and x > -fa and y < fb and y > -fb then x, y = x * POW10[da], y * POW10[db] else x = nil end
+    end
+    if x then
+      if x < y then return -1 elseif x > y then return 1 end
+      return 0
+    end
+  end
+  local scale = sa
+  if sb > scale then scale = sb end
+  local ma, mb = digits_at(a, scale), digits_at(b, scale)
+  if ma == mb then return 0 end
+  local order = 1
+  if #ma < #mb or (#ma == #mb and ma < mb) then order = -1 end
+  if an then return -order end
+  return order
+end
+
+local function no_arithmetic(what)
+  return function()
+    error("zhang.decimal has no " .. what .. ": compute it in the host, with a query or zhang.convert", 2)
+  end
+end
+
+local METHODS = {}
+function METHODS.neg(a)
+  local value = operand(a, 3)
+  local small = value.small
+  if small then return small_value(-small, value.scale) end
+  return long_value(not value.neg, value.mag, value.scale)
+end
+function METHODS.abs(a)
+  local value = operand(a, 3)
+  local small = value.small
+  if small then return small_value(small < 0 and -small or small, value.scale) end
+  return long_value(false, value.mag, value.scale)
+end
+function METHODS.is_zero(a) return operand(a, 3).small == 0 end
+function METHODS.sign(a)
+  local value = operand(a, 3)
+  if value.small == 0 then return 0 end
+  return value.neg and -1 or 1
+end
+function METHODS.cmp(a, b) return compare(operand(a, 3), operand(b, 3)) end
+
+DECIMAL.__index = METHODS
+DECIMAL.__add = function(a, b) return add(operand(a, 3), operand(b, 3), false) end
+DECIMAL.__sub = function(a, b) return add(operand(a, 3), operand(b, 3), true) end
+DECIMAL.__unm = METHODS.neg
+-- Lua asks __eq only when both sides are tables: a decimal value equals another by value, and no other table, such as
+-- json.null
+DECIMAL.__eq = function(a, b)
+  if not (is_decimal(a) and is_decimal(b)) then return false end
+  return compare(a, b) == 0
+end
+DECIMAL.__lt = function(a, b) return compare(operand(a, 3), operand(b, 3)) < 0 end
+DECIMAL.__le = function(a, b) return compare(operand(a, 3), operand(b, 3)) <= 0 end
+DECIMAL.__mul = no_arithmetic("multiplication")
+DECIMAL.__div = no_arithmetic("division")
+DECIMAL.__idiv = no_arithmetic("division")
+DECIMAL.__mod = no_arithmetic("remainder")
+DECIMAL.__pow = no_arithmetic("power")
+DECIMAL.__tostring = function(a) return rawget(a, "value") end
+DECIMAL.__concat = function(a, b)
+  if is_decimal(a) then a = rawget(a, "value") end
+  if is_decimal(b) then b = rawget(b, "value") end
+  return a .. b
+end
+
+-- zhang.decimal(value): the decimal value of a string in plain notation, an integer or a decimal value; nil (or
+-- json.null) is the NULL parameter it always was. zhang.decimal.add, .sub, .neg, .abs, .cmp, .sign, .is_zero and .sum
+-- take any operand a decimal value takes, strings included
+local function make_decimal(value)
+  if value == nil or rawequal(value, json.null) then return {type = "decimal", value = json.null} end
+  if is_decimal(value) then return value end
+  -- a copy: the value of a text is kept for its later uses (parse), and the script may change the table it gets
+  local kept = operand(value, 4)
+  return setmetatable(
+    {type = "decimal", value = kept.value, neg = kept.neg, scale = kept.scale, small = kept.small, mag = kept.mag},
+    DECIMAL
+  )
+end
+
+return {
+  make = make_decimal,
+  add = DECIMAL.__add,
+  sub = DECIMAL.__sub,
+  neg = METHODS.neg,
+  abs = METHODS.abs,
+  cmp = METHODS.cmp,
+  sign = METHODS.sign,
+  is_zero = METHODS.is_zero,
+  is_decimal = is_decimal,
+  -- the sum of a list of operands, "0" for none
+  sum = function(list)
+    if type(list) ~= "table" then error("zhang.decimal.sum expects a list of decimals, got " .. type(list), 2) end
+    local total = small_value(0, 0)
+    for index = 1, #list do total = add(total, operand(list[index], 3), false) end
+    return total
+  end,
+}
+)lua";
+
+// ---- analyzers: the code of the `manifest` and `analyze` exports, a chunk the prelude reads for them only --------
+
+static const char ANALYZER[] = R"lua(
+-- The code of an analyzer's two exports, read by the prelude for the `manifest` and `analyze` entries only, so a router
+-- request does not pay for reading it: the prelude runs this chunk with the json table and gets `manifest(module)`, the
+-- manifest of a module table, and `output(value)`, what `analyze` returned made ready for json.encode. Both make a map
+-- Lua writes as `{}` when it is empty, which json.encode writes `[]`, an object where the host reads one.
+local json = ...
+local type, pairs, ipairs, next, getmetatable, rawget = type, pairs, ipairs, next, getmetatable, rawget
+
+-- the fields of the module table that make an analyzer's manifest
+local MANIFEST_FIELDS = {"analysis_abi", "namespace", "consumes", "open_meta", "diagnostics", "tables", "columns", "queries"}
+
+-- `value`, or json.object() for a plain empty table, which json.encode writes `[]`: where the host reads an object
+local function as_object(value)
+  if type(value) == "table" and next(value) == nil and getmetatable(value) == nil then return json.object() end
+  return value
+end
+
+-- call `visit` with every table of the list `list`, if it is one
+local function each(list, visit)
+  if type(list) ~= "table" then return end
+  for _, item in ipairs(list) do
+    if type(item) == "table" then visit(item) end
+  end
+end
+
+-- call `visit` with every table value of the map `map`, if it is one
+local function each_value(map, visit)
+  if type(map) ~= "table" then return end
+  for _, value in pairs(map) do
+    if type(value) == "table" then visit(value) end
+  end
+end
+
+-- rows: an empty row, and an empty `$meta`, are objects
+local function shape_rows(rows)
+  if type(rows) ~= "table" then return end
+  for index = 1, #rows do
+    local row = rows[index]
+    if type(row) == "table" then
+      if next(row) == nil then
+        rows[index] = as_object(row)
+      else
+        local meta = rawget(row, "$meta")
+        if meta ~= nil then row["$meta"] = as_object(meta) end
+      end
+    end
+  end
+end
+
+-- what `analyze` returned, with every map of zhang_shared::plugin_abi::analysis::Output an object even when empty: the
+-- output itself, its tables, series and labels, each row and its `$meta`, each partition's key, each label's
+-- params, each diagnostic's target and metas. Cells are left as they are: a decimal value is written as its text
+local function output_of(output)
+  output = as_object(output)
+  output.tables = as_object(output.tables)
+  output.series = as_object(output.series)
+  output.labels = as_object(output.labels)
+  each_value(output.tables, shape_rows)
+  each_value(output.series, function(series)
+    each(series.partitions, function(partition)
+      partition.key = as_object(partition.key)
+      shape_rows(partition.rows)
+    end)
+  end)
+  each_value(output.labels, function(labels)
+    each(labels, function(label) label.params = as_object(label.params) end)
+  end)
+  each(output.diagnostics, function(diagnostic)
+    diagnostic.target = as_object(diagnostic.target)
+    diagnostic.metas = as_object(diagnostic.metas)
+  end)
+  return output
+end
+
+-- the manifest of the module table `module`: the fields of MANIFEST_FIELDS it has
+local function manifest_of(module)
+  local manifest = json.object()
+  for _, key in ipairs(MANIFEST_FIELDS) do manifest[key] = module[key] end
+  each(manifest.tables, function(declared)
+    if type(declared.period) == "table" then declared.period.derive = as_object(declared.period.derive) end
+  end)
+  each(manifest.columns, function(column) column.params = as_object(column.params) end)
+  each(manifest.queries, function(query) query.params = as_object(query.params) end)
+  return manifest
+end
+
+return { manifest = manifest_of, output = output_of }
 )lua";
 
 // ---- exports ----------------------------------------------------------------------------------------------------
@@ -602,7 +1113,9 @@ static int run_protected(lua_State *L) {
   push_required_config(L, "zhang.script_name");
   lua_pushstring(L, entry);
   push_input(L);
-  lua_call(L, 7, 2);
+  lua_pushlstring(L, DECIMAL_LIBRARY, sizeof(DECIMAL_LIBRARY) - 1);
+  lua_pushlstring(L, ANALYZER, sizeof(ANALYZER) - 1);
+  lua_call(L, 9, 2);
   return 2;
 }
 
@@ -652,4 +1165,6 @@ int32_t EXTISM_EXPORTED_FUNCTION(version) { return dispatch("version"); }
 int32_t EXTISM_EXPORTED_FUNCTION(supported_type) { return dispatch("supported_type"); }
 int32_t EXTISM_EXPORTED_FUNCTION(capabilities) { return dispatch("capabilities"); }
 int32_t EXTISM_EXPORTED_FUNCTION(router) { return dispatch("router"); }
+int32_t EXTISM_EXPORTED_FUNCTION(manifest) { return dispatch("manifest"); }
+int32_t EXTISM_EXPORTED_FUNCTION(analyze) { return dispatch("analyze"); }
 }

@@ -4,8 +4,10 @@
 //! (its sha256 is vendored beside it and CI rebuilds it). The host pairs it with the script: the manifest of a
 //! script plugin names the interpreter as its module and sets two reserved config keys, [`SCRIPT_CONFIG_KEY`]
 //! (`zhang.script`, the source) and [`SCRIPT_NAME_CONFIG_KEY`] (`zhang.script_name`, the module path as written,
-//! for messages). The interpreter exports the plugin ABI v1 identity functions and `router`, which run the script:
-//! the chunk returns a module table `{name, version, types, router}`, so a script's name and version are its own.
+//! for messages). The interpreter exports the plugin ABI v1 identity functions, `router`, and an analyzer's
+//! `manifest` and `analyze`, which run the script: the chunk returns a module table `{name, version, types, router}`
+//! (an analyzer's manifest is fields of it, and its `analyze` a function), so a script's name and version are its
+//! own.
 //! Everything else (registration, the first router of a name serving it, `GET /api/plugins`, the timeout, the host
 //! functions) is the wasm path, unchanged.
 //!
@@ -16,11 +18,13 @@
 //! most [`MAX_SCRIPT_LEN`]; its syntax is checked when registration runs the chunk through the interpreter's
 //! `name` export, where a Lua syntax error becomes a load error carrying `<script>:<line>: ...`.
 //!
-//! Lua scripts are router plugins only in this round: the interpreter refuses `Processor` and `Mapper` in a
+//! Lua scripts are router and analyzer plugins in this round: the interpreter refuses `Processor` and `Mapper` in a
 //! script's `types`. The directive stream is not the reason (every decimal in it serializes as a string, as in a
-//! query result); these are: Lua has no exact decimal arithmetic, so a stage computing with an amount would do it
-//! in floats; and the inbound `BigDecimal` deserialization takes a JSON number as well as a string, so an amount a
-//! script turned into a number would come back changed without an error.
+//! query result); these are: `zhang.decimal` adds, subtracts and compares exactly but neither multiplies nor
+//! divides, so a stage splitting or converting an amount would do it in floats; and the inbound `BigDecimal`
+//! deserialization takes a JSON number as well as a string, so an amount a script turned into a number would come
+//! back changed without an error. An analyzer's output has neither problem: the host refuses a JSON number where it
+//! reads a decimal.
 
 pub use zhang_shared::plugin_abi::config::{SCRIPT as SCRIPT_CONFIG_KEY, SCRIPT_NAME as SCRIPT_NAME_CONFIG_KEY};
 

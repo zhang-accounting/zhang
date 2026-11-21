@@ -346,9 +346,8 @@ fn route(request: Request) -> Result<Response, Error> {
 
 :::caution[Experimental]
 The `Analyzer` type is experimental. Until the budget migration of RFC #698 is complete, its ABI may change in any
-release: the manifest, the records, the output, `zhang_convert` and the SDK's `analysis` module. P1.6 adds analyzers
-written in Lua and a new Lua `api_version`. A release may ship before then, and an analyzer written for it may need
-changes to load in the next one.
+release: the manifest, the records, the output, `zhang_convert`, the SDK's `analysis` module and the analyzers of Lua
+scripts. A release may ship before then, and an analyzer written for it may need changes to load in the next one.
 :::
 
 An analyzer reads the ledger once it is loaded and publishes what it finds: **diagnostics**, which join the ledger's
@@ -526,9 +525,15 @@ fn analyze(input: Input) -> Result<Output, Error> {
 the budget records and queries. Zhang's tests run it in place of the native budget code and check that it answers the
 budget pages alike, its errors included, with the same ids.
 
+### In Lua
+
+A Lua script is an analyzer when its module table declares `types = { "Analyzer" }`: the manifest is fields of the
+module table, `analyze` a function of the records that returns the output, and `zhang.convert` and `zhang.decimal`
+convert and add up exactly. [Lua Plugins](/guides/lua-plugins/#analyzers) has an example and the rules.
+
 ## Lua plugins
 
-A router plugin can be a Lua script instead of a module: `plugin "plugins/report.lua"`. Zhang embeds a Lua 5.4 interpreter, itself a wasm plugin built from `tools/lua-runtime` in the repository, and pairs it with the script at load time: the interpreter is the module the sandbox runs, and the script reaches it through two reserved config keys, `zhang.script` (the source) and `zhang.script_name` (the module path as written, which messages name). Everything else is the wasm path: registration reads `name`, `version` and `supported_type` from the module table the script returns, the first router of a name serves it (a later one is reported), the directive's capabilities and `timeout` apply, every request is a fresh instance, and `GET /api/plugins` lists the script's own name and version.
+A router or an analyzer can be a Lua script instead of a module: `plugin "plugins/report.lua"`. Zhang embeds a Lua 5.4 interpreter, itself a wasm plugin built from `tools/lua-runtime` in the repository, and pairs it with the script at load time: the interpreter is the module the sandbox runs, and the script reaches it through two reserved config keys, `zhang.script` (the source) and `zhang.script_name` (the module path as written, which messages name). Everything else is the wasm path: registration reads `name`, `version`, `supported_type` and an analyzer's `manifest` from the module table the script returns, the first router of a name serves it (a later one is reported), the directive's capabilities and `timeout` apply, every request is a fresh instance, and `GET /api/plugins` lists the script's own name and version.
 
 ```lua
 local M = { name = "report", version = "0.1.0", types = { "Router" } }
@@ -541,7 +546,7 @@ end
 return M
 ```
 
-The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_builtin`, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. Lua scripts are routers only in this release: a script declaring `Processor` or `Mapper` does not load, because Lua has no exact decimal arithmetic, the host takes back an amount turned into a JSON number, and the JSON library is too slow for every directive of a ledger ([why](/guides/lua-plugins/#router-only-in-this-release)). The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, under a 64 MiB memory budget per request and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
+The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_builtin`, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.convert`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. `zhang.decimal` adds, subtracts and compares decimals exactly, in the interpreter. Lua scripts are routers and analyzers in this release: a script declaring `Processor` or `Mapper` does not load, because `zhang.decimal` does not multiply or divide and the host takes back an amount turned into a JSON number ([why](/guides/lua-plugins/#no-processors-or-mappers-yet)). The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, under a 64 MiB memory budget per request and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
 
 ## Writes
 
@@ -741,4 +746,4 @@ Where they work:
 | `processor` and `mapper` exports, flat config (options and meta), `allowed_hosts` | 0.2.0 |
 | `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, `zhang.allowed_hosts`, `zhang.timeout_ms`, every host function above but the write functions, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |
 | `zhang_write_preview`, `zhang_write_commit`, the `capabilities` export, `allowed_writes`, `zhang.allowed_writes` | the release after 0.2.0 with the write capability |
-| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, experimental until RFC #698 is complete | the release with analyzers (RFC #698) |
+| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, analyzers in Lua, experimental until RFC #698 is complete | the release with analyzers (RFC #698) |

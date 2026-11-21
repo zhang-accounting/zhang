@@ -1,8 +1,9 @@
 # The Lua interpreter module
 
 `zhang-core/src/plugin/lua/lua-runtime.wasm` is the Lua 5.4.8 interpreter zhang pairs with every `plugin "x.lua"`
-directive: an Extism plugin exporting the plugin ABI v1 identity functions (`name`, `version`, `supported_type`) and
-`router`, which run the script the host hands over in the config key `zhang.script`. It is vendored in the tree with
+directive: an Extism plugin exporting the plugin ABI v1 identity functions (`name`, `version`, `supported_type`),
+`capabilities`, `router`, and an analyzer's `manifest` and `analyze`, which run the script the host hands over in the
+config key `zhang.script`. It is vendored in the tree with
 its sha256 beside it and embedded in the zhang binary with `include_bytes!` under the `plugin_runtime` feature, so
 `cargo install zhang` and the release binaries need nothing but Rust; a user never installs a wasm toolchain.
 
@@ -14,7 +15,7 @@ This directory is everything needed to rebuild it, byte for byte:
 | `PINS.toml` | the one download, wasi-sdk 34.0 (clang 23) for `arm64-macos` and `x86_64-linux`, with its URL and sha256; and the upstream URL, version and sha256 of each vendored source |
 | `prepare.py` | fetches and verifies the wasi-sdk into a directory outside the repo (`--tools`), picking this host's (`--host` overrides) |
 | `build.py` | the one-command build: checks `vendor/` against `vendor/SHA256SUMS`, compiles `runtime.cpp`, `json.cpp`, the vendored `onelua.c` and `pdk.c` into the module, writes `<out>.sha256` |
-| `runtime.cpp` | the dispatcher: the host-function bridges, the memory budget, the `zhang`/`json` Lua API, the sandbox and the dispatch of each export (sections: imports, memory budget, bridges, prelude, exports) |
+| `runtime.cpp` | the dispatcher: the host-function bridges, the memory budget, the `zhang`/`json` Lua API, the sandbox and the dispatch of each export (sections: imports, memory budget, bridges, prelude, the `zhang.decimal` library, the analyzer's exports, exports) |
 | `json.cpp` | the JSON codec of the `json` table, over the Lua C API (see [The JSON codec](#the-json-codec)) |
 | `pdk.c` | the translation unit defining the Extism C PDK |
 | `seed.h` | the random string-hash seed of every Lua state, included ahead of the C++ sources |
@@ -56,6 +57,14 @@ cd zhang-core/src/plugin/lua && shasum -a 256 -c lua-runtime.wasm.sha256
   identical values still encode to identical JSON.
 - **The JSON codec in C.** `json.cpp` is compiled with the rest; the prelude in `runtime.cpp` exposes it as the `json`
   library (shared object/array markers, a fixed `null`). User scripts are never built into the module.
+- **Three chunks of Lua, two of them read only when needed.** Every call parses the prelude again, in a fresh state,
+  at about a microsecond a line, so what most calls do not use is a chunk of its own: the `zhang.decimal` library
+  (`DECIMAL_LIBRARY`), read the first time a script uses `zhang.decimal`, and the code of the analyzer's exports
+  (`ANALYZER`), read by `manifest` and `analyze` only. A call that uses neither, a router request, costs about 0.1 ms
+  more than before analyzers and decimals (0.88 ms against 0.80 ms for a script that does nothing, the instance
+  included). Those chunks run in an environment of the library functions the prelude took before the script ran, and
+  the script's `json` is a copy of the codec's table, so a script that replaces `string.format` or `json.object`
+  changes its own calls only.
 
 ## Canonical bytes and CI
 
@@ -79,7 +88,9 @@ It replaced dkjson 2.11 (pure Lua, about 3 MB/s, patched here to sort keys) and 
 - **yyjson** and **cJSON** (MIT) parse into a tree of their own, which a Lua table would copy: 2–4 times the text in
   memory on top of the result, under a 64 MiB budget. cJSON keeps numbers as doubles, so 64-bit integers lose digits.
 
-The codec reads and writes in one pass, straight between the text and Lua values, with an explicit stack instead of
+A `zhang.decimal` value (a table whose metatable's `__jsontype` is `"decimal"`, read raw) is written as the string
+of its `value` field, so a script puts decimal values into JSON as it would strings. The codec reads and writes in
+one pass, straight between the text and Lua values, with an explicit stack instead of
 recursion (1000 levels at most, so a deep document grows neither the C nor the wasm stack). Its buffers are Lua
 userdata, so the budget counts them and refuses them with Lua's own memory error, and the collector is paused while
 it runs, so no finalizer changes a table it is writing. The encoder points into the string keys of the table it
@@ -96,6 +107,22 @@ refused) and against the patched dkjson on random documents (byte-identical outp
 change); a later review fuzzed it under ASan and UBSan and compared it with Python's `json`. `zhang-core/tests/plugins/json_rules.lua` holds its rules as checks that run inside the module; change it with
 the codec.
 
+## Exact decimals
+
+`zhang.decimal` (`DECIMAL_LIBRARY` in `runtime.cpp`) is exact addition, subtraction and comparison of decimals in
+pure Lua: a value keeps its signed coefficient as a Lua integer while it has at most 18 digits, and its digits as a
+string past that, added 18 at a time; a sum keeps the larger scale of the two, as `BigDecimal`'s `a + b` and `&a - &b`
+do, and a value's text is `plain_decimal`'s. There is no multiplication and no division, whose rounding and scale rules
+stay in the host (RFC #698 §4, decision 5: no libmpdec, which rounds every operation). The codec writes a value as its
+text (`__jsontype = "decimal"`). `zhang-core/tests/core/wasm_plugins/lua/decimal.rs` compares every operation with
+`BigDecimal` on 12,000 random pairs (signs, scales up to the 1000 digits a value may have, `-0`, trailing and leading
+zeros, `.5` and `5.`, sums that cancel) byte for byte, and its ignored `the_cost_of_zhang_decimal` prints what an
+operation costs next to a host call (`cargo test --release -p zhang-core --features plugin_runtime --test core --
+--ignored --nocapture the_cost_of`): about 1 µs an addition of amounts, 0.3 µs a comparison, 4 µs an addition of
+40-digit numbers, against 7 to 9 µs a crossing to the host and back. A batched host operation would win only for
+batches of more than about a dozen independent sums; a budget's running balances are sequential, and the sums that
+batch are the host's own (`sum` in a query).
+
 ## Changing the runtime
 
 `runtime.cpp` is the only glue; everything a script can call is defined there. Adding a host function means:
@@ -104,7 +131,9 @@ the codec.
 2. a bridge in the bridges section and an entry in `BRIDGES`;
 3. its `zhang.*` wrapper in the prelude, which unwraps the host's `{"Ok": ...}`/`{"Err": ...}` envelope, and
    `api_version` in the prelude raised by one, with the new version listed in the Lua plugins guide
-   (`docs/src/content/docs/guides/lua-plugins.md` and its zh-cn mirror), unless the release already raised it;
+   (`docs/src/content/docs/guides/lua-plugins.md` and its zh-cn mirror), unless no release has shipped the current
+   version yet (version 1 is the API of the first release with Lua scripts, routers, analyzers and `zhang.decimal`
+   included);
 4. a fixture in `zhang-core/tests/plugins/` and a test in `zhang-core/tests/core/wasm_plugins.rs`;
 5. `build.py`, then commit the module and its checksum together.
 

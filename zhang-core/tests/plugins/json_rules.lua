@@ -1,7 +1,7 @@
 -- A router plugin that checks the rules of the `json` table inside the interpreter module and answers the checks
 -- that failed, so a test sees the C codec (tools/lua-runtime/json.cpp) keep them: encoding (numbers, escapes, UTF-8,
--- sorted keys, the object marker, cycles, nesting) and strict decoding (numbers, strings, positions in errors, 1000
--- levels of nesting both ways, which must not grow the wasm stack).
+-- sorted keys, the object marker, decimal values, cycles, nesting) and strict decoding (numbers, strings, positions
+-- in errors, 1000 levels of nesting both ways, which must not grow the wasm stack).
 local M = { name = "json-rules", version = "0.1.0" }
 
 function M.router(request)
@@ -197,6 +197,12 @@ function M.router(request)
   err("d depth 1001", function() return D(string.rep("[", 1001) .. string.rep("]", 1001)) end, "nested deeper than 1000 levels at line 1, column 1001")
   err("d depth 1001 obj", function() return D(string.rep('{"a":', 1001)) end, "nested deeper than 1000 levels")
   err("d huge depth", function() return D(string.rep("[", 1000000)) end, "nested deeper than 1000 levels")
+  -- a decimal value of zhang.decimal is its text in plain notation (a metatable's __jsontype "decimal", read raw)
+  eq("decimal", E({ zhang.decimal("1.50"), zhang.decimal("-0.0"), zhang.decimal(7) }), '["1.50","0.0","7"]')
+  eq("decimal key order", E({ b = zhang.decimal("2"), a = zhang.decimal("-1") }), '{"a":"-1","b":"2"}')
+  eq("decimal look-alike", E(setmetatable({ value = "7" }, { __jsontype = "decimal" })), '"7"')
+  err("decimal without text", function() return E(setmetatable({ value = 7 }, { __jsontype = "decimal" })) end,
+      "a decimal value whose text was replaced")
   -- round trips
   local doc = '{"a":[1,2.5,"x",true,false,null,{"b":{}}],"c":"\\u2028\\u0000é","d":-9223372036854775808}'
   eq("round trip", E(D(doc)), doc)

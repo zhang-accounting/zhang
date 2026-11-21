@@ -184,8 +184,8 @@ fixed rule.
 :::caution[Experimental until the migration is complete]
 As built in P1.4, the `Analyzer` plugin type is experimental, and
 [Writing Plugins](/developers/writing-plugins/#analyzers) says so. Its ABI (the manifest, the records, the output,
-`zhang_convert`, the SDK's `analysis` module) may change in any release before the budget migration completes: P1.6
-adds Lua analyzers and a new Lua `api_version`. A release may ship before #698 is done.
+`zhang_convert`, the SDK's `analysis` module, and as built in P1.6 the analyzers of Lua scripts) may change in any
+release before the budget migration completes. A release may ship before #698 is done.
 :::
 
 ### 2.1 Where it runs
@@ -501,7 +501,7 @@ In v1 a plugin adds no column to any other core table and no scalar function (§
  "columns": [
   {"table": "postings", "name": "budgets", "type": "set", "kind": "labels",
    "description": "The budgets the posting counts toward, …",
-   "predicate": "account IN :accounts AND seq > :defined_seq AND :label IN open_meta_values(account, 'budget', date, time) AND (:close_date IS NULL OR (:close_time IS NULL AND date <= :close_date) OR (:close_time IS NOT NULL AND (date < :close_date OR (date = :close_date AND time <= :close_time)))) AND currency(convert(position, :commodity, date)) = :commodity",
+   "predicate": "account IN :accounts AND seq > :defined_seq AND open_meta_has(account, 'budget', :label, date, time) AND (:close_date IS NULL OR (:close_time IS NULL AND date <= :close_date) OR (:close_time IS NOT NULL AND (date < :close_date OR (date = :close_date AND time <= :close_time)))) AND currency(convert(position, :commodity, date)) = :commodity",
    "params": {"accounts": "set", "defined_seq": "int", "close_date": "date", "close_time": "str", "commodity": "str"}}]}
 ```
 
@@ -592,6 +592,10 @@ The label predicate needs the `budget` metas of the `open` in effect at a time. 
 `AccountLifecycle::budgets` to keep each `open`'s metadata, and adds `Ledger::open_meta_values_at(account, key, at)`
 and the BQL function `open_meta_values(account, key, date[, time]) -> Set`. `account_budgets(account, date)` stays as
 a documented alias of `open_meta_values(account, 'budget', date)`: compat mapping, with no rule behind it.
+
+**As built (#862):** the label predicate tests membership with `open_meta_has(account, key, value, date[, time])`,
+which answers `value IN open_meta_values(…)` but reads the posting's account and time in place and looks the value up
+in the `open`'s set without copying it: about 37 ns a row against 300 at 100,000 transactions.
 
 ### 3.7 Date-bounded generation for `#budgets` (#698 open question 2)
 
@@ -701,8 +705,30 @@ gives `190.8450704225352112676056338 USD`, and a product keeps its scale (`10355
   - zero in several scales;
   - results that cancel to zero.
 
+**As built in P1.6:**
+
+- **Pure Lua (B), measured.** In the interpreter an addition of amounts costs about 1 µs, a comparison 0.3 µs, an
+  addition of 40-digit numbers 4 µs; a crossing to the host and back costs 7 to 9 µs, and the JSON of an amount about
+  0.1 µs each way. A batched host operation (A) would win only for batches of more than about a dozen independent
+  sums, while a budget's running balances are sequential and the sums that batch are the host's own (`sum`). The
+  library is a chunk the interpreter reads the first time a script uses it, so a router request does not pay for it.
+- **A decimal value is also the query parameter** `zhang.decimal(v)` always made, and the JSON codec writes it as its
+  text: it goes into a table's cell, an amount, a meta or a write as it is. `==` holds between two decimal values only.
+- **The scale rule is the larger scale for every pair**, zeros included, as `BigDecimal`'s `a + b` and `&a - &b` keep
+  it; the parity test compares 12,000 random pairs and sums of lists, up to the 1,000 digits a value may have (the
+  bound of `zhang_convert`). The native budget code does not always keep it: `&a + &b`, `x += y` of an owned `y` and
+  `x -= &y` give the other operand unchanged when one is zero, whatever the zero's scale (`budgets.rs`), so `0.00 + 500`
+  is `500` there and `500.00` in `zhang.decimal`. The two differ only when a zero has the larger scale.
+  **Decided (2026-11-21):** `zhang.decimal` keeps `500.00`, the semantics `zhang-shared/src/decimal.rs` documents
+  (Python's decimal, as beancount computes), of which the native `500` is a quirk of bigdecimal 0.4.3 (its owned
+  `a + b` keeps the scale). The native budget code is aligned in P3, not before; the Lua plugins guide names the
+  difference.
+- **`api_version` stays 1.** No release has shipped a Lua API: v0.2.0 predates Lua scripts, so routers, analyzers,
+  `zhang.decimal` and `zhang.convert` are version 1, the API of the first release with Lua scripts, as the rule of the
+  Lua plugins guide reads (a release that adds to the `zhang` table raises it).
+
 ```lua
-local d = zhang.decimal                           -- api_version 2: pure Lua over decimal strings
+local d = zhang.decimal                           -- pure Lua over decimal strings
 local available = d("0")
 for _, fact in ipairs(facts) do                   -- strings from the host
   local assigned = available + d(fact.added)      -- exact; scale = the larger of the two
@@ -954,7 +980,7 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | **P1.3** `feat(query)` extension tables | Record tables with row metadata. Series tables with `carry`, `zero` and `previous`, the generic `{seq}` causes, the tie rules, and the `#budgets` wording in the compat allowlist. Label columns with the `:x IN column` fast path. Catalog digest, `provided_by` (OpenAPI and `schemas.ts` regenerated). Today's native budget code re-hosted on them through an in-process provider. | #835 byte-identical; engine budget suites unchanged; tie-rule tests; no slower than P0b |
 | **P1.4** `feat(plugin)` Analyzer (after I1) | ABI module (manifest, records, output). `AnalysisHost` hook. Snapshots; never reuse a failed one. Diagnostic placement by phase and target. Reset of what `derived` computed from the errors; refusal of error-dependent tables. `zhang_convert`, limits, recursion guard, failure isolation. SDK `analyzer:` and `decimal`. **The lifecycle and isolation tests:** module and config swap, clock change at midnight, concurrent reload and query, timeout, OOM, trap, invalid output, missing plugin. | Every failure mode loads the ledger with one diagnostic and no partial snapshot; an SDK fixture analyzer's diagnostics land at the places and ids the native fold gives |
 | **P1.5** `feat(plugin)` default plugins and named queries (absorbs P2) | Plugin-declared named queries per catalog digest. Default bundled plugins and `zhang:budget` (Lua, queries only) serving the five `budgets.*` queries moved from `builtin.rs`, still over native tables. `ZHANG_PLUGINS=off` stops defaults, with `ExtensionUnavailable` and the upgrade note. `GET /api/plugins` fields. (The fingerprint already hashes script sources and bundled plugins, §2.4.) | #835 and `builtins.ts` byte-identical; the matrix `features.plugin` × `ZHANG_PLUGINS` × runtime present or absent |
-| **P1.6** `feat(plugin)` Lua analyzers (after I2) | Interpreter: the `Analyzer` type, the manifest in the module table, `zhang.decimal` (pure Lua, §4), `zhang.convert`, `api_version` 2 | Decimal parity property tests; Lua and MCP tests unchanged; reproducible module |
+| **P1.6** `feat(plugin)` Lua analyzers (after I2) | Interpreter: the `Analyzer` type, the manifest in the module table, `zhang.decimal` (pure Lua, §4), `zhang.convert`, `api_version` 2 (as built: it stays 1, §4) | Decimal parity property tests; Lua and MCP tests unchanged; reproducible module |
 | ⛳ **G1** gate, not a PR | A Lua budget-analyzer prototype on P0b's ledgers | Added end-to-end time (a load or a `POST /api/transactions`, then the first budget page and errors page after it) ≤ max(5% of P0b after #840/#841, 50 ms) at 10,000 and 100,000 transactions; named-query p95 ≤ 1.1×; memory ≤ +10%; parity with #835. On failure, the Rust→wasm fallback only with the owner's go-ahead |
 | **P3.1** `feat(budget)` definitions and events | `budget.lua` publishes `#budget_definitions`, `#budget_events` and the directive diagnostics. Test switch `native\|plugin\|both`. The differential fuzzing harness (seeded generated ledgers; full `Ledger::errors` and every table and named query) | `both` and the fuzzer report no difference |
 | **P3.2** `feat(budget)` activity, series and labels | Activity by host BQL per budget, carry-over facts, `#budgets` as a series, `postings.budgets` labels, posting diagnostics, the after-fold mismatches | `both`, the fuzzer and the `budget_reference` oracle report no difference |
