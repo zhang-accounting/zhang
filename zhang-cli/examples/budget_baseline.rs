@@ -21,9 +21,11 @@
 //! router in the process, without a socket.
 //!
 //! Without an argument the example runs each ledger in a process of its own, itself again, so that the peak RSS of a
-//! ledger is its own. A run records the machine's load average when it starts and ends, and is marked invalid when
-//! either is above `ZHANG_BUDGET_BASELINE_MAX_LOAD` (4 by default): re-run it on a quieter machine. `budget_compare`
-//! compares two sets of runs (`examples/budget_compare.rs`). A run prints its figures on stderr and a `BASELINE {...}` JSON line on stdout; with
+//! ledger is its own. A run is pinned with `taskset` to `ZHANG_BUDGET_BASELINE_CPUS` (`8-15` by default, `none` for no
+//! pinning) and serves with `ZHANG_BUDGET_BASELINE_WORKERS` worker threads (8). It is marked invalid ([`Conditions`])
+//! when a build ran on the machine when it started or ended, when its cgroup was throttled, or when its cgroup's tasks
+//! waited for a CPU for 2% of its time or more: run it again. `budget_compare` compares two sets of runs
+//! (`examples/budget_compare.rs`). `ZHANG_BUDGET_BASELINE_COMMIT` names the commit measured in the report. A run prints its figures on stderr and a `BASELINE {...}` JSON line on stdout; with
 //! `ZHANG_BUDGET_BASELINE_OUT=<dir>` the JSON is also written to `<dir>/<ledger>.json`, and with
 //! `ZHANG_BUDGET_BASELINE_KEEP=<dir>` the ledger, as generated, to `<dir>/<ledger>/`. `ZHANG_BUDGET_BASELINE_ONLY=writes`
 //! measures the load and the writes only, and `ZHANG_BUDGET_BASELINE_ONLY=e2e` the load and the end-to-end timers only,
@@ -48,6 +50,7 @@ use zhang_ast::error::ErrorKind;
 use zhang_ast::Directive;
 use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
+use zhang_core::extensions::SnapshotStatus;
 use zhang_core::ledger::Ledger;
 use zhang_server::broadcast::Broadcaster;
 use zhang_server::{create_server_app, start_fs_event_listener, start_reload_listener, ReloadSender};
@@ -133,6 +136,9 @@ fn main() -> ExitCode {
         [] => run_all(),
         [name] => match specs().iter().copied().find(|spec| spec.name() == *name) {
             Some(spec) => {
+                if let Some(status) = pinned(&args) {
+                    return status;
+                }
                 let report = baseline(spec);
                 println!("BASELINE {report}");
                 if let Some(dir) = std::env::var_os("ZHANG_BUDGET_BASELINE_OUT") {
@@ -147,6 +153,40 @@ fn main() -> ExitCode {
         },
         _ => usage(),
     }
+}
+
+/// the CPUs a run is pinned to with `taskset -c`: `ZHANG_BUDGET_BASELINE_CPUS`, `8-15` by default; `none` pins nothing
+fn cpus() -> Option<String> {
+    let cpus = std::env::var("ZHANG_BUDGET_BASELINE_CPUS").unwrap_or_else(|_| "8-15".to_owned());
+    (cpus != "none").then_some(cpus)
+}
+
+/// the worker threads of the runtime that serves the ledger: `ZHANG_BUDGET_BASELINE_WORKERS`, 8 by default
+fn workers() -> usize {
+    std::env::var("ZHANG_BUDGET_BASELINE_WORKERS")
+        .ok()
+        .and_then(|it| it.parse().ok())
+        .filter(|it| *it > 0)
+        .unwrap_or(8)
+}
+
+/// Run this ledger again pinned to [`cpus`] with `taskset`, server and client alike (they are this process), unless it
+/// is pinned already: the exit status of the pinned run, or `None` to run here.
+fn pinned(args: &[String]) -> Option<ExitCode> {
+    let cpus = cpus()?;
+    if std::env::var_os("ZHANG_BUDGET_BASELINE_PINNED").is_some() {
+        return None;
+    }
+    let exe = std::env::current_exe().expect("the example's path");
+    let status = Command::new("taskset")
+        .arg("-c")
+        .arg(&cpus)
+        .arg(exe)
+        .args(args)
+        .env("ZHANG_BUDGET_BASELINE_PINNED", &cpus)
+        .status()
+        .unwrap_or_else(|error| panic!("taskset -c {}: {}", cpus, error));
+    Some(if status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }
 
 fn usage() -> ExitCode {
@@ -542,13 +582,190 @@ fn input_counts(ledger: &Ledger) -> Value {
     json!(counts)
 }
 
+// ---- how the ledger is loaded, and what analyzed it -------------------------------------------------------------
+
+/// Load the ledger of `dir` as `zhang serve` loads it (`load_served_ledger`): with the server's load options (the
+/// host of the analyzers' analyses, the default plugins, the operator's plugin policy, here the default one), on a
+/// blocking thread; and with the fixed clock of `spec`, where `zhang serve` reads the system's. Its reloads, the
+/// reload listener's and the writes', keep the options.
+async fn load_as_served(dir: &Path, source: &Arc<dyn DataSource>, spec: &Spec) -> Ledger {
+    let (root, data_source, clock) = (dir.to_path_buf(), source.clone(), spec.clock());
+    let options = zhang_server::analysis::load_options(Arc::new(Settings::default().plugins.policy));
+    tokio::task::spawn_blocking(move || Ledger::load_with_options(root, MAIN.to_owned(), data_source, clock, options))
+        .await
+        .expect("the load runs")
+        .unwrap_or_else(|error| panic!("{}", error))
+}
+
+/// The analyzers of `ledger`, each with what it published: `zhang:budget: ok`, `...: failed (reason)`, `...: skipped`
+/// or `...: not published`.
+fn analyzers(ledger: &Ledger) -> Vec<String> {
+    ledger
+        .extensions
+        .analyzers
+        .iter()
+        .map(|slot| {
+            let status = match slot.snapshot.get().map(|it| &it.status) {
+                Some(SnapshotStatus::Ok) => "ok".to_owned(),
+                Some(SnapshotStatus::Failed { reason }) => format!("failed ({reason})"),
+                Some(SnapshotStatus::Skipped) => "skipped".to_owned(),
+                None => "not published".to_owned(),
+            };
+            format!("{}: {}", slot.provider, status)
+        })
+        .collect()
+}
+
+/// What was measured: the SHA-256 of the bench's executable, the build, and the commit `ZHANG_BUDGET_BASELINE_COMMIT`
+/// names, if any.
+fn identity() -> Value {
+    use sha2::{Digest, Sha256};
+    let build = std::env::current_exe()
+        .ok()
+        .and_then(|exe| std::fs::read(exe).ok())
+        .map(|bytes| Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>());
+    json!({"build": build, "commit": std::env::var("ZHANG_BUDGET_BASELINE_COMMIT").ok()})
+}
+
+// ---- the conditions of a run ------------------------------------------------------------------------------------
+
+/// the processes of a build on the machine, by name, as `pgrep` matches them
+const BUILD_PROCESSES: &[&str] = &["rustc", "cargo", "cc", "ld", "cc1", "cc1plus", "collect2", "ld.lld", "rust-lld", "clang"];
+/// the share of a run's time the tasks of its cgroup may have waited for a CPU (`cpu.pressure`, `some`)
+const MAX_CPU_PRESSURE: f64 = 0.02;
+
+/// What a run reads of the machine when it starts and when it ends: the builds running besides the bench (and the
+/// `cargo run` that started it), and from the cgroup the run is in (cgroup v2), the time its tasks were throttled
+/// (`cpu.stat`, `throttled_usec`) and the time some of its tasks waited for a CPU (`cpu.pressure`, `some` total).
+struct Conditions {
+    at: Instant,
+    builds: Vec<String>,
+    throttled_usec: Option<u64>,
+    pressure_usec: Option<u64>,
+    load_average: Option<String>,
+}
+
+impl Conditions {
+    fn now() -> Conditions {
+        let cgroup = |file: &str, line: &str, key: &str| -> Option<u64> {
+            let text = std::fs::read_to_string(format!("/sys/fs/cgroup/{file}")).ok()?;
+            let line = text.lines().find(|it| it.starts_with(line))?;
+            line.split_whitespace()
+                .find_map(|field| field.strip_prefix(key))
+                .or_else(|| line.split_whitespace().nth(1))?
+                .parse()
+                .ok()
+        };
+        Conditions {
+            at: Instant::now(),
+            builds: builds_running(),
+            throttled_usec: cgroup("cpu.stat", "throttled_usec ", "throttled_usec="),
+            pressure_usec: cgroup("cpu.pressure", "some ", "total="),
+            load_average: load_average(),
+        }
+    }
+
+    /// The conditions of the run that started with `start` and ends with these: the report, and whether the run is
+    /// valid. A run is invalid when a build ran when it started or ended, when its cgroup was throttled, or when tasks
+    /// of its cgroup waited for a CPU for [`MAX_CPU_PRESSURE`] of its time or more; when the cgroup's files cannot be
+    /// read, the run cannot be checked, and is invalid too. The load average only warns, above half the CPUs.
+    fn validity(&self, start: &Conditions) -> (Value, bool) {
+        let wall = self.at - start.at;
+        let mut reasons = vec![];
+        for (when, builds) in [("start", &start.builds), ("end", &self.builds)] {
+            if !builds.is_empty() {
+                reasons.push(format!("a build ran at the {when}: {}", builds.join(", ")));
+            }
+        }
+        let delta = |start: Option<u64>, end: Option<u64>| Some(end?.saturating_sub(start?));
+        let throttled = delta(start.throttled_usec, self.throttled_usec);
+        match throttled {
+            Some(0) => {}
+            Some(usec) => reasons.push(format!("the cgroup was throttled for {} ms", usec / 1000)),
+            None => reasons.push("the cgroup's cpu.stat is not readable".to_owned()),
+        }
+        let pressure = delta(start.pressure_usec, self.pressure_usec);
+        let share = pressure.map(|usec| usec as f64 / wall.as_micros().max(1) as f64);
+        match share {
+            Some(share) if share < MAX_CPU_PRESSURE => {}
+            Some(share) => reasons.push(format!("tasks of the cgroup waited for a CPU {:.1}% of the time", 100.0 * share)),
+            None => reasons.push("the cgroup's cpu.pressure is not readable".to_owned()),
+        }
+        // the machine's CPUs, not the run's: the run is pinned to a few of them
+        let online = std::fs::read_to_string("/proc/cpuinfo")
+            .map(|cpuinfo| cpuinfo.lines().filter(|line| line.starts_with("processor")).count())
+            .unwrap_or(1)
+            .max(1);
+        let one_minute = |it: &Option<String>| it.as_deref().and_then(|it| it.split_whitespace().next()).and_then(|it| it.parse::<f64>().ok());
+        let highest = one_minute(&start.load_average).into_iter().chain(one_minute(&self.load_average)).fold(0.0_f64, f64::max);
+        let advisory = 0.5 * online as f64;
+        let allowed = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|status| status.lines().find_map(|line| line.strip_prefix("Cpus_allowed_list:").map(|it| it.trim().to_owned())));
+        let report = json!({
+            "valid": reasons.is_empty(),
+            "reasons": reasons,
+            "wall_ms": ms(wall),
+            "builds_at_start": start.builds,
+            "builds_at_end": self.builds,
+            "throttled_usec": throttled,
+            "cpu_pressure_some_usec": pressure,
+            "cpu_pressure_share": share,
+            "cpus": cpus(),
+            "cpus_allowed": allowed,
+            "workers": workers(),
+            "cpus_online": online,
+            "load_average": {
+                "before": start.load_average,
+                "after": self.load_average,
+                "highest_1min": highest,
+                "advisory_limit": advisory,
+                "warning": highest > advisory,
+            },
+        });
+        let valid = report["valid"] == true;
+        (report, valid)
+    }
+}
+
+/// The processes of a build running on the machine, but the bench and its ancestors (`cargo run`) and zombies:
+/// `name (pid)`.
+fn builds_running() -> Vec<String> {
+    let parent = |pid: u32| -> Option<u32> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        stat[stat.rfind(')')? + 1..].split_whitespace().nth(1)?.parse().ok()
+    };
+    let mut ours = vec![std::process::id()];
+    while let Some(next) = parent(*ours.last().expect("a pid")).filter(|it| *it > 1 && !ours.contains(it)) {
+        ours.push(next);
+    }
+    let Ok(entries) = std::fs::read_dir("/proc") else { return vec![] };
+    let mut builds = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| entry.file_name().to_str()?.parse::<u32>().ok())
+        .filter(|pid| !ours.contains(pid))
+        .filter_map(|pid| {
+            // a zombie (state `Z`) uses no CPU: the pod's first process does not reap them
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+            if stat[stat.rfind(')')? + 1..].split_whitespace().next()? == "Z" {
+                return None;
+            }
+            let name = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+            let name = name.trim();
+            BUILD_PROCESSES.contains(&name).then(|| format!("{name} ({pid})"))
+        })
+        .collect::<Vec<_>>();
+    builds.sort();
+    builds
+}
+
 // ---- the bench --------------------------------------------------------------------------------------------------
 
 fn baseline(spec: Spec) -> Value {
     log::set_logger(&RELOAD_LOG).expect("the bench's logger");
     log::set_max_level(log::LevelFilter::Info);
     let name = spec.name();
-    let load_average_before = load_average();
+    let conditions_before = Conditions::now();
 
     // the ledger, checked to be the one the baseline page measured
     let started = Instant::now();
@@ -566,7 +783,11 @@ fn baseline(spec: Spec) -> Value {
 
     let peak_reset = reset_peak_rss();
     let rss_before = status_mib("VmRSS");
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("a runtime");
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(workers())
+        .enable_all()
+        .build()
+        .expect("a runtime");
     let mut report = runtime.block_on(async {
         // the data source of `zhang serve` for a local ledger; `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files
         // with zhang-core's `LocalFileSystemDataSource` instead, to compare
@@ -582,12 +803,9 @@ fn baseline(spec: Spec) -> Value {
 
         // the first load, as `zhang serve` loads (`load_served_ledger`), on a blocking thread, with the fixed clock
         let started = Instant::now();
-        let (root, data_source, clock) = (dir.clone(), source.clone(), spec.clock());
-        let ledger = tokio::task::spawn_blocking(move || Ledger::load_with_clock(root, MAIN.to_owned(), data_source, clock))
-            .await
-            .expect("the load runs")
-            .unwrap_or_else(|error| panic!("{}: {}", name, error));
+        let ledger = load_as_served(&dir, &source, &spec).await;
         let first_load = started.elapsed();
+        let analyzers_after_load = analyzers(&ledger);
         let (peak_load, rss_loaded) = (status_mib("VmHWM"), status_mib("VmRSS"));
         // the two reopened accounts close with a balance; nothing else is wrong, budgets included
         let errors = ledger.errors.iter().map(|it| it.error_type.clone()).collect::<Vec<_>>();
@@ -643,6 +861,7 @@ fn baseline(spec: Spec) -> Value {
             "sha256": digest,
             "data_source": if local { "LocalFileSystemDataSource" } else { "OpendalDataSource (Fs)" },
             "allocator": allocator::NAME,
+            "identity": identity(),
             "generate_ms": ms(generate),
             "load_ms": ms(first_load),
             "reload": if only_writes { Value::Null } else { summary(&back_to_back) },
@@ -706,29 +925,27 @@ fn baseline(spec: Spec) -> Value {
             memory["idle_s"] = json!(idle);
         }
         report["memory_mib"] = memory;
+        // what analyzed the ledger: the analyzers' snapshots when it was first loaded and at the end, and the providers
+        // of the tables the server describes
+        let schema = timed(&router, json_request(Method::GET, "/api/query/schema", &[], None)).await.json();
+        let mut providers = schema["data"]["tables"]
+            .as_array()
+            .map(|tables| tables.iter().filter_map(|table| table["provided_by"].as_str().map(str::to_owned)).collect::<Vec<_>>())
+            .unwrap_or_default();
+        providers.sort();
+        providers.dedup();
+        report["analyzers"] = json!({
+            "after_load": analyzers_after_load,
+            "at_end": analyzers(&*shared.read().await),
+            "schema_providers": providers,
+        });
         report
     });
     // the runtime stays: dropped, it would drop the file watcher's channel, whose sender, on notify's thread, panics
     std::mem::forget(runtime);
     report["machine"] = machine();
-    let load_average_after = load_average();
-    // the 1-minute load average when the run started and ended: a run on a busy machine is not to be compared
-    let threshold = std::env::var("ZHANG_BUDGET_BASELINE_MAX_LOAD")
-        .ok()
-        .and_then(|it| it.parse::<f64>().ok())
-        .unwrap_or(4.0);
-    let one_minute = |it: &Option<String>| it.as_deref().and_then(|it| it.split_whitespace().next()).and_then(|it| it.parse::<f64>().ok());
-    let highest = one_minute(&load_average_before)
-        .into_iter()
-        .chain(one_minute(&load_average_after))
-        .fold(0.0_f64, f64::max);
-    let valid = highest <= threshold;
-    report["load_average"] = json!({
-        "before": load_average_before,
-        "after": load_average_after,
-        "highest_1min": highest,
-        "threshold": threshold,
-    });
+    let (validity, valid) = Conditions::now().validity(&conditions_before);
+    report["validity"] = validity;
     report["valid"] = json!(valid);
     print(&report);
     report
@@ -1090,12 +1307,7 @@ async fn end_to_end(router: &Router, spec: &Spec, reload_sender: &ReloadSender, 
                     }
                     Trigger::Start => {
                         let started = Instant::now();
-                        let (root, data_source, clock) = (dir.to_path_buf(), source.clone(), spec.clock());
-                        let ledger = tokio::task::spawn_blocking(move || Ledger::load_with_clock(root, MAIN.to_owned(), data_source, clock))
-                            .await
-                            .expect("the load runs")
-                            .unwrap_or_else(|error| panic!("{}", error));
-                        let ledger = Arc::new(RwLock::new(ledger));
+                        let ledger = Arc::new(RwLock::new(load_as_served(dir, source, spec).await));
                         let (sender, _receiver) = tokio::sync::mpsc::channel(1);
                         let config = serve_config(dir, MAIN, source.clone(), &Settings::default());
                         let app = create_server_app(config, ledger.clone(), Broadcaster::create(), Arc::new(ReloadSender::new(sender)));
@@ -1152,6 +1364,8 @@ async fn end_to_end(router: &Router, spec: &Spec, reload_sender: &ReloadSender, 
                     "trigger": summary(&triggers),
                     "page": summary(&pages),
                     "rounds_run": rounds.len(),
+                    "clean_rounds": totals.len(),
+                    "valid": totals.len() >= E2E_ROUNDS,
                     "watcher_before_excluded": excluded,
                     "watcher_during_kept": during,
                     "rounds": rounds,
@@ -1302,11 +1516,10 @@ fn print(report: &Value) {
     }
     eprintln!("input   {}", report["input"]);
     eprintln!("memory  {}", report["memory_mib"]);
-    eprintln!("machine {}; load average {}", report["machine"], report["load_average"]);
+    eprintln!("machine {}", report["machine"]);
+    eprintln!("analyzers {}; build {}", report["analyzers"], report["identity"]);
+    eprintln!("validity {}", report["validity"]);
     if report["valid"] == false {
-        eprintln!(
-            "INVALID RUN: the load average reached {} (more than {}, ZHANG_BUDGET_BASELINE_MAX_LOAD); run it again on a quieter machine",
-            report["load_average"]["highest_1min"], report["load_average"]["threshold"]
-        );
+        eprintln!("INVALID RUN: {}; run it again", report["validity"]["reasons"]);
     }
 }
