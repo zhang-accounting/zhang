@@ -172,6 +172,11 @@ fn budgets(spec: &Spec, ledger: &Ledger, rounds: usize) {
     let (took, rows) = timed(ledger, &[(held, accounts.clone())], rounds);
     println!("{} held commodities: {rows} rows, {:.2} ms", spec.name(), ms(took));
 
+    // the rows alone: what assembling the rows of the budgets' accounts costs, as every query over them pays it
+    let scan = "SELECT count(*) WHERE account IN :accounts";
+    let (took, rows) = timed(ledger, &[(scan, accounts.clone())], rounds);
+    println!("{} the rows of every budget's accounts: {rows} rows, {:.2} ms", spec.name(), ms(took));
+
     // what one pass over the budgets' accounts costs, without any budget's own membership: a bound on what one
     // aggregation for every budget could save
     let one_pass = "SELECT account, yearmonth(date) AS month, \

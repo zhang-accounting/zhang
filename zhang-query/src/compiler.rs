@@ -171,6 +171,9 @@ pub(crate) struct ConstSet {
     items: Vec<Value>,
     /// whether the items are the elements of a set (`IN :tags`) rather than a list
     from_set: bool,
+    /// hashed with the standard library's SipHash, keyed per process, not FxHash like the engine's other per-row maps:
+    /// the items come from the query or a parameter, which a client writes, and FxHash has no key, so colliding items
+    /// could make building the set quadratic
     strings: HashSet<String>,
     others: HashSet<Value>,
     /// a NULL item: a needle that matches no other item is then NULL, not FALSE
