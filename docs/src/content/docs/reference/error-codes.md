@@ -668,6 +668,29 @@ plugin "plugins/fx-rates.wasm"
 **Fix:** if you run the server and trust the plugin, allow what it needs with the setting the error names, such as
 `ZHANG_PLUGIN_ALLOWED_HOSTS=api.frankfurter.dev`, and restart it. Otherwise ask less of the plugin in its directive.
 
+## PluginAnalysisFailed
+
+*Plugin `<plugin>` could not analyse the ledger (`<reason>`): `<message>`*
+
+An analyzer plugin (see [Writing plugins](/developers/writing-plugins/#analyzers)) reads the ledger once it is loaded
+and publishes tables and diagnostics; this time it published nothing. The ledger loads all the same: only the plugin's
+tables are missing, and a query of one answers that it is unavailable. Metas: `plugin` (the plugin's name), `reason`
+and `message` (what happened). The reasons are:
+
+- `manifest`: what the plugin declares does not hold, or one of its table or column names is taken (by zhang, or by a
+  plugin declared before it), or it would pass a limit (64 columns per table, 16 label columns per ledger). Its tables
+  are not in the ledger at all;
+- `timeout` and `memory`: its analysis ran longer than its `timeout`, or needed more memory than the server allows;
+- `trap`: its analysis failed;
+- `output`: what it answered does not hold: a diagnostic of a kind it does not declare or naming no entry of the
+  ledger, a cell of the wrong type, more than a million values or 64 MiB;
+- `unavailable`: this zhang does not analyse ledgers (a library that loads ledgers without an analysis host).
+
+The error is on the plugin's directive. The next load analyses the ledger again.
+
+**Fix:** a `timeout` meta on the directive gives a slow analysis more time, within the server's limit. Otherwise the
+message says what to fix in the plugin, or ask its author.
+
 ## When the ledger does not load
 
 These problems stop Zhang from loading the ledger. `zhang serve` prints the reason on stderr and exits with exit
@@ -686,4 +709,5 @@ shows it in the web UI until a reload succeeds.
   [`directive_output_path`](/reference/directives/options/#directive_output_path) option, or for the `rounding`
   metadata of a [commodity](/reference/directives/commodity/#rounding). The message is `option value is invalid`.
 - **A plugin** whose module is missing or cannot be loaded, or whose call fails or runs past its `timeout`, while
-  plugins are enabled. See [Plugin](/reference/directives/plugin/#loading-and-order).
+  plugins are enabled. See [Plugin](/reference/directives/plugin/#loading-and-order). An analyzer that fails is the
+  exception: the ledger loads, with a [`PluginAnalysisFailed`](#pluginanalysisfailed) error.

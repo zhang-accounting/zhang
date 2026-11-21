@@ -25,6 +25,11 @@ pub enum PluginType {
     /// JSON and returns the response as JSON
     Router,
 
+    /// the plugin exports `analyze`, which reads the ledger once it is loaded (the records of the kinds it consumes, and
+    /// queries) and answers diagnostics and the rows of the tables it provides, which its `manifest` export declares;
+    /// it changes nothing in the ledger. It runs at every load, after the ledger is validated
+    Analyzer,
+
     /// a type this version of zhang does not know, e.g. one added by a newer zhang.
     /// A plugin declaring it still loads; the host ignores the type with a warning.
     #[serde(other)]
@@ -37,8 +42,17 @@ mod test {
 
     #[test]
     fn should_read_every_known_type_and_fall_back_to_unknown() {
-        let types: Vec<PluginType> = serde_json::from_str(r#"["Processor", "Mapper", "Router", "Reporter"]"#).unwrap();
-        assert_eq!(types, vec![PluginType::Processor, PluginType::Mapper, PluginType::Router, PluginType::Unknown]);
+        let types: Vec<PluginType> = serde_json::from_str(r#"["Processor", "Mapper", "Router", "Analyzer", "Reporter"]"#).unwrap();
+        assert_eq!(
+            types,
+            vec![
+                PluginType::Processor,
+                PluginType::Mapper,
+                PluginType::Router,
+                PluginType::Analyzer,
+                PluginType::Unknown
+            ]
+        );
         assert_eq!(serde_json::to_string(&PluginType::Router).unwrap(), r#""Router""#);
     }
 }

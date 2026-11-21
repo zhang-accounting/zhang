@@ -55,6 +55,9 @@ const DEFAULT_MAX_RESPONSE: u64 = 50 * 1024 * 1024;
 pub const REGISTERING_REFUSED: &str = "HTTP requests are not allowed while the plugin registers (its name, version, supported_type and \
                                        capabilities exports only declare what it is): make them from a stage or a router request";
 
+/// why `http_request` fails while the plugin analyses the ledger
+const ANALYSING_REFUSED: &str = "a plugin reaches no network while it analyses the ledger: an analysis reads the ledger only";
+
 /// what a plugin asks `http_request` for, extism's `HttpRequest`
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct HttpRequest {
@@ -309,8 +312,15 @@ pub(super) fn http_request(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: 
     let request =
         take_block(plugin, inputs.first(), REQUEST_MAX_LEN, "HTTP request")?.ok_or_else(|| extism::Error::msg("the HTTP request is not a memory block"))?;
     let body = take_block(plugin, inputs.get(1), BODY_MAX_LEN, "HTTP request body")?;
-    if state.get()?.lock().unwrap_or_else(PoisonError::into_inner).registering {
-        return Err(extism::Error::msg(REGISTERING_REFUSED));
+    {
+        let state = state.get()?;
+        let state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.registering {
+            return Err(extism::Error::msg(REGISTERING_REFUSED));
+        }
+        if state.analysing {
+            return Err(extism::Error::msg(ANALYSING_REFUSED));
+        }
     }
     let request: HttpRequest = serde_json::from_slice(&request).map_err(|e| extism::Error::msg(format!("the HTTP request is not valid: {e}")))?;
     let allowed_hosts = plugin.manifest().allowed_hosts.clone().unwrap_or_default();

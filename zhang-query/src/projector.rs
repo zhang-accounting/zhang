@@ -234,6 +234,16 @@ impl Projection {
             || (self.table.columns().iter().enumerate()).any(|(index, column)| self.columns.contains(index) && column.provided_by.is_some())
     }
 
+    /// Whether an execution reads the errors of the ledger: `#errors`, or the `errors` or `balanced` column of
+    /// `#entries`, `#transactions` or `postings`, which the load decides last ([`zhang_core::extensions::Extensions::analysing`]).
+    pub fn reads_errors(&self) -> bool {
+        match self.table.name() {
+            "errors" => self.table.provided_by().is_none(),
+            "entries" | "transactions" | "postings" if self.table.provided_by().is_none() => self.contains_named("errors") || self.contains_named("balanced"),
+            _ => false,
+        }
+    }
+
     /// The label columns of the projected table that are projected ([`TableRef::labels`]).
     pub fn label_columns(&self) -> impl Iterator<Item = &std::sync::Arc<crate::extension::LabelColumn>> {
         let first = self.table.columns().len() - self.table.labels().len();

@@ -480,6 +480,7 @@ pub enum PluginTypeEntity {
     Processor,
     Mapper,
     Router,
+    Analyzer,
 }
 
 impl PluginTypeEntity {
@@ -489,6 +490,7 @@ impl PluginTypeEntity {
             PluginType::Processor => Some(PluginTypeEntity::Processor),
             PluginType::Mapper => Some(PluginTypeEntity::Mapper),
             PluginType::Router => Some(PluginTypeEntity::Router),
+            PluginType::Analyzer => Some(PluginTypeEntity::Analyzer),
             PluginType::Unknown => None,
         }
     }

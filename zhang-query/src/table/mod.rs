@@ -600,6 +600,11 @@ impl<'a> Dataset<'a> {
         self.cache.entries(self.ledger)
     }
 
+    /// The kinds of the errors recorded for the transaction of the `#entries` row `seq`, when there are any.
+    pub(crate) fn entry_errors(&self, seq: u32) -> Option<&'a BTreeSet<String>> {
+        self.cache.entry_errors(self.ledger).get(seq as usize).and_then(Option::as_ref)
+    }
+
     /// The `id` of the `#entries` row `seq`.
     pub(crate) fn entry_id(&self, seq: u32) -> &'a str {
         self.cache.entry_id(self.ledger, self.entry_table(), seq)

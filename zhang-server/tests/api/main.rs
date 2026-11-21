@@ -7,6 +7,7 @@
 //! builds the example plugins with cargo).
 
 mod account_totals;
+mod analyzers;
 mod auth;
 mod balance_assertions;
 mod base64_paths;

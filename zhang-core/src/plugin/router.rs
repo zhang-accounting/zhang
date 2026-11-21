@@ -77,6 +77,8 @@ use extism::{CurrentPlugin, UserData, Val};
 use log::{debug, warn};
 use serde::Serialize;
 use serde_json::Value;
+use zhang_shared::plugin_abi::analysis::MAX_CONVERSIONS;
+pub use zhang_shared::plugin_abi::analysis::{Conversion, ConvertedAmount, CONVERT as CONVERT_FUNCTION};
 pub use zhang_shared::plugin_abi::export::ROUTER as ROUTER_EXPORT;
 pub use zhang_shared::plugin_abi::import::{
     LEDGER_INFO as LEDGER_INFO_FUNCTION, QUERY as QUERY_FUNCTION, QUERY_BUILTIN as QUERY_BUILTIN_FUNCTION, QUERY_PARAMS as QUERY_PARAMS_FUNCTION,
@@ -136,6 +138,14 @@ pub trait RouterHost: Send + Sync {
             line: None,
             column: None,
         })
+    }
+
+    /// Convert `conversions` with the prices of the ledger, as the query engine converts (`convert(position, currency,
+    /// date)`): for each, the amount in its target currency, or `None` when no price converts it. A host without
+    /// prices says so
+    fn convert(&self, conversions: &[Conversion]) -> Result<Vec<Option<ConvertedAmount>>, HostError> {
+        let _ = conversions;
+        Err(HostError::new(HostErrorKind::Unavailable, "this host converts no amounts"))
     }
 
     /// Preview `batch`, which `plugin` wants to append, as `POST /api/transactions/preview` previews a transaction:
@@ -311,6 +321,45 @@ fn schema_answer(host: Option<&dyn RouterHost>) -> Result<Value, HostError> {
     host.schema().map_err(query_error)
 }
 
+/// the most bytes `zhang_convert` reads for its input, a list of at most [`MAX_CONVERSIONS`] conversions
+const CONVERT_MAX_LEN: usize = 2 * 1024 * 1024;
+
+/// `zhang_convert(input) -> amounts`
+pub(super) fn zhang_convert(plugin: &mut CurrentPlugin, inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
+    let host = router_host(&state)?;
+    let input = match inputs.first() {
+        None => Err("the input is not a memory block".to_owned()),
+        Some(offset) => read_input_str(plugin, offset, CONVERT_MAX_LEN).map_err(|e| format!("the input {e}")),
+    };
+    let result = convert_answer(host.as_deref(), input.as_deref().map_err(String::as_str));
+    answer(plugin, outputs, result)
+}
+
+/// what `zhang_convert` answers, given the host of the call (none outside a router call or an analysis) and the JSON
+/// input the plugin passed, or why it could not be read
+fn convert_answer(host: Option<&dyn RouterHost>, input: Result<&str, &str>) -> Result<Vec<Option<ConvertedAmount>>, HostError> {
+    let host = host.ok_or_else(|| {
+        HostError::new(
+            HostErrorKind::Unavailable,
+            format!("{CONVERT_FUNCTION} is only available while the plugin handles a request or analyses the ledger"),
+        )
+    })?;
+    let input = input.map_err(|message| HostError::new(HostErrorKind::InvalidInput, message))?;
+    let conversions: Vec<Conversion> = serde_json::from_str(input).map_err(|e| {
+        HostError::new(
+            HostErrorKind::InvalidInput,
+            format!("the input is not a JSON list of {{\"amount\": {{\"number\", \"currency\"}}, \"target\", \"date\", \"via\"?}}: {e}"),
+        )
+    })?;
+    if conversions.len() > MAX_CONVERSIONS {
+        return Err(HostError::new(
+            HostErrorKind::InvalidInput,
+            format!("the input holds {} conversions, more than the {MAX_CONVERSIONS} of one call", conversions.len()),
+        ));
+    }
+    host.convert(&conversions)
+}
+
 /// `zhang_ledger_info() -> info`
 pub(super) fn zhang_ledger_info(plugin: &mut CurrentPlugin, _inputs: &[Val], outputs: &mut [Val], state: UserData<HostState>) -> Result<(), extism::Error> {
     let info = state
@@ -324,7 +373,7 @@ pub(super) fn zhang_ledger_info(plugin: &mut CurrentPlugin, _inputs: &[Val], out
 }
 
 /// what `zhang_ledger_info` answers for `ledger`
-fn ledger_info(ledger: &Ledger) -> LedgerInfo {
+pub(crate) fn ledger_info(ledger: &Ledger) -> LedgerInfo {
     LedgerInfo {
         title: ledger.options.option::<String>("title").ok().flatten(),
         operating_currency: ledger.options.operating_currency.clone(),
@@ -449,7 +498,7 @@ mod test {
 
     use serde_json::{json, Value};
 
-    use super::{query_answer, query_builtin_answer, query_params_answer, schema_answer, QueryFailure, RawQueryParam, RouterHost};
+    use super::{convert_answer, query_answer, query_builtin_answer, query_params_answer, schema_answer, QueryFailure, RawQueryParam, RouterHost};
 
     /// answers `SELECT 1` and fails every other query; with parameters, echoes what it was given
     /// unless a parameter is named `bad`
@@ -509,6 +558,27 @@ mod test {
         fn schema(&self) -> Result<Value, QueryFailure> {
             Ok(json!({}))
         }
+    }
+
+    #[test]
+    fn should_hand_conversions_to_the_host_and_answer_failures_as_values() {
+        let convert = |host: Option<&dyn RouterHost>, input: Result<&str, &str>| serde_json::to_value(convert_answer(host, input)).unwrap();
+        let one = r#"[{"amount": {"number": "1.50", "currency": "USD"}, "target": "CNY", "date": "2024-01-01"}]"#;
+        assert_eq!(convert(None, Ok(one))["Err"]["kind"], json!("unavailable"));
+        // a host without prices says so
+        assert_eq!(convert(Some(&NoBuiltins), Ok(one))["Err"]["message"], json!("this host converts no amounts"));
+        assert_eq!(convert(Some(&NoBuiltins), Ok("{}"))["Err"]["kind"], json!("invalid_input"));
+        assert_eq!(
+            convert(Some(&NoBuiltins), Err("the input is not a memory block"))["Err"]["kind"],
+            json!("invalid_input")
+        );
+        let many = format!("[{}]", vec![&one[1..one.len() - 1]; super::MAX_CONVERSIONS + 1].join(","));
+        let error = convert(Some(&NoBuiltins), Ok(&many));
+        assert_eq!(error["Err"]["kind"], json!("invalid_input"));
+        assert!(
+            error["Err"]["message"].as_str().unwrap().ends_with("more than the 10000 of one call"),
+            "{error}"
+        );
     }
 
     #[test]

@@ -514,3 +514,28 @@ fn zhang_budget_serves_the_legacy_names_instead_of_the_native_provider() {
     assert_eq!(rows(&fallback, "SELECT name FROM #budget_definitions"), texts(&[&["Fun"]]));
     assert_eq!(Catalog::of_ledger(&fallback).digest(), Catalog::standard().digest());
 }
+
+#[test]
+fn the_errors_of_a_ledger_its_analyzers_analyse_are_not_read() {
+    let mut analysed = ledger("1970-01-01 open Assets:Bank\n2024-01-02 * \"a\"\n  Assets:Bank 1 USD\n  Expenses:Nope -1 USD\n");
+    analysed.extensions.analysing = true;
+    for sql in [
+        "SELECT * FROM #errors",
+        "SELECT errors FROM #transactions",
+        "SELECT seq FROM #transactions WHERE balanced",
+        "SELECT count(*) WHERE length(errors) > 0",
+    ] {
+        assert_eq!(
+            run(&analysed, sql).unwrap_err(),
+            "the ledger's errors are not available while plugins analyse the ledger",
+            "{sql}"
+        );
+    }
+    assert_eq!(rows(&analysed, "SELECT count(*) FROM #transactions"), texts(&[&["1"]]));
+    analysed.extensions.analysing = false;
+    assert_ne!(
+        rows(&analysed, "SELECT count(*) FROM #errors"),
+        texts(&[&["0"]]),
+        "the ledger has errors, read once placed"
+    );
+}

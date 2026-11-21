@@ -66,4 +66,8 @@ pub enum ErrorKind {
     /// module), `capability` (the meta key, such as `allowed_hosts`), `requested`, `granted` (`none` for nothing) and
     /// `setting`, the setting of `zhang serve` that would allow more
     PluginCapabilityReduced,
+    /// an analyzer plugin's analysis of the ledger failed, or did not run: the ledger loads without what it would have
+    /// published, and its tables answer that they are unavailable. Metas `plugin` (its name), `reason` (`manifest`,
+    /// `timeout`, `memory`, `trap`, `output` or `unavailable`) and `message`
+    PluginAnalysisFailed,
 }

@@ -11,23 +11,13 @@
 use std::any::Any;
 use std::sync::Arc;
 
+pub use zhang_core::analysis::AnalyzerTables;
 use zhang_core::ledger::Ledger;
 use zhang_shared::plugin_abi::analysis as abi;
 
 use crate::catalog::Catalog;
 use crate::extension::{self, Provider, Source};
 use crate::table::LedgerCache;
-
-/// The tables an analyzer declares: its manifest, under the name of its plugin, the provider of its tables.
-#[derive(Debug, Clone, Copy)]
-pub struct AnalyzerTables<'a> {
-    /// the plugin's name: the `provided_by` of its tables and columns, which the namespace defaults to
-    pub provider: &'a str,
-    pub manifest: &'a abi::Manifest,
-    /// whether the analyzer is `zhang:budget`, which keeps the names the budget system has always had: its tables and
-    /// columns of those names replace the native provider's
-    pub legacy: bool,
-}
 
 /// The catalog of a ledger, and the analyzers it has no table of.
 #[derive(Debug)]
