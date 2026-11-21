@@ -703,3 +703,28 @@ fn an_analyzers_queries_are_named_after_its_namespace_but_the_budget_pages() {
     let other = abi::manifest(abi::BUDGET, &declared("zhang_budget", "spent", "str"), true).unwrap();
     assert_eq!(other.queries[0].name, "zhang_budget.spent");
 }
+
+#[test]
+fn the_standard_catalog_has_the_queries_of_the_budget_pages_from_zhang_budget() {
+    let catalog = Catalog::standard();
+    let names = catalog
+        .named_queries()
+        .map(|(provider, query)| (provider, query.name.as_str()))
+        .collect::<Vec<_>>();
+    let budget = abi::BUDGET;
+    assert_eq!(
+        names,
+        [
+            (budget, "budgets.month"),
+            (budget, "budgets.budget"),
+            (budget, "budgets.budget_month"),
+            (budget, "budgets.events"),
+            (budget, "budgets.postings")
+        ]
+    );
+    assert_eq!(names.iter().map(|(_, name)| *name).collect::<Vec<_>>(), abi::LEGACY_QUERIES);
+    // a native provider's queries are checked here, as the catalog checks an analyzer's
+    for (_, query) in catalog.named_queries() {
+        query.check(catalog).unwrap_or_else(|err| panic!("{err}"));
+    }
+}

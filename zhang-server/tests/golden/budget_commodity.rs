@@ -1124,6 +1124,7 @@ option "operating_currency" "CNY"
 
             let params = postings_params(&info, NaiveDate::from_ymd_opt(year as i32, month, 1).unwrap());
             let written = call(query::get_builtin_query_text(
+                State(SharedLedger(ledger.0.clone())),
                 Path(("budgets.postings".to_owned(),)),
                 axum::Json(BuiltinQueryTextRequest { params }),
             ))

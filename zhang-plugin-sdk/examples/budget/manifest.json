@@ -39,7 +39,75 @@
   "open_meta": [
     "budget"
   ],
-  "queries": [],
+  "queries": [
+    {
+      "bql": "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, last(date) AS last_month, CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, last(available) AS available, last(closed) AS closed FROM #budgets WHERE date <= :month GROUP BY name ORDER BY name",
+      "description": "Every budget as of a month (its first day): its last month in #budgets up to that month, carried over to the month when it is later.",
+      "name": "budgets.month",
+      "params": [
+        {
+          "name": "month",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "bql": "SELECT name, alias, category, currency, accounts, close, close_time FROM #budget_definitions WHERE name = :name",
+      "description": "One budget: its display name, category, commodity, the accounts whose postings are its activity, and the date and time of its close.",
+      "name": "budgets.budget",
+      "params": [
+        {
+          "name": "name",
+          "type": "str"
+        }
+      ]
+    },
+    {
+      "bql": "SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, last(date) AS last_month, CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, last(available) AS available, last(closed) AS closed FROM #budgets WHERE name = :name AND date <= :month GROUP BY name",
+      "description": "One budget as of a month (its first day), as in budgets.month.",
+      "name": "budgets.budget_month",
+      "params": [
+        {
+          "name": "name",
+          "type": "str"
+        },
+        {
+          "name": "month",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "bql": "SELECT date, time, timestamp, type, amount FROM #budget_events WHERE name = :name AND type != 'close' AND yearmonth(date) = :month ORDER BY timestamp DESC",
+      "description": "What the budget-add and budget-transfer directives put into a budget in a month (its first day), newest first.",
+      "name": "budgets.events",
+      "params": [
+        {
+          "name": "name",
+          "type": "str"
+        },
+        {
+          "name": "month",
+          "type": "date"
+        }
+      ]
+    },
+    {
+      "bql": "SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units, only(currency, account_balance) AS balance WHERE yearmonth(date) = :month AND :name IN budgets ORDER BY timestamp DESC",
+      "description": "The postings that count toward a budget in a month (its first day), newest first, with each account's balance after them: they add up to the month's activity.",
+      "name": "budgets.postings",
+      "params": [
+        {
+          "name": "name",
+          "type": "str"
+        },
+        {
+          "name": "month",
+          "type": "date"
+        }
+      ]
+    }
+  ],
   "tables": [
     {
       "columns": [

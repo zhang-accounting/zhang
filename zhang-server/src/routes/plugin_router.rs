@@ -393,10 +393,14 @@ impl RouterHost for ServerRouterHost {
         serde_json::to_value(QuerySchemaEntity::from(zhang_query::schema_of(&self.ledger))).map_err(|e| unlocated(format!("the schema cannot be encoded: {e}")))
     }
 
-    /// the built-in query `name` ([`builtin::get`]) with its parameters read as `POST /api/query/builtins/{name}`
-    /// reads them ([`builtin::json_params`]), run like [`RouterHost::query`]
+    /// the built-in query `name` of the ledger ([`builtin::compiled_for`]), zhang's own or a provider's, with its
+    /// parameters read as `POST /api/query/builtins/{name}` reads them ([`builtin::json_params`]), run like
+    /// [`RouterHost::query`]
     fn query_builtin(&self, name: &str, params: &BTreeMap<String, Value>) -> Result<Value, QueryFailure> {
-        let query = builtin::get(name).ok_or_else(|| unlocated(format!("there is no built-in query named {name}: GET /api/query/builtins lists them")))?;
+        let compiled = builtin::compiled_for(&self.ledger);
+        let query = compiled
+            .named(name)
+            .ok_or_else(|| unlocated(format!("there is no built-in query named {name}: GET /api/query/builtins lists them")))?;
         let values = params
             .iter()
             .map(|(param, value)| {
@@ -409,9 +413,8 @@ impl RouterHost for ServerRouterHost {
                     })
             })
             .collect::<Result<HashMap<_, _>, _>>()?;
-        let bound = builtin::json_params(query, values).map_err(|e| unlocated(e.to_string()))?;
-        let compiled = builtin::compiled_for(&self.ledger);
-        self.run(compiled.get(name).map_err(|e| unlocated(e.to_string()))?, &bound)
+        let bound = builtin::json_params(&query.query, values).map_err(|e| unlocated(e.to_string()))?;
+        self.run(query.compiled().map_err(|e| unlocated(e.to_string()))?, &bound)
     }
 
     /// with the prices of the ledger served, as an analysis converts ([`crate::analysis::convert`])
@@ -847,7 +850,7 @@ return M
         // `{"type": "date", "value": 20240101}`: a date given as a number
         let plugin = query_params_case(&app, 'd').await;
         let builtin = builtin::json_params(
-            builtin::get("postings.between").unwrap(),
+            &builtin::get("postings.between").unwrap().named(),
             [
                 ("from".to_owned(), Some(BuiltinParamValue::Int(20240101))),
                 ("to".to_owned(), Some(BuiltinParamValue::Text("2024-01-31".to_owned()))),
@@ -1095,7 +1098,7 @@ return M
             &ledger.try_read().unwrap(),
             "accounts.subtree",
             &builtin::json_params(
-                builtin::get("accounts.subtree").unwrap(),
+                &builtin::get("accounts.subtree").unwrap().named(),
                 [
                     ("account".to_owned(), Some(BuiltinParamValue::Text("Expenses".to_owned()))),
                     ("date".to_owned(), Some(BuiltinParamValue::Text("2024-06-01".to_owned()))),

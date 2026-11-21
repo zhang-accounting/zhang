@@ -75,6 +75,8 @@ Rust 的 `PostingDomain` 不再存储 `previous_amount` 和 `after_amount`，Pyt
 }
 ```
 
+它列出所服务账本的内置查询：Zhang 自己的，以及账本各表的提供者声明的查询。预算页面的查询 `budgets.*` 来自官方插件 `zhang:budget`，预算表也由它提供（[RFC #698](/developers/rfc-698-budget-plugin/)）；它们的列出方式和返回结果与以往完全相同。[分析器](/zh-cn/developers/writing-plugins/#清单)也可以声明自己的命名查询，以其命名空间命名，例如 `shop.item`，列在商品相关的查询之前。下面的每个接口都以同样的方式执行它们。
+
 ### 参数值
 
 下面的每个接口都接受查询的 `params`：按名称给出查询的每一个参数，且不能有多余的参数，每个值是对应类型的 JSON 值：
@@ -672,7 +674,7 @@ LIMIT :size OFFSET :offset
 
 ### 预算与商品
 
-预算页面读取 [`#budgets`](/zh-cn/reference/query-language/#预算表)、[`#budget_definitions`](/zh-cn/reference/query-language/#预算定义表) 和 [`#budget_events`](/zh-cn/reference/query-language/#预算变动表)。月份以其第一天表示，例如 `2024-06-01`；传入某月的其他日期时返回 HTTP 400，并在消息中给出该月的第一天。没有指定月份时，页面使用账本时区中的当前月份。
+预算页面读取 [`#budgets`](/zh-cn/reference/query-language/#预算表)、[`#budget_definitions`](/zh-cn/reference/query-language/#预算定义表) 和 [`#budget_events`](/zh-cn/reference/query-language/#预算变动表)。`budgets.*` 查询和这些表都来自每个账本都有的官方插件 `zhang:budget`。月份以其第一天表示，例如 `2024-06-01`；传入某月的其他日期时返回 HTTP 400，并在消息中给出该月的第一天。没有指定月份时，页面使用账本时区中的当前月份。
 
 #### `budgets.month`
 

@@ -108,8 +108,8 @@ use zhang_ast::{Account, Date, Directive, Meta, Spanned};
 use zhang_core::ledger::Ledger;
 
 use super::{
-    Cause, ColumnDecl, DatePart, FactRow, Fill, Label, LabelDecl, Manifest, NativeProvider, Partition, PeriodUnit, RecordOrder, RecordRow, SeriesDecl,
-    TableData, TableDecl, TableKind,
+    Cause, ColumnDecl, DatePart, FactRow, Fill, Label, LabelDecl, Manifest, NamedQuery, NativeProvider, Partition, PeriodUnit, RecordOrder, RecordRow,
+    SeriesDecl, TableData, TableDecl, TableKind,
 };
 use crate::params::Params;
 use crate::prices::PriceMap;
@@ -142,7 +142,71 @@ fn names(names: &[&str]) -> Vec<String> {
     names.iter().map(|name| (*name).to_owned()).collect()
 }
 
-/// The tables and the label column of the provider, as the budget tables have always described them.
+/// `budgets.month` without its order, and with a filter `budgets.budget_month`.
+macro_rules! budgets_as_of_month {
+    ($($filter:literal)?) => { concat!("SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
+              last(date) AS last_month, \
+              CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
+              CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, \
+              last(available) AS available, last(closed) AS closed \
+              FROM #budgets \
+              WHERE ", $($filter, " AND ",)? "date <= :month GROUP BY name") };
+}
+
+/// The named queries of the provider, those the budget pages of the web UI and the app run, which zhang's built-in
+/// queries have always had, with their text unchanged. A month is the first day of the month (`2024-06-01`).
+fn queries() -> Vec<NamedQuery> {
+    use DataType::{Date, Str};
+    let query = |name: &str, description: &str, bql: &str, params: &[(&str, DataType)]| NamedQuery {
+        name: name.to_owned(),
+        description: description.to_owned(),
+        bql: bql.to_owned(),
+        params: params.iter().map(|(name, ty)| ((*name).to_owned(), *ty)).collect(),
+    };
+    vec![
+        query(
+            "budgets.month",
+            "Every budget as of a month (its first day): its last month in #budgets up to that month, carried over to the month when it is later.",
+            concat!(budgets_as_of_month!(), " ORDER BY name"),
+            &[("month", Date)],
+        ),
+        query(
+            "budgets.budget",
+            "One budget: its display name, category, commodity, the accounts whose postings are its activity, and the date and time of its close.",
+            "SELECT name, alias, category, currency, accounts, close, close_time \
+              FROM #budget_definitions \
+              WHERE name = :name",
+            &[("name", Str)],
+        ),
+        query(
+            "budgets.budget_month",
+            "One budget as of a month (its first day), as in budgets.month.",
+            budgets_as_of_month!("name = :name"),
+            &[("name", Str), ("month", Date)],
+        ),
+        query(
+            "budgets.events",
+            "What the budget-add and budget-transfer directives put into a budget in a month (its first day), newest first.",
+            "SELECT date, time, timestamp, type, amount \
+              FROM #budget_events \
+              WHERE name = :name AND type != 'close' AND yearmonth(date) = :month \
+              ORDER BY timestamp DESC",
+            &[("name", Str), ("month", Date)],
+        ),
+        query(
+            "budgets.postings",
+            "The postings that count toward a budget in a month (its first day), newest first, with each account's balance after them: they add up to the month's activity.",
+            "SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units, \
+              only(currency, account_balance) AS balance \
+              WHERE yearmonth(date) = :month AND :name IN budgets \
+              ORDER BY timestamp DESC",
+            &[("name", Str), ("month", Date)],
+        ),
+    ]
+}
+
+/// The tables, the label column and the named queries of the provider, as the budget tables and the budget pages'
+/// queries have always described them.
 fn manifest() -> Manifest {
     use DataType::{Amount, Bool, Date, Int, Set, Str};
     let carry = || Some(Fill::Carry);
@@ -290,7 +354,7 @@ fn manifest() -> Manifest {
         provider: super::compat::BUDGET.to_owned(),
         tables: vec![budgets, events, definitions],
         labels: vec![postings_budgets],
-        queries: vec![],
+        queries: queries(),
     }
 }
 
@@ -926,7 +990,6 @@ mod as_an_analyzer {
     use serde_json::{json, Value};
 
     use super::*;
-    use crate::extension::NamedQuery;
 
     fn fill(fill: &Option<Fill>) -> Value {
         match fill {
