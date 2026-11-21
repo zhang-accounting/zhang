@@ -12,7 +12,7 @@ The numbers were taken on a build machine shared with other jobs. They are given
 :::
 
 :::note[The comparison point]
-The numbers of [After #840/#841](#after-840841), taken on 2026-11-21 on `main` at `1e8bf3e6`, are the baseline for G1 and P4: the budget plugin will run on that server. The sections before it are the first baseline, taken with #836 on `main` at `9c156c7b`, kept as they were.
+The official comparison point of G1 and P4 is [End to end](#end-to-end), taken on 2026-11-21 on `main` at `fa8e8abb`: the time of a write, a reload or a start together with the first budget page or errors page after it, to which the budget plugin may add at most max(5%, 50 ms). The per-request figures of [After #840/#841](#after-840841), taken on `main` at `1e8bf3e6`, describe the same server request by request. The sections before them are the first baseline, taken with #836 on `main` at `9c156c7b`, kept as they were.
 :::
 
 ## The ledgers
@@ -330,6 +330,70 @@ Against the first baseline (its two runs, A / B):
 - **mimalloc and jemalloc fix both**: the first request after a reload is about as fast as in a fresh process (136 to 190 ms), a write is a quarter faster (loading is), and the peak is 1.4 GiB instead of 4.4 to 5.4. After 60 s idle mimalloc holds 505 to 518 MiB, jemalloc 414 (97 to 99 MiB with 10,000 transactions, against 213 to 220 for mimalloc).
 - **mimalloc is the default**: jemalloc returns a little more memory, but it does not build for Windows (MSVC), and its page size is fixed at build time, so an aarch64 build for 4 KiB pages fails on the 16 KiB and 64 KiB page kernels some ARM hosts run. mimalloc builds for every release target, reads the page size at run time, and holds less memory after loading a large ledger (417 MiB, against 624 for jemalloc and 645 for glibc).
 
+## End to end
+
+Measured on 2026-11-21 on `main` at `fa8e8abb`, with the bench's end-to-end mode (`ZHANG_BUDGET_BASELINE_ONLY=e2e`).
+
+**This is the official comparison point of G1 and P4.** What the owner of RFC #698 accepts is end to end: the time of a load or a write together with the first budget page or errors page after it. With the budget plugin, each of the times below may grow by at most **max(5%, 50 ms)**, at 10,000 and at 100,000 transactions: at 10,000 transactions that is 50 ms, at 100,000 about 5%.
+
+### The timers
+
+Each timer runs 2 rounds to warm up, then 20 timed rounds, one at a time, with no other request meanwhile, on the serve path of the sections above (`OpendalDataSource`, the reload listener and the file watcher running, the fixed clock). A round is timed from sending the write, asking for the reload or starting the load, until the page's answer is read whole.
+
+| Timer | Starts with | Then reads |
+|---|---|---|
+| (a) write → budgets | `POST /api/transactions`: groceries on `Expenses:Food:Groceries`, paid by card, on 2025-12-30 | `budgets.month` for 2025-12 |
+| (b) write → errors | `POST /api/transactions`: a purchase in GBP at an `@` price in USD on `Expenses:Travel:Japan`, paid by card (the `Japan` budget is in JPY, and no price converts GBP to JPY, so zhang reports a `BudgetCommodityMismatch`) | `journals.errors`, as the app's home page asks for it: `size` 100, `offset` 0, `count_total` |
+| (c) reload → budgets | an edit of the ledger on disk (the same groceries appended to the month's file, not timed), then a reload through the reload listener, waited for (`ReloadSender::reload_and_wait`, what `POST /api/reload` runs) | `budgets.month` |
+| (d) reload → errors | the same with the GBP purchase | `journals.errors` |
+| (e) start → budgets | a load of the files on a blocking thread, as `zhang serve` loads at start, and a new app on it (`create_server_app` and its router, without a reload listener or a file watcher) | `budgets.month` |
+| (f) start → errors | the same | `journals.errors` |
+
+- **The page answers from the ledger with the change.** A write answers once the ledger with its transaction is swapped in (#818), and a waited-for reload once its ledger is. Each round checks it: the generation of the served ledger moved on by one, and the page's figure moved by what the change adds, the activity of `Groceries` in the month by the amount written, or the number of errors by one. A start checks that its page gives the figure of the ledger served.
+- **What it covers.** A write's or a reload's own time (the append, the load outside the write lock, the swap), then the page: the first query of a loaded ledger builds the query engine's cache of it and, for `budgets.month`, the budget snapshot, while the replaced ledger is being freed on another thread. A start covers a load and the app's construction, not the process start nor the reading of cold files (the files are in the OS cache).
+- **The file watcher.** It sees every write and edit; it gathers events until none came for 500 ms, then asks for a reload that loads nothing, as the files hold what the ledger was loaded from. The bench waits for that turn of the watcher, and 1 s more, before the next round, so it never runs into a timed round. With 100,000 transactions the watcher's check may run while the page of (a) or (b) is read: readers do not wait for it, but it shares the machine, as under `zhang serve`. (c) and (d) ask for the reload right after the edit: an edit that only the watcher reloads adds its quiet period, at least 500 ms, before the reload.
+- The ledger grows by one transaction a round of (a) to (d), 88 in a run.
+
+### Results
+
+The e2e mode ran 5 times with 10,000 transactions and 3 times with 100,000, each in a process of its own, one after the other, with the node's load average at 5.4 to 38.0 over one minute. *p50* and *p95* are the medians of the runs' p50 and p95; the bands are the lowest and the highest of the runs' p50 and p95; *min – max* is over every sample of every run; *trigger + page* splits the median p50 into the write, reload or start and the page after it. *Allowed* is what the plugin may add: max(5% of the p50, 50 ms). Times in milliseconds.
+
+10,000 transactions:
+
+| Timer | p50 | p95 | Run p50s | Run p95s | Min – max | Trigger + page | Allowed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| (a) write → budgets | 192 | 283 | 183 – 208 | 215 – 405 | 168 – 406 | 175 + 16.9 | 50 |
+| (b) write → errors | 184 | 231 | 170 – 207 | 189 – 349 | 155 – 431 | 184 + 0.3 | 50 |
+| (c) reload → budgets | 183 | 234 | 173 – 229 | 205 – 339 | 156 – 340 | 166 + 15.4 | 50 |
+| (d) reload → errors | 159 | 196 | 157 – 165 | 174 – 206 | 144 – 441 | 159 + 0.4 | 50 |
+| (e) start → budgets | 176 | 219 | 169 – 269 | 184 – 337 | 161 – 343 | 162 + 14.4 | 50 |
+| (f) start → errors | 172 | 188 | 164 – 181 | 169 – 224 | 154 – 250 | 172 + 0.6 | 50 |
+
+100,000 transactions:
+
+| Timer | p50 | p95 | Run p50s | Run p95s | Min – max | Trigger + page | Allowed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| (a) write → budgets | 2,091 | 2,452 | 1,999 – 2,107 | 2,238 – 4,776 | 1,780 – 6,536 | 1,832 + 185 | 105 |
+| (b) write → errors | 1,885 | 1,962 | 1,811 – 1,887 | 1,924 – 2,446 | 1,712 – 2,931 | 1,857 + 36 | 94 |
+| (c) reload → budgets | 2,105 | 2,328 | 1,910 – 2,107 | 1,950 – 2,557 | 1,854 – 2,673 | 1,912 + 166 | 105 |
+| (d) reload → errors | 1,834 | 1,933 | 1,821 – 1,846 | 1,887 – 1,939 | 1,634 – 2,172 | 1,834 + 0.6 | 92 |
+| (e) start → budgets | 2,040 | 2,077 | 1,960 – 2,053 | 2,029 – 2,085 | 1,927 – 2,095 | 1,877 + 154 | 102 |
+| (f) start → errors | 1,882 | 1,959 | 1,832 – 1,911 | 1,885 – 1,960 | 1,794 – 1,980 | 1,881 + 1.0 | 94 |
+
+- The time is the load's: the first budget page after it adds 14 to 17 ms with 10,000 transactions and 154 to 185 ms with 100,000 (the query engine's cache and the budget snapshot of the new ledger); the errors page adds under 2 ms, and with 100,000 transactions 36 ms after a write.
+- **Noise against the allowance.** The runs' p50s moved by up to 25 ms for (a) and 100 ms for (e) with 10,000 transactions, and by up to 200 ms for (c) with 100,000; the p95s moved more. A single run of the plugin against this table can thus pass or fail the 50 ms of 10,000 transactions by noise alone. Compare the plugin with this baseline on the same machine, in the same session, alternating runs of each build (at least 5 at 10,000 and 3 at 100,000), and compare medians of the run p50s; a difference within the bands above is no regression.
+- The full bench (`cargo run --release -p zhang --example budget_baseline`) also runs these timers, after its other steps; its process has by then grown (to 0.9 GiB with 10,000 transactions and 4.3 GiB with 100,000) and its times are noisier, as (e) shows (290 ms at 10,000 in that run). The comparison point is the e2e mode.
+
+### The errors page among the requests
+
+`journals.errors` (as the app sends it, the first 100 errors with their total) is now one of the kinds of request the warm and cold requests time; the concurrent readers keep sending the five budget kinds, as before. In one full run on `fa8e8abb`:
+
+| | 10,000 transactions | 100,000 transactions |
+|---|---:|---:|
+| warm, min / p50 / p95 / max | 0.10 / 0.32 / 0.54 / 0.55 | 0.17 / 0.78 / 1.71 / 1.79 |
+| cold, min – max of 5 | 0.30 – 0.38 | 1.03 – 1.61 |
+| response bytes (the ledger's 2 errors) | 600 | 606 |
+
 ## Reproduce
 
 In a checkout of the commit to measure, with nothing else running if possible:
@@ -348,6 +412,9 @@ cargo run --release -p zhang --example budget_baseline -- 100000tx-30b-60m
 ZHANG_BUDGET_BASELINE_OUT=/tmp/budget-baseline ZHANG_BUDGET_BASELINE_KEEP=/tmp/budget-ledgers \
   cargo run --release -p zhang --example budget_baseline
 
+# the load and the end-to-end timers of one ledger only, the G1/P4 comparison point
+ZHANG_BUDGET_BASELINE_ONLY=e2e cargo run --release -p zhang --example budget_baseline -- 100000tx-30b-60m
+
 # the load and the writes of one ledger only, to repeat them
 ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m
 
@@ -355,6 +422,6 @@ ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_
 cd /tmp/budget-ledgers/100000tx-30b-60m && LC_ALL=C sha256sum *.zhang | sha256sum
 ```
 
-A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only. `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle at the end of the run. The bench uses the allocator of the binary: mimalloc, or the system's with `--no-default-features`.
+A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only, `ZHANG_BUDGET_BASELINE_ONLY=e2e` the load and the end-to-end timers only. `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle at the end of the run. The bench uses the allocator of the binary: mimalloc, or the system's with `--no-default-features`.
 
 Run the whole bench at least twice, and compare the plugin with the native implementation in the same session, alternating them.
