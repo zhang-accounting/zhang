@@ -400,7 +400,7 @@ fn negate(value: Value, span: Span) -> Result<Value, LocatedError> {
         Value::Int(it) => Value::Int(it.checked_neg().ok_or_else(|| LocatedError::eval("integer overflow", Some(span)))?),
         Value::Decimal(it) => Value::Decimal(-it),
         Value::Amount(it) => Value::Amount(-it),
-        Value::Position(it) => Value::Position(-it),
+        Value::Position(it) => Value::Position(Box::new(-*it)),
         Value::Inventory(it) => Value::Inventory(-it),
         other => return Err(LocatedError::eval(format!("cannot negate {}", other.data_type()), Some(span))),
     })
@@ -621,7 +621,7 @@ impl Accumulator {
                 }
             }
             (Accumulator::SumInventory(inventory), Value::Amount(it)) => inventory.add_owned_position(Position::new(it, None)),
-            (Accumulator::SumInventory(inventory), Value::Position(it)) => inventory.add_owned_position(it),
+            (Accumulator::SumInventory(inventory), Value::Position(it)) => inventory.add_owned_position(*it),
             (Accumulator::SumInventory(inventory), Value::Inventory(it)) => inventory.add_inventory(&it),
             (Accumulator::Pick(current), value) => {
                 let replace = match (call.function.kind, current.as_ref()) {

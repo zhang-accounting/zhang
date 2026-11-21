@@ -896,7 +896,7 @@ impl QueryCell {
             Value::Date(it) => QueryCell::Text(it.format("%Y-%m-%d").to_string()),
             Value::Set(it) => QueryCell::Set(it.iter().cloned().collect()),
             Value::Amount(it) => QueryCell::Amount(it.into()),
-            Value::Position(it) => QueryCell::Position(it.into()),
+            Value::Position(it) => QueryCell::Position(it.as_ref().into()),
             Value::Inventory(it) => QueryCell::Inventory(QueryInventoryEntity {
                 positions: it.positions().map(|position| (&position).into()).collect(),
             }),
@@ -1176,7 +1176,7 @@ mod query_test {
                 Value::Date(date),
                 Value::Set(["b".to_owned(), "a".to_owned()].into_iter().collect()),
                 Value::Amount(amount("1E+3", "USD")),
-                Value::Position(lot),
+                Value::Position(Box::new(lot)),
                 Value::Inventory(inventory),
                 Value::Null,
                 Value::Interval(Interval::new(14, -3)),

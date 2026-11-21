@@ -495,7 +495,9 @@ pub enum Value {
     Date(NaiveDate),
     Set(BTreeSet<String>),
     Amount(Amount),
-    Position(Position),
+    /// boxed: a position is the largest payload by far (its units and its lot), and every cell of a row, of a
+    /// snapshot or of an aggregation's state is a `Value`, which the largest variant sizes
+    Position(Box<Position>),
     Inventory(Inventory),
     Interval(Interval),
     Metas(Metas),
@@ -742,7 +744,11 @@ impl_from!(String, Str);
 impl_from!(NaiveDate, Date);
 impl_from!(BTreeSet<String>, Set);
 impl_from!(Amount, Amount);
-impl_from!(Position, Position);
+impl From<Position> for Value {
+    fn from(value: Position) -> Self {
+        Value::Position(Box::new(value))
+    }
+}
 impl_from!(Inventory, Inventory);
 impl_from!(Interval, Interval);
 impl_from!(Metas, Metas);
@@ -770,6 +776,15 @@ mod tests {
     use std::str::FromStr;
 
     use super::*;
+
+    #[test]
+    fn a_value_is_the_size_of_an_amount() {
+        // every cell of a row, of a published snapshot and of an aggregation's state is a value: its largest variant
+        // sizes them all, and a position, boxed, is not it
+        assert_eq!(std::mem::size_of::<Value>(), std::mem::size_of::<Amount>());
+        assert!(std::mem::size_of::<Value>() <= 64, "{} bytes", std::mem::size_of::<Value>());
+        assert!(std::mem::size_of::<Position>() > 2 * std::mem::size_of::<Value>());
+    }
 
     fn amount(n: &str, c: &str) -> Amount {
         Amount::new(BigDecimal::from_str(n).unwrap(), c)
@@ -822,7 +837,7 @@ mod tests {
     fn positions_rank_other_currencies_by_characters_like_beancount() {
         // beancount ranks a currency outside the common ones by `len(currency)`, which counts
         // characters, not bytes: a three-character CJK name sorts with "CNY", before "ABCD".
-        let position = |currency: &str| Value::Position(Position::new(amount("1", currency), None));
+        let position = |currency: &str| Value::Position(Box::new(Position::new(amount("1", currency), None)));
         assert_eq!(position("人民币").sort_cmp(&position("ABCD")), Ordering::Less);
         assert_eq!(position("AB").sort_cmp(&position("人民币")), Ordering::Less);
         assert_eq!(position("USD").sort_cmp(&position("人民币")), Ordering::Less);

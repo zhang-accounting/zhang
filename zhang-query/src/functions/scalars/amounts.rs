@@ -14,7 +14,7 @@ pub(super) fn abs(args: &[Value]) -> Result<Value, String> {
             .ok_or_else(|| "abs() overflows a 64-bit integer".to_owned()),
         Value::Decimal(number) => Ok(Value::Decimal(number.abs())),
         Value::Amount(amount) => Ok(Value::Amount(amount.abs())),
-        Value::Position(position) => Ok(Value::Position(Position::new(position.units.abs(), position.cost.clone()))),
+        Value::Position(position) => Ok(Value::Position(Box::new(Position::new(position.units.abs(), position.cost.clone())))),
         Value::Inventory(inventory) => Ok(Value::Inventory(
             inventory
                 .positions()
@@ -33,7 +33,7 @@ fn negate(value: &Value, function: &str) -> Result<Value, String> {
             .ok_or_else(|| format!("{}() overflows a 64-bit integer", function)),
         Value::Decimal(number) => Ok(Value::Decimal(-number)),
         Value::Amount(amount) => Ok(Value::Amount(amount.neg())),
-        Value::Position(position) => Ok(Value::Position(-position.clone())),
+        Value::Position(position) => Ok(Value::Position(Box::new(-(**position).clone()))),
         Value::Inventory(inventory) => Ok(Value::Inventory(-inventory.clone())),
         _ => Err(format!("{}() expects a number, an amount, a position or an inventory", function)),
     }
@@ -118,7 +118,7 @@ mod tests {
         assert_eq!(call_str("abs", vec![Value::Decimal(d("2"))]), "2");
         assert_eq!(call_str("abs", vec![Value::Amount(amount("-12.30", "USD"))]), "12.30 USD");
         assert_eq!(
-            call_str("abs", vec![Value::Position(position("-5", "AAPL", Some(("120", "USD"))))]),
+            call_str("abs", vec![Value::Position(Box::new(position("-5", "AAPL", Some(("120", "USD")))))]),
             "5 AAPL {120 USD, 2024-01-05}"
         );
         assert_eq!(
@@ -135,7 +135,7 @@ mod tests {
         assert_eq!(call_str("neg", vec![Value::Decimal(d("0"))]), "0");
         assert_eq!(call_str("neg", vec![Value::Amount(amount("-12.30", "USD"))]), "12.30 USD");
         assert_eq!(
-            call_str("neg", vec![Value::Position(position("5", "AAPL", Some(("120", "USD"))))]),
+            call_str("neg", vec![Value::Position(Box::new(position("5", "AAPL", Some(("120", "USD")))))]),
             "-5 AAPL {120 USD, 2024-01-05}"
         );
         assert_eq!(
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(
             call_str(
                 "possign",
-                vec![Value::Position(position("5", "AAPL", Some(("1", "USD")))), "Liabilities".into()]
+                vec![Value::Position(Box::new(position("5", "AAPL", Some(("1", "USD"))))), "Liabilities".into()]
             ),
             "-5 AAPL {1 USD, 2024-01-05}"
         );
@@ -195,7 +195,7 @@ mod tests {
             "(10 AAPL {100 USD, 2024-01-05}, -5 AAPL {120 USD, 2024-01-05})"
         );
         assert_eq!(call_str("filter_currency", vec![lots(), "GBP".into()]), "()");
-        let usd = || Value::Position(position("1", "USD", None));
+        let usd = || Value::Position(Box::new(position("1", "USD", None)));
         assert_eq!(call_str("filter_currency", vec![usd(), "USD".into()]), "1 USD");
         assert_eq!(call("filter_currency", vec![usd(), "EUR".into()]), Value::Null);
     }

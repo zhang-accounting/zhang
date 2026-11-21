@@ -299,8 +299,8 @@ mod tests {
         let input = result(
             &[("p", DataType::Position)],
             vec![
-                vec![Value::Position(lot("4", "AAPL", "1"))],
-                vec![Value::Position(Position::new(amount("0", "EUR"), None))],
+                vec![Value::Position(Box::new(lot("4", "AAPL", "1")))],
+                vec![Value::Position(Box::new(Position::new(amount("0", "EUR"), None)))],
                 vec![Value::Null],
             ],
         );

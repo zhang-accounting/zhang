@@ -113,7 +113,7 @@ mod tests {
     }
 
     fn aapl_lot() -> Value {
-        Value::Position(position("10", "AAPL", Some(("100", "USD"))))
+        Value::Position(Box::new(position("10", "AAPL", Some(("100", "USD")))))
     }
 
     fn mixed_inventory() -> Value {
@@ -144,7 +144,7 @@ mod tests {
     #[test]
     fn units_of_position_and_inventory() {
         assert_eq!(call_str("units", vec![aapl_lot()]), "10 AAPL");
-        assert_eq!(call_str("units", vec![Value::Position(position("-3.50", "USD", None))]), "-3.50 USD");
+        assert_eq!(call_str("units", vec![Value::Position(Box::new(position("-3.50", "USD", None)))]), "-3.50 USD");
         let mut lots = inventory(vec![position("10", "AAPL", Some(("100", "USD"))), position("5", "AAPL", Some(("120", "USD")))]);
         lots.add_amount(&amount("4.00", "USD"));
         assert_eq!(call_str("units", vec![Value::Inventory(lots)]), "(4.00 USD, 15 AAPL)");
@@ -155,9 +155,9 @@ mod tests {
     fn cost_of_position_and_inventory() {
         assert_eq!(call_str("cost", vec![aapl_lot()]), "1000 USD");
         // no cost: the units
-        assert_eq!(call_str("cost", vec![Value::Position(position("2.50", "EUR", None))]), "2.50 EUR");
+        assert_eq!(call_str("cost", vec![Value::Position(Box::new(position("2.50", "EUR", None)))]), "2.50 EUR");
         assert_eq!(
-            call_str("cost", vec![Value::Position(position("-2", "AAPL", Some(("100.5", "USD"))))]),
+            call_str("cost", vec![Value::Position(Box::new(position("-2", "AAPL", Some(("100.5", "USD")))))]),
             "-201.0 USD"
         );
         assert_eq!(call_str("cost", vec![mixed_inventory()]), "(-11.00 USD, 10 EUR)");
@@ -231,13 +231,13 @@ mod tests {
             call_str_with(&ctx, "convert", vec![aapl_lot(), "EUR".into()]),
             "1454.545454545454545454545455 EUR"
         );
-        let xyz = || Value::Position(position("5", "XYZ", Some(("2", "EUR"))));
+        let xyz = || Value::Position(Box::new(position("5", "XYZ", Some(("2", "EUR")))));
         assert_eq!(call_str_with(&ctx, "convert", vec![xyz(), "EUR".into()]), "20 EUR");
         assert_eq!(call_str_with(&ctx, "convert", vec![xyz(), "CNY".into()]), "160 CNY");
         // no path: no second step (no USD→GBP price) leaves the units unconverted
         assert_eq!(call_str_with(&ctx, "convert", vec![aapl_lot(), "GBP".into()]), "10 AAPL");
         // no path: no first step (no GHOST price at all), even though EUR→CNY exists
-        let ghost = || Value::Position(position("5", "GHOST", Some(("2", "EUR"))));
+        let ghost = || Value::Position(Box::new(position("5", "GHOST", Some(("2", "EUR")))));
         assert_eq!(call_str_with(&ctx, "convert", vec![ghost(), "CNY".into()]), "5 GHOST");
         assert_eq!(call_str_with(&ctx, "convert", vec![ghost(), "EUR".into()]), "5 GHOST");
         // no path before the first price
@@ -247,11 +247,11 @@ mod tests {
         );
         // positions without cost convert like amounts (no intermediate currency)
         assert_eq!(
-            call_str_with(&ctx, "convert", vec![Value::Position(position("2", "EUR", None)), "CNY".into()]),
+            call_str_with(&ctx, "convert", vec![Value::Position(Box::new(position("2", "EUR", None))), "CNY".into()]),
             "16 CNY"
         );
         assert_eq!(
-            call_str_with(&ctx, "convert", vec![Value::Position(position("10", "AAPL", None)), "CNY".into()]),
+            call_str_with(&ctx, "convert", vec![Value::Position(Box::new(position("10", "AAPL", None))), "CNY".into()]),
             "10 AAPL"
         );
     }
@@ -289,13 +289,16 @@ mod tests {
         assert_eq!(call_str_with(&ctx, "value", vec![aapl_lot(), Value::Date(date("2023-06-01"))]), "10 AAPL");
         // no cost: units, even when a price exists
         assert_eq!(
-            call_str_with(&ctx, "value", vec![Value::Position(position("-1000.00", "USD", None))]),
+            call_str_with(&ctx, "value", vec![Value::Position(Box::new(position("-1000.00", "USD", None)))]),
             "-1000.00 USD"
         );
-        assert_eq!(call_str_with(&ctx, "value", vec![Value::Position(position("10", "AAPL", None))]), "10 AAPL");
+        assert_eq!(
+            call_str_with(&ctx, "value", vec![Value::Position(Box::new(position("10", "AAPL", None)))]),
+            "10 AAPL"
+        );
         // no price for the units: units
         assert_eq!(
-            call_str_with(&ctx, "value", vec![Value::Position(position("5", "GHOST", Some(("2", "EUR"))))]),
+            call_str_with(&ctx, "value", vec![Value::Position(Box::new(position("5", "GHOST", Some(("2", "EUR")))))]),
             "5 GHOST"
         );
         assert_eq!(call_str_with(&ctx, "value", vec![mixed_inventory()]), "(589.00 USD, 20 EUR)");

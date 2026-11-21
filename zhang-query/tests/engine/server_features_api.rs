@@ -272,7 +272,7 @@ fn single(ledger: &Ledger, sql: &str) -> Value {
 
 fn position(ledger: &Ledger, account: &str) -> Position {
     match single(ledger, &format!("SELECT position FROM #postings WHERE account = '{}'", account)) {
-        Value::Position(position) => position,
+        Value::Position(position) => *position,
         other => panic!("not a position: {:?}", other),
     }
 }

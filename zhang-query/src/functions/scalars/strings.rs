@@ -186,10 +186,10 @@ mod tests {
             }),
         );
         assert_eq!(
-            call("str", vec![Value::Position(lot.clone())]),
+            call("str", vec![Value::Position(Box::new(lot.clone()))]),
             Value::from("10 AAPL {100 USD, 2024-01-05, \"lot1\"}")
         );
-        assert_eq!(call("str", vec![Value::Position(position("5", "XYZ", None))]), Value::from("5 XYZ"));
+        assert_eq!(call("str", vec![Value::Position(Box::new(position("5", "XYZ", None)))]), Value::from("5 XYZ"));
         // common currencies first, then by currency length, then number
         let inventory = inventory(vec![lot, position("5", "XYZ", Some(("2", "EUR"))), position("-1011.00", "USD", None)]);
         assert_eq!(

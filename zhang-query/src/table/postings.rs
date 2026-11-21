@@ -561,7 +561,7 @@ pub static COLUMNS: &[ColumnDef] = &[
         Borrow::Str(currency),
     ),
     ColumnDef::posting("position", DataType::Position, "Units and cost of the posting.", |_, row| {
-        Value::Position(position(row))
+        Value::Position(Box::new(position(row)))
     }),
     ColumnDef::posting("cost_number", DataType::Decimal, "Per-unit cost number of the posting's lot.", |_, row| {
         row.cost.as_ref().map(|cost| Value::Decimal(cost.number.clone())).unwrap_or(Value::Null)

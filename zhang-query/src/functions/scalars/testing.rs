@@ -238,9 +238,9 @@ fn samples(ty: DataType) -> Vec<Value> {
             Value::Amount(amount("10", "AAPL")),
         ],
         DataType::Position => vec![
-            Value::Position(position("1", "USD", None)),
-            Value::Position(position("10", "AAPL", Some(("100", "USD")))),
-            Value::Position(position("-5", "XYZ", Some(("2", "EUR")))),
+            Value::Position(Box::new(position("1", "USD", None))),
+            Value::Position(Box::new(position("10", "AAPL", Some(("100", "USD"))))),
+            Value::Position(Box::new(position("-5", "XYZ", Some(("2", "EUR"))))),
         ],
         DataType::Inventory => vec![
             Value::Inventory(inventory(vec![])),
