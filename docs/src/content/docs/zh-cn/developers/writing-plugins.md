@@ -414,6 +414,44 @@ fn route(request: Request) -> Result<Response, Error> {
 
 分析器发布的内容属于运行它的那次加载：重新加载和写入都会重新分析账本。
 
+### 使用 Rust SDK
+
+`plugin!` 在其他处理函数之后接受分析函数和清单。`zhang_plugin_sdk::analysis` 提供清单、记录和输出的类型，以及 `convert`；查询使用 `router` 中的函数；`zhang_plugin_sdk::decimal` 像张记账一样精确地相加：
+
+```rust
+use zhang_plugin_sdk::analysis::{Diagnostic, Input, Manifest, Output, Target};
+use zhang_plugin_sdk::{plugin, router, serde_json, Error};
+
+plugin! {
+    name: "shop",
+    version: env!("CARGO_PKG_VERSION"),
+    analyzer: analyze,
+    manifest: manifest,
+}
+
+fn manifest() -> Manifest {
+    serde_json::from_str(include_str!("../manifest.json")).expect("the manifest is JSON")
+}
+
+fn analyze(input: Input) -> Result<Output, Error> {
+    let sold = router::query("SELECT account, sum(number) AS sold WHERE account ~ '^Income:Shop' GROUP BY account")?;
+    let mut output = Output::default();
+    for record in &input.records {
+        if record.fields["values"].as_array().is_none_or(|values| values.is_empty()) {
+            output.diagnostics.push(Diagnostic {
+                kind: "UnknownItem".into(),
+                target: Target { seq: Some(record.seq), ..Target::default() },
+                ..Diagnostic::default()
+            });
+        }
+    }
+    // ... 由 `input` 和 `sold` 得到表的行
+    Ok(output)
+}
+```
+
+`zhang-plugin-sdk/examples/budget` 是一个完整的分析器：根据预算记录和查询计算张记账的预算、预算表和预算错误。张记账的测试用它替代原生预算代码运行，并检查它对预算页面的回答完全相同，包括错误及其 id。
+
 ## Lua 插件
 
 router 插件可以是一个 Lua 脚本而不是模块：`plugin "plugins/report.lua"`。张记账内嵌了一个 Lua 5.4 解释器，它本身就是由仓库中 `tools/lua-runtime` 构建的 wasm 插件；加载时张记账把它和脚本配对：沙箱运行的模块是解释器，脚本通过两个保留配置键交给它，`zhang.script`（源码）和 `zhang.script_name`（指令中写的模块路径，错误消息用它指名）。其余都走 wasm 路径：注册时从脚本返回的模块表读取 `name`、`version` 和 `supported_type`，同名时先声明的 router 提供路由（后声明的会被报告），指令的能力和 `timeout` 照常生效，每个请求都是全新的实例，`GET /api/plugins` 列出脚本自己的名字和版本。

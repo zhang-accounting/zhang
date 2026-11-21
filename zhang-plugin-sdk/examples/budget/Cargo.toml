@@ -1,0 +1,14 @@
+[package]
+name = "zhang-plugin-example-budget"
+version = "0.1.0"
+edition = "2021"
+description = "Example zhang analyzer: zhang's budgets (their tables, months and errors) computed from records and queries"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# a plugin outside this repository depends on it through git:
+# zhang-plugin-sdk = { git = "https://github.com/zhang-accounting/zhang", tag = "v…" }
+zhang-plugin-sdk = { path = "../.." }

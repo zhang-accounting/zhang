@@ -105,10 +105,10 @@ jobs:
       # zhang-server/tests/sdk_plugins.rs builds the example plugins for wasm32 with cargo, into
       # target/tmp/sdk-plugins, in every test process. The job that saves the cache builds them here first, so the
       # cache carries their dependencies (rust-cache keeps the dependencies of nested target directories) and the
-      # tests only build the SDK and the four examples (about 10 s instead of 30 s on a pull request's zhang-server job)
+      # tests only build the SDK and the examples (about 10 s instead of 30 s on a pull request's zhang-server job)
       - name: Build the SDK example plugins for the cache
         if: github.ref == 'refs/heads/main' && (matrix.group == 'others' || matrix.group == 'all')
-        run: cargo build --release --target wasm32-unknown-unknown -p zhang-plugin-example-guard -p zhang-plugin-example-summary -p zhang-plugin-example-lots -p zhang-plugin-example-balances --target-dir target/tmp/sdk-plugins
+        run: cargo build --release --target wasm32-unknown-unknown -p zhang-plugin-example-guard -p zhang-plugin-example-summary -p zhang-plugin-example-lots -p zhang-plugin-example-balances -p zhang-plugin-example-budget --target-dir target/tmp/sdk-plugins
       # nextest runs the tests of all test binaries in parallel, where `cargo test` runs the binaries one after another
       - uses: taiki-e/install-action@v2
         with:
@@ -255,7 +255,7 @@ jobs:
         run: cargo clippy --all-features --all-targets -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
       # the plugin SDK's Extism bindings and the exports of `plugin!` only exist on wasm32
       - name: Clippy the plugin SDK for wasm32
-        run: cargo clippy --target wasm32-unknown-unknown -p zhang-plugin-sdk -p zhang-plugin-example-guard -p zhang-plugin-example-summary -p zhang-plugin-example-lots -p zhang-plugin-example-balances -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
+        run: cargo clippy --target wasm32-unknown-unknown -p zhang-plugin-sdk -p zhang-plugin-example-guard -p zhang-plugin-example-summary -p zhang-plugin-example-lots -p zhang-plugin-example-balances -p zhang-plugin-example-budget -- -D warnings -D clippy::dbg_macro -A clippy::empty_docs
 
   # the Lua interpreter module zhang embeds (zhang-core/src/plugin/lua/lua-runtime.wasm) is vendored with its
   # sha256; this job rebuilds it from the sources in the tree (tools/lua-runtime/vendor) with the pinned toolchain

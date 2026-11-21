@@ -6,6 +6,7 @@
 //! functions answer [`HostErrorKind::Unavailable`](crate::HostErrorKind::Unavailable), so plugin logic can be
 //! unit tested natively.
 
+pub(crate) use zhang_shared::plugin_abi::analysis::CONVERT;
 pub(crate) use zhang_shared::plugin_abi::import::{
     LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_BUILTIN, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE, WRITE_COMMIT, WRITE_PREVIEW,
 };
@@ -14,7 +15,7 @@ pub(crate) use zhang_shared::plugin_abi::import::{
 mod imp {
     use extism_pdk::Memory;
 
-    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_BUILTIN, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE, WRITE_COMMIT, WRITE_PREVIEW};
+    use super::{CONVERT, LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_BUILTIN, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE, WRITE_COMMIT, WRITE_PREVIEW};
     use crate::error::{HostError, HostErrorKind};
 
     #[link(wasm_import_module = "extism:host/user")]
@@ -30,6 +31,7 @@ mod imp {
         fn zhang_query_builtin(input: u64) -> u64;
         fn zhang_write_preview(input: u64) -> u64;
         fn zhang_write_commit(input: u64) -> u64;
+        fn zhang_convert(input: u64) -> u64;
     }
 
     pub(crate) fn config_get(key: &str) -> Option<String> {
@@ -104,11 +106,15 @@ mod imp {
     pub(crate) fn write_commit(input: &[u8]) -> Result<Vec<u8>, HostError> {
         call_with(WRITE_COMMIT, input, zhang_write_commit)
     }
+
+    pub(crate) fn convert(input: &[u8]) -> Result<Vec<u8>, HostError> {
+        call_with(CONVERT, input, zhang_convert)
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 mod imp {
-    use super::{LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_BUILTIN, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE, WRITE_COMMIT, WRITE_PREVIEW};
+    use super::{CONVERT, LEDGER_INFO, LIST_DIR, NOW, QUERY, QUERY_BUILTIN, QUERY_PARAMS, QUERY_SCHEMA, READ_FILE, WRITE_COMMIT, WRITE_PREVIEW};
     use crate::error::{outside_zhang, HostError};
 
     pub(crate) fn config_get(_key: &str) -> Option<String> {
@@ -155,6 +161,10 @@ mod imp {
 
     pub(crate) fn write_commit(_input: &[u8]) -> Result<Vec<u8>, HostError> {
         Err(outside_zhang(WRITE_COMMIT))
+    }
+
+    pub(crate) fn convert(_input: &[u8]) -> Result<Vec<u8>, HostError> {
+        Err(outside_zhang(CONVERT))
     }
 }
 
