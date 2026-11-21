@@ -476,8 +476,8 @@ impl Ledger {
     }
 
     /// Run the ledger's analyzers ([`crate::analysis`]) on it, final once the fold is done: build its catalog, run each
-    /// analyzer of the catalog, and merge what they report into its errors, where the fold reports its own. The query
-    /// cache their queries built is reset, as the errors it read were not placed yet.
+    /// analyzer of the catalog, and merge what they report into its errors, where the fold reports its own. What the
+    /// query cache their queries built computed from the errors goes, as they were not placed yet.
     fn analyze(mut self) -> Ledger {
         let marks = std::mem::take(&mut self.fold_marks);
         let native_budget_errors = self.native_budget_errors.take();
@@ -497,7 +497,8 @@ impl Ledger {
         }
         #[cfg(not(feature = "plugin_runtime"))]
         let _ = (marks, native_budget_errors);
-        self.derived = Derived::default();
+        // what the analyses' queries computed from the errors before they were placed goes; the booked rows stay
+        self.derived.errors_changed();
         self
     }
 

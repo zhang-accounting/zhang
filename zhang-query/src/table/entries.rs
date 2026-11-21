@@ -354,14 +354,14 @@ static TRANSACTION_COLUMNS: &[ColumnDef] = &[
         DataType::Bool,
         "FALSE when zhang recorded that the transaction does not balance (an UnbalancedTransaction error), else TRUE. A \
          zhang extension.",
-        |_, record| entry_info(record).map_or(Value::Null, |info| balanced(info.errors.as_ref())),
+        |data, record| entry_info(record).map_or(Value::Null, |info| balanced(data.entry_errors(info.seq))),
     ),
     ColumnDef::record(
         "errors",
         DataType::Set,
         "Kinds of the errors zhang recorded for the transaction, as #errors names them in kind; empty when there are none. A \
          zhang extension.",
-        |_, record| entry_info(record).map_or(Value::Null, |info| error_kinds(info.errors.as_ref())),
+        |data, record| entry_info(record).map_or(Value::Null, |info| error_kinds(data.entry_errors(info.seq))),
     ),
     METAS,
 ];
