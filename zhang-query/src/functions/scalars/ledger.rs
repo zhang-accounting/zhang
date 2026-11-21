@@ -1,6 +1,6 @@
 //! beanquery 0.2.0's functions over the ledger's `open`, `close` and `commodity` directives:
 //! `open_date`, `close_date`, `open_meta` and `commodity_meta` (also `currency_meta`), and zhang's
-//! `open_meta_values`, its alias `account_budgets`, and `account_status`.
+//! `open_meta_values`, its alias `account_budgets`, `open_meta_has`, and `account_status`.
 //!
 //! As in beancount, an account's directives are its earliest `open` and earliest `close`, and
 //! a currency's is its last `commodity` directive. An unknown account or currency is NULL.
@@ -56,14 +56,31 @@ fn datetime_args(args: &[Value], at: usize, function: &str) -> Result<NaiveDateT
     };
     let time = match args.get(at + 1) {
         None => NaiveTime::MIN,
-        Some(time) => {
-            let text = time.as_str().ok_or_else(|| format!("{}() expects a time", function))?;
-            NaiveTime::parse_from_str(text, "%H:%M:%S")
-                .or_else(|_| NaiveTime::parse_from_str(text, "%H:%M"))
-                .map_err(|_| format!("{}() expects a time as HH:MM:SS or HH:MM, not '{}'", function, text))?
-        }
+        Some(time) => time_of_day(time.as_str().ok_or_else(|| format!("{}() expects a time", function))?, function)?,
     };
     Ok(date.and_time(time))
+}
+
+/// The time of day `text` writes as `HH:MM:SS` or `HH:MM`, as the `time` column holds it, for the time argument of
+/// `function`; the message of its failure otherwise. The two forms the `time` column and queries write, with two digits
+/// each, are read by hand, since a query may read a time on every row; any other text is chrono's to read
+/// (`%H:%M:%S`, then `%H:%M`), so that every text reads as it always has.
+pub(crate) fn time_of_day(text: &str, function: &str) -> Result<NaiveTime, String> {
+    let two_digits = |at: usize| match text.as_bytes()[at..at + 2] {
+        [tens @ b'0'..=b'9', ones @ b'0'..=b'9'] => Some(u32::from(tens - b'0') * 10 + u32::from(ones - b'0')),
+        _ => None,
+    };
+    let written = match text.as_bytes() {
+        [_, _, b':', _, _, b':', _, _] => two_digits(0).zip(two_digits(3)).zip(two_digits(6)),
+        [_, _, b':', _, _] => two_digits(0).zip(two_digits(3)).map(|it| (it, 0)),
+        _ => None,
+    };
+    if let Some(time) = written.and_then(|((hour, minute), second)| NaiveTime::from_hms_opt(hour, minute, second)) {
+        return Ok(time);
+    }
+    NaiveTime::parse_from_str(text, "%H:%M:%S")
+        .or_else(|_| NaiveTime::parse_from_str(text, "%H:%M"))
+        .map_err(|_| format!("{}() expects a time as HH:MM:SS or HH:MM, not '{}'", function, text))
 }
 
 /// The values of the metadata of an `open` in effect, as a set: empty when no `open` of the account is in effect.
@@ -81,6 +98,24 @@ pub(super) fn open_meta_values(args: &[Value], data: &Dataset<'_>) -> Result<Val
     let key = args[1].as_str().ok_or_else(|| "open_meta_values() expects a metadata key".to_owned())?;
     let at = datetime_args(args, 2, "open_meta_values")?;
     Ok(values_set(data.open_meta_values(account, key, at)))
+}
+
+/// `open_meta_has(account, key, value, date)` and `open_meta_has(account, key, value, date, time)` (a zhang extension):
+/// whether `value` is among the values of the metadata `key` of the account's `open` in effect then, which is
+/// `value IN open_meta_values(account, key, date[, time])` without the set. A query prepares the call so that a row
+/// reads its arguments in place ([`crate::compiler::CExpr::OpenMetaHas`]); this is the call as written.
+pub(super) fn open_meta_has(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
+    let account = name_arg(args, "open_meta_has")?;
+    let key = args[1].as_str().ok_or_else(|| "open_meta_has() expects a metadata key".to_owned())?;
+    let value = args[2].as_str().ok_or_else(|| "open_meta_has() expects a metadata value".to_owned())?;
+    let at = datetime_args(args, 3, "open_meta_has")?;
+    Ok(Value::Bool(open_meta_has_at(data, account, key, value, at)))
+}
+
+/// Whether `value` is among the values of the metadata `key` of the `open` of `account` in effect at `at`: what
+/// `open_meta_has()` answers, read from the ledger's account lifecycle without copying the values.
+pub(crate) fn open_meta_has_at(data: &Dataset<'_>, account: &str, key: &str, value: &str, at: NaiveDateTime) -> bool {
+    data.open_meta_values(account, key, at).is_some_and(|values| values.contains(value))
 }
 
 /// `account_budgets(account, date)`: the budgets a posting of the account at the start of the date
@@ -169,5 +204,55 @@ mod tests {
         )
         .unwrap_err();
         assert_eq!(err, "open_meta_values() expects a time as HH:MM:SS or HH:MM, not 'noon'");
+    }
+
+    /// `open_meta_has()` is FALSE where `open_meta_values()` is empty, NULL with a NULL argument, and fails on a time
+    /// it does not read as `open_meta_values()` does.
+    #[test]
+    fn open_meta_has_is_false_without_an_open_in_effect_or_the_key() {
+        let date = |it: &str| Value::Date(it.parse().unwrap());
+        let has = |args: Vec<Value>| call("open_meta_has", args);
+        assert_eq!(
+            has(vec!["Assets:Row".into(), "budget".into(), "x".into(), date("2024-01-05")]),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            has(vec!["Nowhere".into(), "budget".into(), "x".into(), date("2024-01-05"), "10:00".into()]),
+            Value::Bool(false)
+        );
+        assert_eq!(has(vec!["Assets:Row".into(), "budget".into(), Value::Null, date("2024-01-05")]), Value::Null);
+        assert_eq!(
+            has(vec!["Assets:Row".into(), "budget".into(), "x".into(), date("2024-01-05"), Value::Null]),
+            Value::Null
+        );
+        let err = try_call_with(
+            &TestContext::default(),
+            "open_meta_has",
+            vec!["Assets:Row".into(), "budget".into(), "x".into(), date("2024-01-05"), "24:00".into()],
+        )
+        .unwrap_err();
+        assert_eq!(err, "open_meta_has() expects a time as HH:MM:SS or HH:MM, not '24:00'");
+    }
+
+    /// The two forms read by hand are read as chrono reads them, and every other text is chrono's.
+    #[test]
+    fn a_time_of_day_reads_as_chrono_reads_it() {
+        let chrono = |text: &str| {
+            NaiveTime::parse_from_str(text, "%H:%M:%S")
+                .or_else(|_| NaiveTime::parse_from_str(text, "%H:%M"))
+                .ok()
+        };
+        let texts = "00:00:00|00:00|23:59:59|23:59|12:30|07:05:09|9:05|09:5|9:05:01| 09:05|09:05 |09: 05|24:00|23:60|23:59:60|\
+                     12:30:61|1a:00|12:3x|12:30:|12:30:0|12:30:00:00|12-30||noon|١٢:٣٠";
+        for text in texts.split('|') {
+            assert_eq!(time_of_day(text, "f").ok(), chrono(text), "{text:?}");
+        }
+        for hour in 0..24 {
+            for minute in [0, 7, 59] {
+                for text in [format!("{hour:02}:{minute:02}"), format!("{hour:02}:{minute:02}:{:02}", minute % 60)] {
+                    assert_eq!(time_of_day(&text, "f").ok(), chrono(&text), "{text:?}");
+                }
+            }
+        }
     }
 }

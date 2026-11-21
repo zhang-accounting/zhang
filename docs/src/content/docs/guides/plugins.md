@@ -93,12 +93,14 @@ Whoever can change your ledger files, through the web UI's file editor, a Git re
 
 | Setting | Default | What it does |
 |---|---|---|
-| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` loads no plugin; `read` runs plugins, which change nothing; `write` also lets a plugin write to the ledger where its directive grants it. |
+| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` loads no plugin, the official `zhang:budget` included (see below); `read` runs plugins, which change nothing; `write` also lets a plugin write to the ledger where its directive grants it. |
 | `ZHANG_PLUGIN_ALLOWED_HOSTS` | none | The hosts plugins may reach, separated by commas, such as `api.frankfurter.dev,*.example.com`; `*` allows any host. A plugin reaches a host only if its `allowed_hosts` and this setting both allow it. |
 | `ZHANG_PLUGIN_MAX_TIMEOUT` | `30s` | The longest one call into a plugin may run. |
 | `ZHANG_PLUGIN_MAX_MEMORY` | `256MiB` | The most memory one plugin instance may use. |
 
 So by default plugins run read-only, without any network, for at most 30 seconds a call. When a directive grants more, the plugin still loads with what the server allows, and the error list shows a [`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced) error on the directive that names the setting to change. With `--plugins off`, each `plugin` directive shows a [`PluginsDisabled`](/reference/error-codes/#pluginsdisabled) error instead.
+
+**The official plugin `zhang:budget`.** [Budgets](/guides/budgets/) are interpreted by `zhang:budget`, an official plugin every ledger has: it needs no `plugin` directive, and the ledger's `features.plugin` option does not turn it off, so no option of a ledger turns budgets off. A `plugin "zhang:budget"` directive is allowed, and loads no second copy. Only the server's switch stops it: with `--plugins off`, budgets are off, the budget pages answer that the budget tables are unavailable, the error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error, and `zhang serve` logs it when it starts.
 
 For example, to let the exchange-rate plugin above fetch its rates, start the server with:
 
@@ -134,15 +136,15 @@ Only declare plugins you trust, ideally ones whose source you can read, and gran
 ## When a plugin goes wrong
 
 - A problem a plugin reports appears in the ledger's error list as a [`PluginError`](/reference/error-codes/#pluginerror), with the plugin's name and message, on the entry the plugin points at or on its `plugin` directive. The ledger still loads.
-- A plugin that fails, by returning an error, crashing, running past its timeout or out of memory, stops the whole ledger from loading, and so does a module that cannot be loaded, such as a path where no module is. When Zhang starts, it exits with the error. While it is running, it keeps serving the last version that loaded and only logs the error: the web UI shows no error. A timeout message says which call ran too long; raise the plugin's `timeout` if it needs more time. An out-of-memory message names the limit; raise `ZHANG_PLUGIN_MAX_MEMORY` if the plugin needs more, for example to process a very large ledger.
+- A plugin that fails, by returning an error, crashing, running past its timeout or out of memory, stops the whole ledger from loading, and so does a module that cannot be loaded, such as a path where no module is. When Zhang starts, it exits with the error. While it is running, it keeps serving the last version that loaded, and the web UI shows the error in a **Ledger reload failed** banner on every page until a reload succeeds. A timeout message says which call ran too long; raise the plugin's `timeout` if it needs more time. An out-of-memory message names the limit; raise `ZHANG_PLUGIN_MAX_MEMORY` if the plugin needs more, for example to process a very large ledger.
 
 ## Plugins, pads and balance assertions
 
-Zhang runs your plugins first, then checks that every account is open, then fills the pads, then checks the balance assertions. So:
+Zhang books every transaction first, then runs your plugins, then checks that every account is open, then fills the pads, then checks the balance assertions. A plugin declared `stage: "raw"` runs before the booking instead. So:
 
 - Transactions a plugin adds count in the amounts pads fill up to and in the balances assertions check. A posting a plugin adds to an account that is not open is reported like one you wrote.
 - A plugin sees your `balance` and `balance … with pad` directives, but not the padding transactions, which are added after it runs. It does not see `pad` directives: a `balance` a `pad` serves is shown to it as a `balance … with pad`. See [Writing plugins](/developers/writing-plugins/#the-stage-order-contract).
-- A plugin sees transactions as you wrote them: a missing amount is not filled in yet, and sales are not matched to lots.
+- A plugin sees booked transactions, as a Beancount plugin does: a missing amount is filled in, a cost is the per-unit cost of its lot, and a sale across several lots is one posting per lot. A plugin declared `stage: "raw"` sees the transactions as you wrote them, before booking: choose it for a plugin that fills in accounts or amounts.
 - An `option` or `plugin` directive a plugin adds has no effect.
 
 See [Balances and Padding](/guides/balances/) for how pads and assertions work.

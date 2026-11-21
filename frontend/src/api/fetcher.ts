@@ -2,8 +2,22 @@ import { ApiError, Fetcher, type Middleware } from 'openapi-typescript-fetch';
 
 import { paths } from './schemas';
 
+type NoParameters = { query?: never; header?: never; path?: never; cookie?: never };
+/**
+ * openapi-typescript 7 gives an operation without parameters or body `parameters: { query?: never; ... }` and
+ * `requestBody?: never`, for which openapi-typescript-fetch types the call's argument as `unknown`: the call would accept
+ * anything. Without the two keys it is typed `Record<string, never>`, as with openapi-typescript 6.
+ */
+type StrictOperation<Op> = Op extends { parameters: NoParameters; requestBody?: never } ? Omit<Op, 'parameters' | 'requestBody'> : Op;
+/** The generated `paths` with only the methods each path has (no `put?: never`, no path-level `parameters`), see `StrictOperation`. */
+export type ApiPaths = {
+  [P in keyof paths]: {
+    [M in keyof paths[P] as M extends 'parameters' ? never : [NonNullable<paths[P][M]>] extends [never] ? never : M]: StrictOperation<paths[P][M]>;
+  };
+};
+
 // declare fetcher for paths
-export const openAPIFetcher = Fetcher.for<paths>();
+export const openAPIFetcher = Fetcher.for<ApiPaths>();
 
 export const development: boolean = !process.env.NODE_ENV || process.env.NODE_ENV === 'development';
 export const backendUri: string = import.meta.env.VITE_API_ENDPOINT || 'http://localhost:8000';

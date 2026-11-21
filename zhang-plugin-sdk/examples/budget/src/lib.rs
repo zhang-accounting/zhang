@@ -199,20 +199,31 @@ fn budget_accounts() -> Result<BTreeMap<String, BTreeSet<String>>, Error> {
 /// The rows of a page of a query: at most this many, so that a page stays well within the values a query may answer.
 const PAGE: usize = 50_000;
 
-/// The booked legs of the postings of `accounts`, in ledger order, with the budgets of their account's `open` in effect
-/// at their transaction's date and time: an account at a time, a page at a time.
+/// The booked legs of the postings of the budgets' accounts (`accounts`, by budget), in ledger order, with the budgets
+/// of their account's `open` in effect at their transaction's date and time: an account at a time, a page at a time.
+/// A leg tests each budget an `open` of its account names, at any time, with `open_meta_has`, a column each.
 // TODO(P1.5/P1.6): let BQL aggregate the activity per budget and month, so that the sums cross the boundary instead of
-// every leg; and test membership with a cheap `open_meta_has(account, key, value, date, time)` rather than the set of
-// `open_meta_values` per row
-fn legs(accounts: &BTreeSet<String>) -> Result<Vec<Leg>, Error> {
+// every leg
+fn legs(accounts: &BTreeMap<String, BTreeSet<String>>) -> Result<Vec<Leg>, Error> {
+    // the budgets of every account, by name
+    let mut budgets_of: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (budget, of_budget) in accounts {
+        for account in of_budget {
+            budgets_of.entry(account).or_default().push(budget);
+        }
+    }
     let mut legs = vec![];
-    for account in accounts {
+    for (account, budgets) in budgets_of {
+        let mut params = Params::new().bind("account", Param::Str(Some(account.to_owned())));
+        let mut tests = String::new();
+        for (at, budget) in budgets.iter().enumerate() {
+            params = params.bind(format!("b{at}"), Param::Str(Some((*budget).to_owned())));
+            tests.push_str(&format!(", open_meta_has(account, 'budget', :b{at}, date, time) AS b{at}"));
+        }
         for page in 0.. {
-            let params = Params::new().bind("account", Param::Str(Some(account.clone())));
             let result = router::query_with_params(
                 &format!(
-                    "SELECT seq, posting_index, date, time, number, currency, cost_currency, \
-                            open_meta_values(account, 'budget', date, time) AS budgets \
+                    "SELECT seq, posting_index, date, time, number, currency, cost_currency{tests} \
                      WHERE account = :account LIMIT {PAGE} OFFSET {}",
                     page * PAGE
                 ),
@@ -226,13 +237,16 @@ fn legs(accounts: &BTreeSet<String>) -> Result<Vec<Leg>, Error> {
                 legs.push(Leg {
                     seq: row.get("seq").and_then(|it| it.as_u64()).unwrap_or_default() as u32,
                     posting_index: row.get("posting_index").and_then(|it| it.as_i64()).unwrap_or_default(),
-                    account: account.clone(),
+                    account: account.to_owned(),
                     date,
                     at: date.and_time(time),
                     number: decimal(&text(row.get("number")))?,
                     currency: text(row.get("currency")),
                     cost_currency: row.get("cost_currency").and_then(|it| it.as_str()).map(str::to_owned),
-                    budgets: strings(row.get("budgets")),
+                    budgets: (budgets.iter().enumerate())
+                        .filter(|(at, _)| row.get(format!("b{at}").as_str()).and_then(|it| it.as_bool()) == Some(true))
+                        .map(|(_, budget)| (*budget).to_owned())
+                        .collect(),
                 });
             }
             if !full {
@@ -294,8 +308,7 @@ fn diagnostic(kind: &str, seq: u32, metas: &[(&str, &str)]) -> Diagnostic {
 
 fn analyze(input: Input) -> Result<Output, Error> {
     let accounts = budget_accounts()?;
-    let all_accounts = accounts.values().flatten().cloned().collect::<BTreeSet<_>>();
-    let legs = legs(&all_accounts)?;
+    let legs = legs(&accounts)?;
     let last_transaction = last_transaction()?;
 
     // the postings as written, by their transaction's seq

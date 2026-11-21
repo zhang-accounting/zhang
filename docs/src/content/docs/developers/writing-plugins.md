@@ -391,7 +391,10 @@ registers, so the tables are known before any analysis runs:
     "extend_to_today": true}],
  "columns": [
    {"table": "postings", "name": "items", "description": "The items of a posting.",
-    "predicate": "account IN :accounts AND number >= :min", "params": {"accounts": "set", "min": "decimal"}}]}
+    "predicate": "account IN :accounts AND number >= :min", "params": {"accounts": "set", "min": "decimal"}}],
+ "queries": [
+   {"name": "item", "description": "One item of the shop, with its price.",
+    "bql": "SELECT item, price FROM #shop_items WHERE item = :item", "params": [{"name": "item", "type": "str"}]}]}
 ```
 
 - **`consumes`**: the record kinds it reads, `budget`, `budget-add`, `budget-transfer`, `budget-close`, or
@@ -410,11 +413,18 @@ registers, so the tables are known before any analysis runs:
 - **Label columns** (`columns`): a `set` column of `postings` whose value, for a posting, is the labels whose
   predicate holds for it. The predicate is BQL over a posting, reading `:label` and the declared parameters, which each
   label binds in the output. It reads no running balance, no aggregate and no plugin table.
-- **Names.** A table `items` of the namespace `shop` is `#shop_items`, a label column `items` is `postings.shop_items`.
-  The namespace is the manifest's `namespace`, `[a-z][a-z0-9_]*`, or the plugin's name with every other character
-  written `_`. Zhang's own names always win, and of two plugins declaring one name the first declared keeps it: the
-  later plugin gets none of its tables, and is reported. The budget tables (`#budgets`, `#budget_events`,
-  `#budget_definitions`, `postings.budgets`) are kept for `zhang:budget`.
+- **Named queries** (`queries`): BQL over the ledger's tables, its own included, with typed parameters, which the
+  server lists and runs with its [built-in queries](/reference/builtin-queries/#http-api): `GET /api/query/builtins`,
+  `POST /api/query/builtins/{name}`, the batch and `/text` forms, and the routers' `zhang_query_builtin`. A parameter's
+  type is one of `bool`, `int`, `decimal`, `str`, `date` and `set`, and the query uses every parameter it declares, by
+  name. Each must compile when the ledger loads, or the plugin gets none of its tables and queries, and is reported.
+- **Names.** A table `items` of the namespace `shop` is `#shop_items`, a label column `items` is `postings.shop_items`,
+  a named query `item` is `shop.item`. The namespace is the manifest's `namespace`, `[a-z][a-z0-9_]*`, or the plugin's
+  name with every other character written `_`. Zhang's own names always win, and of two plugins declaring one name the
+  first declared keeps it: the later plugin gets none of its tables, and is reported. A plugin whose namespace is one
+  of the built-in queries' (`accounts`, `budgets`, `commodities`, `journals`, `ledger`, `postings`, `report`) declares
+  no query. The budget tables (`#budgets`, `#budget_events`, `#budget_definitions`, `postings.budgets`) and the budget
+  pages' queries (`budgets.*`) are kept for `zhang:budget`.
 - **Limits.** A table has at most **64 columns**, and a ledger at most **16 label columns**, shared by all the plugins
   of the ledger, `zhang:budget` included (it has one). A plugin that would pass either limit gets none of its tables and
   columns, and is reported; the others keep theirs.

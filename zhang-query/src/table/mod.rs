@@ -53,7 +53,7 @@ use std::fmt;
 use std::path::Path;
 use std::sync::Arc;
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use zhang_ast::{Commodity, Directive, Meta, Spanned};
 use zhang_core::domains::schemas::AccountStatus;
 use zhang_core::ledger::Ledger;
@@ -374,6 +374,9 @@ pub(crate) enum Borrow {
     /// a set column, as a membership test that does not build the set; of a label column, one that evaluates the
     /// predicate of the label asked for only ([`label_getter`])
     Contains(ContainsTest),
+    /// a time-of-day column, as the time it writes, never NULL: `get` writes it as `HH:MM:SS` ([`time_value`]), which
+    /// reads back as this time
+    Time(fn(&Dataset<'_>, &Row<'_>) -> NaiveTime),
 }
 
 /// One row of a record table. It only borrows the ledger; the table's columns compute their

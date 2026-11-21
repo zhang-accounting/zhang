@@ -4,6 +4,7 @@ use chrono::Datelike;
 use DataType::*;
 
 pub(crate) use self::accounts::is_under;
+pub(crate) use self::ledger::{open_meta_has_at, time_of_day};
 #[cfg(test)]
 pub(crate) use self::testing::TestContext;
 use super::{Eval, ParamType, ReturnType, ScalarFunction};
@@ -79,6 +80,10 @@ pub static SCALAR_FUNCTIONS: &[ScalarFunction] = scalars![
         "Every value of a metadata key of the account's open in effect at the start of a date, e.g. open_meta_values(account, 'budget', date): those of its latest open at or before then, so a later open replaces them and a close keeps them; empty before its first open or when that open lacks the key. A zhang extension.";
     #[execution] open_meta_values(Str, Str, Date, Str) -> Set = ledger::open_meta_values,
         "Every value of a metadata key of the account's open in effect at a date and a time of day, written HH:MM:SS or HH:MM as the time column holds it, e.g. open_meta_values(account, 'budget', date, time). A zhang extension.";
+    #[execution] open_meta_has(Str, Str, Str, Date) -> Bool = ledger::open_meta_has,
+        "Whether a value is one of those of a metadata key of the account's open in effect at the start of a date, e.g. open_meta_has(account, 'budget', 'Food', date): the answer of 'Food' IN open_meta_values(account, 'budget', date), without building the set, the cheap membership test for predicates. A zhang extension.";
+    #[execution] open_meta_has(Str, Str, Str, Date, Str) -> Bool = ledger::open_meta_has,
+        "Whether a value is one of those of a metadata key of the account's open in effect at a date and a time of day, written HH:MM:SS or HH:MM as the time column holds it, e.g. open_meta_has(account, 'budget', 'Food', date, time), as a label column's predicate tests a posting. A zhang extension.";
     #[execution] account_budgets(Str, Date) -> Set = ledger::account_budgets,
         "The budgets a posting of an account at the start of a date counts in, as a posting of that date without a time sees them: an alias of open_meta_values(account, 'budget', date), so an account closed and opened again with other budgets counts in those from its reopening on; empty before its first open. Deprecated: use open_meta_values(). A zhang extension.";
     #[execution] account_status(Str, Date) -> Str = ledger::account_status,

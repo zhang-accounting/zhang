@@ -27,6 +27,14 @@
 //!
 //! The tests check that every query compiles, declares exactly the parameters its BQL uses,
 //! can be written out as BQL, is documented, and has its frontend types up to date.
+//!
+//! # Queries of providers
+//!
+//! The providers of a ledger's tables declare named queries too ([`Catalog::named_queries`]): `zhang:budget` declares
+//! those of the budget pages, `budgets.*`, and an analyzer may declare its own, named after its namespace. The built-in
+//! queries of a ledger are zhang's own, [`BUILTINS`], and those of its catalog's providers, listed among zhang's before
+//! [`PROVIDED_BEFORE`]; zhang's own keep their names. They are compiled once per catalog ([`compiled_for`]), and the
+//! endpoints serve those of the ledger served.
 
 mod amount;
 mod date_range;
@@ -37,7 +45,7 @@ use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use chrono::{Datelike, NaiveDateTime};
 use zhang_core::ledger::Ledger;
 use zhang_query::params::from_json;
-use zhang_query::{Catalog, CatalogDigest, DataType, ExecuteOptions, ParamTypes, Params, Query, QueryError, QueryResult, Value};
+use zhang_query::{Catalog, CatalogDigest, DataType, ExecuteOptions, NamedQuery, ParamTypes, Params, Query, QueryError, QueryResult, Value};
 
 pub use self::amount::calculated_amount;
 pub use self::date_range::{ledger_date, LedgerDateRange};
@@ -63,6 +71,16 @@ impl BuiltinQuery {
     /// The declared types of the parameters, to compile the query with.
     pub fn param_types(&self) -> ParamTypes {
         self.params.iter().fold(ParamTypes::new(), |types, (name, ty)| types.bind(*name, *ty))
+    }
+
+    /// The query as the registry of a catalog serves it, with the queries of the catalog's providers.
+    pub fn named(&self) -> NamedQuery {
+        NamedQuery {
+            name: self.name.to_owned(),
+            description: self.description.to_owned(),
+            bql: self.bql.to_owned(),
+            params: self.params.iter().map(|(name, ty)| ((*name).to_owned(), *ty)).collect(),
+        }
     }
 }
 
@@ -100,17 +118,6 @@ macro_rules! account_journal {
        seq, posting_index, sum(number) AS units, first(currency) AS currency, last(units(balance)) AS balance
 WHERE under(account, :account)
 GROUP BY seq, posting_index", $("\n", $limit)?) };
-}
-
-/// `budgets.month` without its order, and with a filter `budgets.budget_month`.
-macro_rules! budgets_as_of_month {
-    ($($filter:literal)?) => { concat!("SELECT name, last(alias) AS alias, last(category) AS category, last(currency) AS currency, \
-              last(date) AS last_month, \
-              CASE WHEN last(date) < :month THEN last(available) ELSE last(assigned) END AS assigned, \
-              CASE WHEN last(date) < :month THEN 0 ELSE number(last(activity)) END AS activity, \
-              last(available) AS available, last(closed) AS closed \
-              FROM #budgets \
-              WHERE ", $($filter, " AND ",)? "date <= :month GROUP BY name") };
 }
 
 /// The postings of the accounts that hold commodities, those of Assets and Liabilities.
@@ -340,45 +347,8 @@ WHERE source = 'directive' AND under(account, :account)",
               LIMIT :size OFFSET :offset",
         params: &[("size", DataType::Int), ("offset", DataType::Int)],
     },
-    // ---- budgets (the budget pages, through POST /api/query/builtins) and commodities: /api/commodities/* ----
-    BuiltinQuery {
-        name: "budgets.month",
-        description: "Every budget as of a month (its first day): its last month in #budgets up to that month, carried over to the month when it is later.",
-        bql: concat!(budgets_as_of_month!(), " ORDER BY name"),
-        params: &[("month", DataType::Date)],
-    },
-    BuiltinQuery {
-        name: "budgets.budget",
-        description: "One budget: its display name, category, commodity, the accounts whose postings are its activity, and the date and time of its close.",
-        bql: "SELECT name, alias, category, currency, accounts, close, close_time \
-              FROM #budget_definitions \
-              WHERE name = :name",
-        params: &[("name", DataType::Str)],
-    },
-    BuiltinQuery {
-        name: "budgets.budget_month",
-        description: "One budget as of a month (its first day), as in budgets.month.",
-        bql: budgets_as_of_month!("name = :name"),
-        params: &[("name", DataType::Str), ("month", DataType::Date)],
-    },
-    BuiltinQuery {
-        name: "budgets.events",
-        description: "What the budget-add and budget-transfer directives put into a budget in a month (its first day), newest first.",
-        bql: "SELECT date, time, timestamp, type, amount \
-              FROM #budget_events \
-              WHERE name = :name AND type != 'close' AND yearmonth(date) = :month \
-              ORDER BY timestamp DESC",
-        params: &[("name", DataType::Str), ("month", DataType::Date)],
-    },
-    BuiltinQuery {
-        name: "budgets.postings",
-        description: "The postings that count toward a budget in a month (its first day), newest first, with each account's balance after them: they add up to the month's activity.",
-        bql: "SELECT date, time, timestamp, account, id, payee, narration, units(position) AS units, \
-              only(currency, account_balance) AS balance \
-              WHERE yearmonth(date) = :month AND :name IN budgets \
-              ORDER BY timestamp DESC",
-        params: &[("name", DataType::Str), ("month", DataType::Date)],
-    },
+    // ---- the queries of the catalog's providers go here (`PROVIDED_BEFORE`): `zhang:budget`'s budgets.* ----
+    // ---- commodities: /api/commodities/* ----
     BuiltinQuery {
         name: "commodities.totals",
         description: "How many units of each commodity the Assets and Liabilities accounts hold, for the commodities they hold.",
@@ -434,39 +404,93 @@ WHERE source = 'directive' AND under(account, :account)",
     },
 ];
 
-/// The built-in query named `name`.
+/// Where the named queries of a catalog's providers are listed among zhang's own: right before this one. The queries of
+/// the budget pages, which `zhang:budget` declares, were zhang's own until RFC #698 and listed there, after those of
+/// the journals and before those of the commodities: `GET /api/query/builtins` and the frontend's types
+/// (`frontend/src/api/builtins.ts`) keep that order.
+pub const PROVIDED_BEFORE: &str = "commodities.totals";
+
+/// zhang's own built-in query named `name`; a provider's is in the registry of a catalog ([`Compiled::named`]).
 pub fn get(name: &str) -> Option<&'static BuiltinQuery> {
     BUILTINS.iter().find(|query| query.name == name)
 }
 
-/// The built-in queries compiled against one catalog: a query to run on a ledger compiles against the ledger's catalog
-/// ([`Catalog::of_ledger`]), which holds the tables of its analyzers too.
+/// A built-in query of a catalog: zhang's own or a provider's, and the query compiled against the catalog.
+pub struct Registered {
+    pub query: NamedQuery,
+    /// the provider declaring it, such as `zhang:budget`; `None` for zhang's own
+    pub provided_by: Option<String>,
+    /// the query compiled against the catalog, or why it does not compile
+    compiled: Result<Query, QueryError>,
+}
+
+impl Registered {
+    /// The query compiled against the catalog; a query error when it does not compile against it.
+    pub fn compiled(&self) -> ServerResult<&Query> {
+        self.compiled.as_ref().map_err(|error| error.clone().into())
+    }
+
+    /// Execute the query on `ledger`, whose catalog it was compiled against, as [`execute`] does.
+    pub fn execute(&self, ledger: &Ledger, params: &Params, count_total: bool) -> ServerResult<QueryResult> {
+        let options = ExecuteOptions {
+            count_total,
+            ..execute_options(max_result_values())
+        };
+        Ok(self.compiled()?.execute_with_options(ledger, params, &options)?)
+    }
+}
+
+/// The built-in queries of one catalog, compiled against it: zhang's own and those of the catalog's providers. A query
+/// to run on a ledger compiles against the ledger's catalog ([`Catalog::of_ledger`]), which holds the tables of its
+/// analyzers too.
 pub struct Compiled {
     digest: CatalogDigest,
-    /// every built-in query by name, or why it does not compile against the catalog
-    queries: HashMap<&'static str, Result<Query, QueryError>>,
+    /// every built-in query, in the order they are listed: zhang's own, with the providers' before [`PROVIDED_BEFORE`]
+    queries: Vec<Registered>,
+    /// the position of each in `queries`, by name
+    names: HashMap<String, usize>,
 }
 
 impl Compiled {
-    /// Every built-in query compiled against `catalog`.
+    /// Every built-in query of `catalog`, compiled against it. A provider's query named like one of zhang's own is left
+    /// out: zhang's own keep their names (the catalog gives an analyzer no namespace of theirs).
     fn of(catalog: &Catalog) -> Compiled {
-        let queries = BUILTINS
-            .iter()
-            .map(|builtin| (builtin.name, Query::compile_in(catalog, builtin.bql, &builtin.param_types())))
-            .collect();
+        let mut own = BUILTINS.iter().map(|builtin| (builtin.named(), None)).collect::<Vec<_>>();
+        let provided = catalog
+            .named_queries()
+            .filter(|(_, query)| get(&query.name).is_none())
+            .map(|(provider, query)| (query.clone(), Some(provider.to_owned())));
+        let at = BUILTINS.iter().position(|builtin| builtin.name == PROVIDED_BEFORE).unwrap_or(own.len());
+        let after = own.split_off(at);
+        let ordered = own.into_iter().chain(provided).chain(after).collect::<Vec<_>>();
+        let queries = ordered
+            .into_iter()
+            .map(|(query, provided_by)| {
+                let compiled = Query::compile_in(catalog, &query.bql, &query.param_types());
+                Registered { query, provided_by, compiled }
+            })
+            .collect::<Vec<_>>();
+        let names = queries.iter().enumerate().map(|(at, it)| (it.query.name.clone(), at)).collect();
         Compiled {
             digest: catalog.digest(),
             queries,
+            names,
         }
+    }
+
+    /// Every built-in query, in the order `GET /api/query/builtins` lists them.
+    pub fn queries(&self) -> &[Registered] {
+        &self.queries
+    }
+
+    /// The built-in query named `name`, zhang's own or a provider's.
+    pub fn named(&self, name: &str) -> Option<&Registered> {
+        self.names.get(name).map(|at| &self.queries[*at])
     }
 
     /// The compiled built-in query named `name`; a query error when it does not compile against the catalog.
     pub fn get(&self, name: &str) -> ServerResult<&Query> {
-        match self.queries.get(name) {
-            Some(Ok(query)) => Ok(query),
-            Some(Err(error)) => Err(error.clone().into()),
-            None => Err(ServerError::UnknownBuiltinQuery(name.to_owned())),
-        }
+        self.named(name).ok_or_else(|| ServerError::UnknownBuiltinQuery(name.to_owned()))?.compiled()
     }
 }
 
@@ -478,10 +502,10 @@ const COMPILED_CATALOGS: usize = 8;
 /// The built-in queries compiled against the standard catalog ([`Catalog::standard`]), once, on first use.
 static STANDARD: LazyLock<Arc<Compiled>> = LazyLock::new(|| {
     let compiled = Compiled::of(Catalog::standard());
-    for (name, query) in &compiled.queries {
+    for registered in &compiled.queries {
         // the tests compile every built-in query, so this cannot fail in a release
-        if let Err(err) = query {
-            panic!("the built-in query {} does not compile: {}", name, err);
+        if let Err(err) = &registered.compiled {
+            panic!("the built-in query {} does not compile: {}", registered.query.name, err);
         }
     }
     Arc::new(compiled)
@@ -490,8 +514,13 @@ static STANDARD: LazyLock<Arc<Compiled>> = LazyLock::new(|| {
 /// The built-in queries compiled against other catalogs, the latest last.
 static COMPILED: Mutex<Vec<Arc<Compiled>>> = Mutex::new(Vec::new());
 
-/// The built-in query named `name` compiled against the standard catalog: its parameters, columns and text, which are
-/// the same for every catalog it compiles against.
+/// The built-in queries of the standard catalog, that of a ledger without tables of its own: zhang's own and the
+/// native providers'.
+pub fn standard() -> &'static Compiled {
+    &STANDARD
+}
+
+/// The built-in query named `name` compiled against the standard catalog: its parameters, columns and text.
 pub fn compiled(name: &str) -> ServerResult<&'static Query> {
     STANDARD.get(name)
 }
@@ -527,11 +556,11 @@ pub fn compiled_for(ledger: &Ledger) -> Arc<Compiled> {
 /// This blocks: call it inside [`with_ledger`], which also runs several queries under one read
 /// lock, or use [`run`].
 pub fn execute(ledger: &Ledger, name: &str, params: &Params, count_total: bool) -> ServerResult<QueryResult> {
-    let options = ExecuteOptions {
-        count_total,
-        ..execute_options(max_result_values())
-    };
-    Ok(compiled_for(ledger).get(name)?.execute_with_options(ledger, params, &options)?)
+    let compiled = compiled_for(ledger);
+    compiled
+        .named(name)
+        .ok_or_else(|| ServerError::UnknownBuiltinQuery(name.to_owned()))?
+        .execute(ledger, params, count_total)
 }
 
 /// Now by the ledger's clock, as a wall-clock date and time of its timezone.
@@ -564,16 +593,16 @@ pub async fn run_with_total(ledger: &LedgerState, name: &'static str, params: Pa
 /// such as `"12.50"`, a `str` a string, a `date` a string `YYYY-MM-DD` read as BQL's
 /// `date(text)` reads it, and a `set` a list of strings. A `month` (of the budget queries) is the
 /// first day of a month; another day is refused, naming the first day of its month.
-pub fn json_params(builtin: &BuiltinQuery, mut values: HashMap<String, Option<BuiltinParamValue>>) -> ServerResult<Params> {
+pub fn json_params(builtin: &NamedQuery, mut values: HashMap<String, Option<BuiltinParamValue>>) -> ServerResult<Params> {
     let mut params = Params::new();
-    for (name, ty) in builtin.params {
+    for (name, ty) in &builtin.params {
         let value = values
-            .remove(*name)
+            .remove(name)
             .ok_or_else(|| ServerError::InvalidInput(format!("parameter :{} of {} is missing", name, builtin.name)))?;
         let value = value.map(serde_json::Value::from).unwrap_or(serde_json::Value::Null);
         let value = from_json(*ty, &value).map_err(|error| ServerError::InvalidInput(error.for_param(name)))?;
         // a month is given as its first day: another day of the month would answer for that month carried over
-        if let (MONTH_PARAM, Value::Date(date)) = (*name, &value) {
+        if let (MONTH_PARAM, Value::Date(date)) = (name.as_str(), &value) {
             if date.day() != 1 {
                 let first = date.with_day(1).expect("every month has a first day");
                 return Err(ServerError::InvalidInput(format!(
@@ -582,7 +611,7 @@ pub fn json_params(builtin: &BuiltinQuery, mut values: HashMap<String, Option<Bu
                 )));
             }
         }
-        params = params.bind(*name, value);
+        params = params.bind(name.as_str(), value);
     }
     match values.keys().collect::<BTreeSet<_>>().first() {
         Some(unknown) => Err(ServerError::InvalidInput(format!("{} has no parameter :{}", builtin.name, unknown))),
@@ -596,8 +625,8 @@ const MONTH_PARAM: &str = "month";
 /// The BQL of `builtin` with `params` written in as literals: a query that runs on the Query
 /// page (`/explore`), where parameters cannot be bound, to the same result. Display only; the
 /// app itself always binds them.
-pub fn text(builtin: &BuiltinQuery, params: &Params) -> ServerResult<String> {
-    Ok(compiled(builtin.name)?.inline_params(params)?)
+pub fn text(builtin: &Registered, params: &Params) -> ServerResult<String> {
+    Ok(builtin.compiled()?.inline_params(params)?)
 }
 
 #[cfg(test)]
@@ -608,10 +637,15 @@ mod test {
     use zhang_ast::Flag;
     use zhang_core::constants::BALANCE_CHECK_PAYEE;
     use zhang_query::params::JSON_TYPES;
-    use zhang_query::{DataType, ParamRef, Query};
+    use zhang_query::{DataType, NamedQuery, ParamRef, Query};
 
-    use super::{compiled, json_params, text, BuiltinQuery, BUILTINS};
+    use super::{compiled, json_params, standard, text, BUILTINS, PROVIDED_BEFORE};
     use crate::request::BuiltinParamValue;
+
+    /// Every built-in query of a ledger without tables of its own, zhang's and the native providers', in order.
+    fn every_builtin() -> impl Iterator<Item = &'static NamedQuery> {
+        standard().queries().iter().map(|registered| &registered.query)
+    }
 
     /// A value of the parameter `name` of type `ty`: a month is its first day.
     fn param_sample(name: &str, ty: DataType) -> BuiltinParamValue {
@@ -636,8 +670,8 @@ mod test {
 
     #[test]
     fn every_builtin_compiles_with_exactly_its_declared_params() {
-        for builtin in BUILTINS {
-            let query = Query::compile_with_params(builtin.bql, &builtin.param_types()).unwrap_or_else(|err| panic!("{}: {}", builtin.name, err));
+        for builtin in every_builtin() {
+            let query = Query::compile_with_params(&builtin.bql, &builtin.param_types()).unwrap_or_else(|err| panic!("{}: {}", builtin.name, err));
             let used = query
                 .params()
                 .into_iter()
@@ -650,8 +684,41 @@ mod test {
             assert_eq!(declared.len(), builtin.params.len(), "{} declares a parameter twice", builtin.name);
             assert_eq!(used, declared, "{}: the parameters its BQL uses, and those it declares", builtin.name);
             // the registry compiles the same query
-            assert_eq!(compiled(builtin.name).unwrap().source(), builtin.bql);
+            assert_eq!(compiled(&builtin.name).unwrap().source(), builtin.bql);
         }
+    }
+
+    /// The queries of the budget pages are `zhang:budget`'s, listed where they were when they were zhang's own: after the
+    /// journals' and before the commodities'. Every other built-in query is zhang's own.
+    #[test]
+    fn the_budget_pages_queries_are_zhang_budgets_listed_where_they_always_were() {
+        let listed = standard()
+            .queries()
+            .iter()
+            .map(|it| (it.query.name.as_str(), it.provided_by.as_deref()))
+            .collect::<Vec<_>>();
+        let budgets = listed.iter().position(|(name, _)| *name == "budgets.month").unwrap();
+        let provided = listed.iter().filter(|(_, provider)| provider.is_some()).copied().collect::<Vec<_>>();
+        assert_eq!(
+            provided,
+            ["budgets.month", "budgets.budget", "budgets.budget_month", "budgets.events", "budgets.postings"].map(|name| (name, Some("zhang:budget")))
+        );
+        assert_eq!(listed[budgets - 1].0, "journals.errors");
+        assert_eq!(listed[budgets + provided.len()].0, PROVIDED_BEFORE);
+        assert_eq!(listed.len(), BUILTINS.len() + provided.len());
+        assert!(
+            BUILTINS.iter().all(|it| !it.name.starts_with("budgets.")),
+            "the budget queries are zhang:budget's"
+        );
+    }
+
+    /// An analyzer names its queries after its namespace, which is never one of zhang's own built-in queries
+    /// ([`zhang_query::BUILTIN_QUERY_NAMESPACES`]), so that zhang's keep their names.
+    #[test]
+    fn the_namespaces_of_the_builtins_are_reserved() {
+        let namespaces = every_builtin().map(|it| it.name.split('.').next().unwrap().to_owned()).collect::<BTreeSet<_>>();
+        let reserved = zhang_query::BUILTIN_QUERY_NAMESPACES.iter().map(|it| (*it).to_owned()).collect::<BTreeSet<_>>();
+        assert_eq!(namespaces, reserved);
     }
 
     /// A query cannot read a Rust constant, so the built-in queries write two of the ledger's as literals: the payee a
@@ -661,7 +728,12 @@ mod test {
     fn the_literals_builtins_copy_are_the_ledger_constants() {
         let payee = format!("'{}'", BALANCE_CHECK_PAYEE);
         let not_padding = format!("flag != '{}'", Flag::BalancePad);
-        let named = |text: &str| BUILTINS.iter().filter(|it| it.bql.contains(text)).map(|it| it.name).collect::<BTreeSet<_>>();
+        let named = |text: &str| {
+            every_builtin()
+                .filter(|it| it.bql.contains(text))
+                .map(|it| it.name.as_str())
+                .collect::<BTreeSet<_>>()
+        };
         assert_eq!(named(&payee), BTreeSet::from(["journals.page"]));
         assert_eq!(named("Balance Check"), named(&payee));
         assert_eq!(named(&not_padding), BTreeSet::from(["journals.payees", "report.transaction_count"]));
@@ -672,8 +744,8 @@ mod test {
     #[test]
     fn builtin_names_are_unique_dotted_and_lower_case_and_described() {
         let mut names = BTreeSet::new();
-        for BuiltinQuery { name, description, .. } in BUILTINS {
-            assert!(names.insert(*name), "{} is registered twice", name);
+        for NamedQuery { name, description, .. } in every_builtin() {
+            assert!(names.insert(name), "{} is registered twice", name);
             let words_ok = name.split('.').all(|word| {
                 word.starts_with(|c: char| c.is_ascii_lowercase()) && word.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
             });
@@ -688,8 +760,9 @@ mod test {
 
     #[test]
     fn every_builtin_takes_json_params_and_can_be_written_as_bql() {
-        for builtin in BUILTINS {
-            for (name, ty) in builtin.params {
+        for registered in standard().queries() {
+            let builtin = &registered.query;
+            for (name, ty) in &builtin.params {
                 assert!(
                     JSON_TYPES.contains(ty),
                     "{}: parameter :{} is a {}, which a JSON value cannot give",
@@ -713,7 +786,7 @@ mod test {
                     .map(|(name, ty)| (name.to_string(), (!null || required(name)).then(|| param_sample(name, *ty))))
                     .collect::<HashMap<_, _>>();
                 let params = json_params(builtin, values).unwrap();
-                let written = text(builtin, &params).unwrap_or_else(|err| panic!("{}: {}", builtin.name, err));
+                let written = text(registered, &params).unwrap_or_else(|err| panic!("{}: {}", builtin.name, err));
                 Query::compile(&written).unwrap_or_else(|err| panic!("{} written as {}: {}", builtin.name, written, err));
             }
         }
@@ -730,10 +803,10 @@ mod test {
         for file in ["reference/builtin-queries.md", "zh-cn/reference/builtin-queries.md"] {
             let page = std::fs::read_to_string(docs.join(file)).unwrap_or_else(|err| panic!("{}: {}", file, err));
             let page = normalize(&page);
-            for builtin in BUILTINS {
+            for builtin in every_builtin() {
                 assert!(page.contains(&format!("`{}`", builtin.name)), "{} does not list {}", file, builtin.name);
                 assert!(
-                    page.contains(&normalize(builtin.bql)),
+                    page.contains(&normalize(&builtin.bql)),
                     "{} does not show the BQL of {} as it is",
                     file,
                     builtin.name
@@ -790,8 +863,8 @@ mod test {
         }
         let mut out = String::new();
         let mut imports = BTreeSet::new();
-        for builtin in BUILTINS {
-            let columns = compiled(builtin.name).unwrap().columns();
+        for builtin in every_builtin() {
+            let columns = compiled(&builtin.name).unwrap().columns();
             let names = columns.iter().map(|column| column.name.as_str()).collect::<BTreeSet<_>>();
             assert_eq!(
                 names.len(),
@@ -842,7 +915,7 @@ mod test {
 
     #[test]
     fn json_params_need_every_declared_parameter_and_no_other() {
-        let builtin = super::get("postings.between").unwrap();
+        let builtin = &super::get("postings.between").unwrap().named();
         let values = |pairs: &[(&str, &str)]| {
             pairs
                 .iter()
@@ -864,7 +937,7 @@ mod test {
     #[test]
     fn a_month_is_the_first_day_of_a_month() {
         let month = |name: &str, value: &str| {
-            let builtin = super::get(name).unwrap();
+            let builtin = &standard().named(name).unwrap().query;
             let values = builtin
                 .params
                 .iter()

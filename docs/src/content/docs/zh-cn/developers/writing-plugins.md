@@ -376,14 +376,18 @@ fn route(request: Request) -> Result<Response, Error> {
     "extend_to_today": true}],
  "columns": [
    {"table": "postings", "name": "items", "description": "The items of a posting.",
-    "predicate": "account IN :accounts AND number >= :min", "params": {"accounts": "set", "min": "decimal"}}]}
+    "predicate": "account IN :accounts AND number >= :min", "params": {"accounts": "set", "min": "decimal"}}],
+ "queries": [
+   {"name": "item", "description": "One item of the shop, with its price.",
+    "bql": "SELECT item, price FROM #shop_items WHERE item = :item", "params": [{"name": "item", "type": "str"}]}]}
 ```
 
 - **`consumes`**：它读取的记录种类，`budget`、`budget-add`、`budget-transfer`、`budget-close`，或者表示 `custom "<type>"` 指令的 `custom:<type>`。**`open_meta`**：它通过查询读取的 `open` 指令元数据键。没有可读的记录、也没有带这些键的 `open` 时，插件不会被调用，它的表为空。
 - **`diagnostics`**：它可以报告的诊断种类。报告其他种类会使分析失败。
 - **表**。*记录表*（`"kind": "records"`）保存输出中的每一行，顺序为发布的顺序，或者按 `order` 中的列排序（张记账会检查）。*序列表*（`"kind": "series"`）每个分区只保存有内容的周期，即它的事实；张记账在每次查询时填充事实之间和之后的周期，直到分区的 `until`、在 `extend_to_today` 时直到当前月份，但不会超过查询的日期过滤条件保留的范围：`carry` 复制上一行的值，`zero` 是以其商品计的零，`{"previous": "<列>"}` 是上一行中另一个以 `carry` 填充的列的值。周期列保存每个月的第一天，`derive` 中的列是它的年份或月份。列的类型是 `str`、`int`、`decimal`、`date`、`bool`、`amount`、`set` 和 `metas` 之一；`wildcard` 列出 `SELECT *` 展开的列（默认是全部列）。
 - **标签列**（`columns`）：`postings` 的一个 `set` 列，它在一条分录上的值是谓词对该分录成立的那些标签。谓词是针对一条分录的 BQL，读取 `:label` 和声明的参数，每个标签在输出中绑定这些参数。它不读取累计余额、聚合，也不读取插件的表。
-- **名称**。命名空间 `shop` 的表 `items` 名为 `#shop_items`，标签列 `items` 名为 `postings.shop_items`。命名空间是清单中的 `namespace`（`[a-z][a-z0-9_]*`），或者把插件名称中其他字符写成 `_` 后得到的名称。张记账自己的名称总是优先；两个插件声明同一个名称时，先声明的插件保留它：后声明的插件得不到它的任何表，并会被报告。预算表（`#budgets`、`#budget_events`、`#budget_definitions`、`postings.budgets`）保留给 `zhang:budget`。
+- **命名查询**（`queries`）：针对账本各表（包括它自己的表）、带有类型化参数的 BQL，服务器把它们与[内置查询](/zh-cn/reference/builtin-queries/#http-api)一起列出和执行：`GET /api/query/builtins`、`POST /api/query/builtins/{name}`、批量形式和 `/text` 形式，以及路由插件的 `zhang_query_builtin`。参数类型是 `bool`、`int`、`decimal`、`str`、`date` 和 `set` 之一，查询必须按名称用到它声明的每个参数。每个查询都必须在账本加载时能够编译，否则插件得不到它的任何表和查询，并会被报告。
+- **名称**。命名空间 `shop` 的表 `items` 名为 `#shop_items`，标签列 `items` 名为 `postings.shop_items`，命名查询 `item` 名为 `shop.item`。命名空间是清单中的 `namespace`（`[a-z][a-z0-9_]*`），或者把插件名称中其他字符写成 `_` 后得到的名称。张记账自己的名称总是优先；两个插件声明同一个名称时，先声明的插件保留它：后声明的插件得不到它的任何表，并会被报告。命名空间与内置查询的命名空间（`accounts`、`budgets`、`commodities`、`journals`、`ledger`、`postings`、`report`）相同的插件不能声明查询。预算表（`#budgets`、`#budget_events`、`#budget_definitions`、`postings.budgets`）和预算页面的查询（`budgets.*`）保留给 `zhang:budget`。
 - **上限**。一张表最多 **64 列**，一个账本最多 **16 个标签列**，由账本的所有插件共享，包括 `zhang:budget`（它占用一个）。超出任一上限的插件得不到它的任何表和列，并会被报告；其他插件保留它们的表和列。
 
 ### `analyze`

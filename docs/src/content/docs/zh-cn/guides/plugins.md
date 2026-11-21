@@ -93,12 +93,14 @@ plugin "plugins/receipts.wasm"
 
 | 设置 | 默认值 | 作用 |
 |---|---|---|
-| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` 不加载任何插件；`read` 运行插件，插件不修改任何东西；`write` 还允许插件在其指令授予时写入账本。 |
+| `--plugins` / `ZHANG_PLUGINS` | `read` | `off` 不加载任何插件，包括官方插件 `zhang:budget`（见下文）；`read` 运行插件，插件不修改任何东西；`write` 还允许插件在其指令授予时写入账本。 |
 | `ZHANG_PLUGIN_ALLOWED_HOSTS` | 无 | 插件可以访问的主机，用逗号分隔，例如 `api.frankfurter.dev,*.example.com`；`*` 允许任何主机。只有插件的 `allowed_hosts` 和这个设置都允许时，插件才能访问一个主机。 |
 | `ZHANG_PLUGIN_MAX_TIMEOUT` | `30s` | 对插件的一次调用最长能运行多久。 |
 | `ZHANG_PLUGIN_MAX_MEMORY` | `256MiB` | 一个插件实例最多能使用的内存。 |
 
 所以默认情况下，插件以只读方式运行，没有任何网络访问，每次调用最多 30 秒。当指令授予的更多时，插件仍会以服务器允许的能力加载，错误列表会在该指令上显示一个 [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) 错误，指出需要修改的设置。使用 `--plugins off` 时，每条 `plugin` 指令会显示一个 [`PluginsDisabled`](/zh-cn/reference/error-codes/#pluginsdisabled) 错误。
+
+**官方插件 `zhang:budget`。**[预算](/zh-cn/guides/budgets/)由 `zhang:budget` 解释，它是每个账本都有的官方插件：不需要 `plugin` 指令，账本的 `features.plugin` 选项也不会关闭它，所以账本的任何选项都不会关闭预算。可以写 `plugin "zhang:budget"` 指令，它不会加载第二份。只有服务器的开关会停止它：使用 `--plugins off` 时预算会关闭，预算页面会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误，`zhang serve` 也会在启动时记录这一点。
 
 例如，要让上面的汇率插件获取汇率，这样启动服务器：
 
@@ -134,15 +136,15 @@ Router 插件的页面由张记账自己的地址提供，但[在沙箱中运行
 ## 插件出错时
 
 - 插件报告的问题会以 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror) 的形式出现在账本的错误列表中，附带插件的名称和消息，位于插件所指向的条目或它的 `plugin` 指令上。账本仍会加载。
-- 插件失败，即返回错误、崩溃、运行超时或内存不足，会让整个账本无法加载，无法加载的模块也是如此，例如路径上没有模块。张记账启动时遇到这种情况会带着错误退出。运行期间，它会继续提供最后一次成功加载的版本，只在日志中记录错误：网页界面不显示错误。超时消息会指出是哪次调用运行过久；如果插件需要更多时间，请调大它的 `timeout`。内存不足的消息会给出限制；如果插件需要更多内存，例如要处理非常大的账本，请调大 `ZHANG_PLUGIN_MAX_MEMORY`。
+- 插件失败，即返回错误、崩溃、运行超时或内存不足，会让整个账本无法加载，无法加载的模块也是如此，例如路径上没有模块。张记账启动时遇到这种情况会带着错误退出。运行期间，它会继续提供最后一次成功加载的版本，网页界面的每个页面都会以**账本重新加载失败**横幅显示该错误，直到重新加载成功。超时消息会指出是哪次调用运行过久；如果插件需要更多时间，请调大它的 `timeout`。内存不足的消息会给出限制；如果插件需要更多内存，例如要处理非常大的账本，请调大 `ZHANG_PLUGIN_MAX_MEMORY`。
 
 ## 插件、补齐与余额断言
 
-张记账先运行你的插件，再检查每个账户是否已开设，然后补齐，最后检查余额断言。因此：
+张记账先对每笔交易记账，再运行你的插件，然后检查每个账户是否已开设，接着补齐，最后检查余额断言。声明了 `stage: "raw"` 的插件则在记账之前运行。因此：
 
 - 插件添加的交易会计入补齐所要达到的金额和断言检查的余额。插件向未开设的账户添加的记账行，会像你自己写的一样被报告。
 - 插件能看到你的 `balance` 和 `balance … with pad` 指令，但看不到补齐交易，因为它们在插件运行之后才添加。插件看不到 `pad` 指令：由某条 `pad` 补齐的 `balance` 会以 `balance … with pad` 的样子交给它。见[编写插件](/zh-cn/developers/writing-plugins/#阶段顺序约定)。
-- 插件看到的是你所写的交易：缺失的金额还没有填上，卖出也还没有与批次匹配。
+- 插件看到的是记账之后的交易，与 Beancount 插件一样：缺失的金额已经填上，成本是其批次的单位成本，跨多个批次的卖出会拆成每个批次一条记账行。声明了 `stage: "raw"` 的插件看到的是记账之前、你所写的交易：要补全账户或金额的插件应选择它。
 - 插件添加的 `option` 或 `plugin` 指令不起作用。
 
 补齐和断言的工作方式见[余额](/zh-cn/guides/balances/)。

@@ -98,7 +98,7 @@ zhang serve [OPTIONS] <PATH>
 | `-p`, `--port <PORT>` | | `8000` | The port to listen on. |
 | `--auth <USER:PASSWORD>` | `ZHANG_AUTH` | none | Enables the password login. See [Authentication](/deployment/authentication/). |
 | `--passkey <SECRET>` | `ZHANG_PASSKEY` | none | Enables the passkey login. The value is the secret needed to register a passkey. See [Authentication](/deployment/authentication/#passkeys). |
-| `--plugins <off\|read\|write>` | `ZHANG_PLUGINS` | `read` | What [plugins](/guides/plugins/#what-the-server-allows) may do: `off` loads none, `read` runs them without changing anything, `write` also lets them write to the ledger where their directive grants it. |
+| `--plugins <off\|read\|write>` | `ZHANG_PLUGINS` | `read` | What [plugins](/guides/plugins/#what-the-server-allows) may do: `off` loads none, the official `zhang:budget` included, so [budgets](/guides/budgets/) are off; `read` runs them without changing anything, `write` also lets them write to the ledger where their directive grants it. |
 | `--source <SOURCE>` | `ZHANG_DATA_SOURCE` | `fs` | Where the ledger is stored: `fs` ([local file system](/deployment/data-sources/local/)), `s3` ([S3](/deployment/data-sources/s3/)), `web-dav` ([WebDAV](/deployment/data-sources/webdav/)) or `github` ([GitHub](/deployment/data-sources/github/)). |
 | `--no-report` | | off | Stops the anonymous usage report: once an hour, Zhang sends its version and build date to `https://zhang-cloud.kilerd.me/client_report`. |
 

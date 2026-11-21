@@ -8,7 +8,7 @@ use log::{info, warn};
 use zhang_core::ledger::Ledger;
 use zhang_query::{Catalog, ExecuteOptions, ParamTypes, Params, Query, QueryResult, DEFAULT_MAX_RESULT_VALUES};
 
-use crate::builtin::{self, BUILTINS};
+use crate::builtin::{self, Compiled, Registered};
 use crate::error::ServerError;
 use crate::request::{BuiltinQueryBatchItem, BuiltinQueryRunRequest, BuiltinQueryTextRequest, QueryRequest};
 use crate::response::{
@@ -130,9 +130,11 @@ async fn execute(ledger: &LedgerState, text: String, max_result_values: u64, cou
 
 /// The built-in queries: the named BQL behind the figures the app shows, which the Query page
 /// (`/explore`) can open and a user adapt. See the "Built-in queries" page of the docs.
+// zhang's own and those the providers of the served ledger's tables declare, such as the budget pages' of `zhang:budget`
 #[api(group = "query")]
-pub async fn get_builtin_queries() -> ApiResult<Vec<BuiltinQueryEntity>> {
-    ResponseWrapper::json(BUILTINS.iter().map(BuiltinQueryEntity::from).collect())
+pub async fn get_builtin_queries(ledger: State<SharedLedger>) -> ApiResult<Vec<BuiltinQueryEntity>> {
+    let compiled = with_ledger(&ledger, |ledger| Ok(builtin::compiled_for(ledger))).await?;
+    ResponseWrapper::json(compiled.queries().iter().map(BuiltinQueryEntity::from).collect())
 }
 
 /// A built-in query with its parameters written in as BQL literals, to open it on the Query page
@@ -144,17 +146,23 @@ pub async fn get_builtin_queries() -> ApiResult<Vec<BuiltinQueryEntity>> {
 /// strings for `set`, and `null` for NULL. An unknown query is a 404; a missing, unknown or
 /// mistyped parameter a 400.
 #[api(group = "query")]
-pub async fn get_builtin_query_text(paths: Path<(String,)>, Json(payload): Json<BuiltinQueryTextRequest>) -> ApiResult<BuiltinQueryTextEntity> {
-    let builtin = lookup(&paths.0 .0)?;
-    let params = builtin::json_params(builtin, payload.params)?;
-    ResponseWrapper::json(BuiltinQueryTextEntity {
-        query: builtin::text(builtin, &params)?,
+pub async fn get_builtin_query_text(
+    ledger: State<SharedLedger>, paths: Path<(String,)>, Json(payload): Json<BuiltinQueryTextRequest>,
+) -> ApiResult<BuiltinQueryTextEntity> {
+    let name = paths.0 .0;
+    let query = with_ledger(&ledger, move |ledger| {
+        let compiled = builtin::compiled_for(ledger);
+        let builtin = lookup(&compiled, &name)?;
+        let params = builtin::json_params(&builtin.query, payload.params)?;
+        builtin::text(builtin, &params)
     })
+    .await?;
+    ResponseWrapper::json(BuiltinQueryTextEntity { query })
 }
 
-/// The built-in query a request names, or the 404 that names it.
-fn lookup(name: &str) -> ServerResult<&'static builtin::BuiltinQuery> {
-    builtin::get(name).ok_or_else(|| ServerError::NoSuchBuiltinQuery(name.to_owned()))
+/// The built-in query a request names among those of a ledger, `compiled` for its catalog, or the 404 that names it.
+fn lookup<'c>(compiled: &'c Compiled, name: &str) -> ServerResult<&'c Registered> {
+    compiled.named(name).ok_or_else(|| ServerError::NoSuchBuiltinQuery(name.to_owned()))
 }
 
 /// Run a built-in query with its parameters bound: the rows the app computes its figures from,
@@ -173,10 +181,16 @@ pub async fn run_builtin_query(
 }
 
 async fn run_builtin(ledger: &LedgerState, name: &str, payload: BuiltinQueryRunRequest) -> ServerResult<ResponseWrapper<QueryResultEntity>> {
-    let builtin = lookup(name)?;
-    let params = builtin::json_params(builtin, payload.params)?;
+    let name = name.to_owned();
     let count_total = payload.count_total.unwrap_or(false);
-    let result = with_ledger(ledger, move |ledger| builtin::execute(ledger, builtin.name, &params, count_total)).await?;
+    // the query is one of the ledger's, so it is looked up under the lock it runs under
+    let result = with_ledger(ledger, move |ledger| {
+        let compiled = builtin::compiled_for(ledger);
+        let builtin = lookup(&compiled, &name)?;
+        let params = builtin::json_params(&builtin.query, payload.params)?;
+        builtin.execute(ledger, &params, count_total)
+    })
+    .await?;
     ResponseWrapper::json(tokio::task::spawn_blocking(move || QueryResultEntity::from(result)).await?)
 }
 
@@ -190,17 +204,18 @@ pub async fn run_builtin_queries(ledger: State<SharedLedger>, Json(payload): Jso
 }
 
 async fn run_builtins(ledger: &LedgerState, payload: Vec<BuiltinQueryBatchItem>) -> ServerResult<ResponseWrapper<Vec<QueryResultEntity>>> {
-    // every name and parameter is checked before the lock is taken
-    let runs = payload
-        .into_iter()
-        .map(|item| {
-            let builtin = lookup(&item.name)?;
-            Ok((builtin.name, builtin::json_params(builtin, item.params)?, item.count_total.unwrap_or(false)))
-        })
-        .collect::<ServerResult<Vec<_>>>()?;
     let results = with_ledger(ledger, move |ledger| {
+        let compiled = builtin::compiled_for(ledger);
+        // every name and parameter is checked before a query runs
+        let runs = payload
+            .into_iter()
+            .map(|item| {
+                let builtin = lookup(&compiled, &item.name)?;
+                Ok((builtin, builtin::json_params(&builtin.query, item.params)?, item.count_total.unwrap_or(false)))
+            })
+            .collect::<ServerResult<Vec<_>>>()?;
         runs.into_iter()
-            .map(|(name, params, count_total)| builtin::execute(ledger, name, &params, count_total))
+            .map(|(builtin, params, count_total)| builtin.execute(ledger, &params, count_total))
             .collect::<ServerResult<Vec<_>>>()
     })
     .await?;
@@ -654,7 +669,7 @@ mod builtin_test {
     use zhang_query::{Params, Value};
 
     use super::{get_builtin_queries, get_builtin_query_text, run_builtin_queries, run_builtin_query, run_query};
-    use crate::builtin::{self, BUILTINS};
+    use crate::builtin;
     use crate::request::{BuiltinParamValue, BuiltinQueryBatchItem, BuiltinQueryRunRequest, BuiltinQueryTextRequest, QueryRequest};
     use crate::response::QueryResultEntity;
     use crate::state::SharedLedger;
@@ -693,10 +708,10 @@ mod builtin_test {
         (status, serde_json::from_slice(&bytes).unwrap())
     }
 
-    async fn text_of(name: &str, params: serde_json::Value) -> (StatusCode, serde_json::Value) {
+    async fn text_of(ledger: &SharedLedger, name: &str, params: serde_json::Value) -> (StatusCode, serde_json::Value) {
         let params: HashMap<String, Option<BuiltinParamValue>> = serde_json::from_value(params).unwrap();
         body(
-            get_builtin_query_text(Path((name.to_owned(),)), Json(BuiltinQueryTextRequest { params }))
+            get_builtin_query_text(State(ledger.clone()), Path((name.to_owned(),)), Json(BuiltinQueryTextRequest { params }))
                 .await
                 .into_response(),
         )
@@ -731,10 +746,11 @@ mod builtin_test {
 
     #[tokio::test]
     async fn builtins_are_listed_with_their_bql_typed_params_and_columns() {
-        let (status, body) = body(get_builtin_queries().await.into_response()).await;
+        let ledger = ledger().await;
+        let (status, body) = body(get_builtin_queries(State(ledger.clone())).await.into_response()).await;
         assert_eq!(status, StatusCode::OK);
         let listed = body["data"].as_array().unwrap();
-        assert_eq!(listed.len(), BUILTINS.len());
+        assert_eq!(listed.len(), builtin::standard().queries().len());
         let between = listed.iter().find(|it| it["name"] == "postings.between").unwrap();
         assert_eq!(
             between,
@@ -756,7 +772,6 @@ mod builtin_test {
         let matching = listed.iter().find(|it| it["name"] == "postings.matching").unwrap();
         assert_eq!(matching["params"], json!([{"name": "payee", "type": "str"}, {"name": "tags", "type": "set"}]));
         // every query has columns, and they are those of its result
-        let ledger = ledger().await;
         for builtin in listed {
             let name = builtin["name"].as_str().unwrap();
             assert!(!builtin["columns"].as_array().unwrap().is_empty(), "{}", name);
@@ -787,7 +802,7 @@ mod builtin_test {
             assert_eq!(run["data"]["rows"].as_array().unwrap().len(), rows, "{} {}", name, params);
             assert_eq!(run["data"].as_object().unwrap().keys().collect::<Vec<_>>(), ["columns", "rows"]);
 
-            let (_, written) = text_of(name, params.clone()).await;
+            let (_, written) = text_of(&ledger, name, params.clone()).await;
             let (_, inlined) = query(&ledger, written["data"]["query"].as_str().unwrap(), None).await;
             assert_eq!(run["data"], inlined["data"], "{} {}", name, params);
 
@@ -930,7 +945,7 @@ mod builtin_test {
             ),
         ];
         for (name, json_params, params, rows) in cases {
-            let (status, written) = text_of(name, json_params.clone()).await;
+            let (status, written) = text_of(&ledger, name, json_params.clone()).await;
             assert_eq!(status, StatusCode::OK, "{}: {}", name, written);
             let text = written["data"]["query"].as_str().unwrap();
             for param in builtin::get(name).unwrap().params {
@@ -948,7 +963,8 @@ mod builtin_test {
 
     #[tokio::test]
     async fn builtin_text_of_an_unknown_query_or_bad_params_is_an_error() {
-        let (status, body) = text_of("no.such.query", json!({})).await;
+        let ledger = ledger().await;
+        let (status, body) = text_of(&ledger, "no.such.query", json!({})).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
         assert_eq!(body["message"], "there is no built-in query no.such.query");
         for (params, message) in [
@@ -962,7 +978,7 @@ mod builtin_test {
                 "parameter :to must be a date string YYYY-MM-DD or null",
             ),
         ] {
-            let (status, body) = text_of("postings.between", params).await;
+            let (status, body) = text_of(&ledger, "postings.between", params).await;
             assert_eq!(status, StatusCode::BAD_REQUEST);
             assert_eq!(body["message"], message);
         }
@@ -1035,9 +1051,9 @@ mod ledger_catalog_test {
     use zhang_query::analysis::{ledger_catalog, publish, AnalyzerTables};
     use zhang_query::Catalog;
 
-    use super::{get_saved_queries, run, run_builtin};
+    use super::{get_builtin_queries, get_builtin_query_text, get_saved_queries, run, run_builtin, run_builtins};
     use crate::builtin;
-    use crate::request::{BuiltinParamValue, BuiltinQueryRunRequest};
+    use crate::request::{BuiltinParamValue, BuiltinQueryBatchItem, BuiltinQueryRunRequest, BuiltinQueryTextRequest};
     use crate::state::SharedLedger;
 
     /// A ledger whose analyzer `shop` published an item, with saved queries of its table.
@@ -1057,7 +1073,9 @@ mod ledger_catalog_test {
         .unwrap();
         let manifest = serde_json::from_value(json!({
             "analysis_abi": 1,
-            "tables": [{"name": "items", "kind": "records", "columns": [{"name": "item", "type": "str"}]}]
+            "tables": [{"name": "items", "kind": "records", "columns": [{"name": "item", "type": "str"}]}],
+            "queries": [{"name": "item", "description": "One item of the shop.", "bql": "SELECT item FROM #shop_items WHERE item = :item",
+                         "params": [{"name": "item", "type": "str"}]}]
         }))
         .unwrap();
         let catalog = ledger_catalog(&[AnalyzerTables {
@@ -1101,6 +1119,58 @@ mod ledger_catalog_test {
         let saved = body(get_saved_queries(State(shared)).await).await;
         assert_eq!(saved["data"][0]["valid"], json!(true), "{saved}");
         assert_eq!(saved["data"][1]["valid"], json!(false), "{saved}");
+    }
+
+    /// An analyzer's named query is a built-in query of its ledger: listed among zhang's, before the commodities', and
+    /// run, batched and written out as they are; a ledger without the analyzer has no such query.
+    #[tokio::test]
+    async fn an_analyzers_named_queries_are_built_in_queries_of_its_ledger() {
+        let shared = SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger())));
+        let listed = body(get_builtin_queries(State(shared.clone())).await).await;
+        let names = listed["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|query| query["name"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        let at = names.iter().position(|name| name == "shop.item").expect("listed");
+        assert_eq!((names[at - 1].as_str(), names[at + 1].as_str()), ("budgets.postings", "commodities.totals"));
+        assert_eq!(
+            listed["data"][at],
+            json!({
+                "name": "shop.item",
+                "description": "One item of the shop.",
+                "bql": "SELECT item FROM #shop_items WHERE item = :item",
+                "params": [{"name": "item", "type": "str"}],
+                "columns": [{"name": "item", "type": "str"}],
+            })
+        );
+        let params = || HashMap::from([("item".to_owned(), Some(BuiltinParamValue::Text("apple".to_owned())))]);
+        let request = BuiltinQueryRunRequest {
+            params: params(),
+            count_total: None,
+        };
+        let item = body(run_builtin(&shared, "shop.item", request).await).await;
+        assert_eq!(item["data"]["rows"], json!([["apple"]]), "{item}");
+        let batch = vec![BuiltinQueryBatchItem {
+            name: "shop.item".to_owned(),
+            params: params(),
+            count_total: Some(true),
+        }];
+        let batch = body(run_builtins(&shared, batch).await).await;
+        assert_eq!(batch["data"][0]["rows"], json!([["apple"]]), "{batch}");
+        assert_eq!(batch["data"][0]["total"], json!(1), "{batch}");
+        let text = BuiltinQueryTextRequest { params: params() };
+        let text = body(get_builtin_query_text(State(shared.clone()), axum::extract::Path(("shop.item".to_owned(),)), axum::Json(text)).await).await;
+        assert_eq!(text["data"]["query"], json!("SELECT item FROM #shop_items WHERE item = 'apple'"));
+        // the ledger's own: another ledger has no such query
+        let other = SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger_without_tables())));
+        let request = BuiltinQueryRunRequest {
+            params: params(),
+            count_total: None,
+        };
+        let missing = body(run_builtin(&other, "shop.item", request).await).await;
+        assert_eq!(missing["message"], json!("there is no built-in query shop.item"), "{missing}");
     }
 
     fn ledger_without_tables() -> Ledger {

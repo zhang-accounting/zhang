@@ -9,9 +9,18 @@ use crate::domains::schemas::price_map;
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 
+/// Whether the budget directives of `ledger` are interpreted: not when the operator's policy stopped `zhang:budget`
+/// ([`crate::extensions::Extensions::unavailable`]), which the ledger then says once instead of checking them.
+pub(crate) fn interpreted(ledger: &Ledger) -> bool {
+    ledger.extensions.unavailable(crate::analysis::BUDGET).is_none()
+}
+
 /// define the budget of `budget`, unless one of its name is defined already: then the definition is reported, naming
 /// the budget, the commodity it is kept in and the commodity of this definition, and ignored
 pub(crate) fn define(budget: &Budget, ledger: &mut Ledger, span: &SpanInfo) {
+    if !interpreted(ledger) {
+        return;
+    }
     if let Some(defined) = defined(ledger, &budget.name) {
         let metas = HashMap::from([
             ("budget_name".to_owned(), budget.name.clone()),
@@ -34,14 +43,14 @@ pub(crate) fn define(budget: &Budget, ledger: &mut Ledger, span: &SpanInfo) {
 
 /// check a `budget-add` of a defined budget
 pub(crate) fn add(add: &BudgetAdd, ledger: &mut Ledger, span: &SpanInfo) {
-    if budget_exists(ledger, &add.name, span) {
+    if interpreted(ledger) && budget_exists(ledger, &add.name, span) {
         keep_foreign_amount(ledger, &add.name, &add.amount, None, add.date.naive_date(), span, None);
     }
 }
 
 /// check a `budget-transfer` between defined budgets
 pub(crate) fn transfer(transfer: &BudgetTransfer, ledger: &mut Ledger, span: &SpanInfo) {
-    if budget_exists(ledger, &transfer.from, span) && budget_exists(ledger, &transfer.to, span) {
+    if interpreted(ledger) && budget_exists(ledger, &transfer.from, span) && budget_exists(ledger, &transfer.to, span) {
         for name in [&transfer.from, &transfer.to] {
             keep_foreign_amount(ledger, name, &transfer.amount, None, transfer.date.naive_date(), span, None);
         }
@@ -50,7 +59,7 @@ pub(crate) fn transfer(transfer: &BudgetTransfer, ledger: &mut Ledger, span: &Sp
 
 /// close a defined budget: a budget closes with its first `budget-close`
 pub(crate) fn close(close: &BudgetClose, ledger: &mut Ledger, span: &SpanInfo) {
-    if !budget_exists(ledger, &close.name, span) {
+    if !interpreted(ledger) || !budget_exists(ledger, &close.name, span) {
         return;
     }
     if let Some(budget) = ledger.defined_budgets.as_mut().and_then(|budgets| budgets.get_mut(&close.name)) {

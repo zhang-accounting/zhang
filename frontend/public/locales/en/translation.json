@@ -55,7 +55,8 @@
     "PluginError": "Plugin {{meta.plugin}}: {{meta.message}}",
     "PluginsDisabled": "Plugin {{meta.plugin}} is not loaded: the server runs with plugins off ({{meta.setting}})",
     "PluginCapabilityReduced": "Plugin {{meta.plugin}} asks for {{meta.capability}} {{meta.requested}}, but the server allows it {{meta.granted}}; {{meta.setting}} sets what the server allows",
-    "PluginAnalysisFailed": "Plugin {{meta.plugin}} could not analyse the ledger ({{meta.reason}}): {{meta.message}}"
+    "PluginAnalysisFailed": "Plugin {{meta.plugin}} could not analyse the ledger ({{meta.reason}}): {{meta.message}}",
+    "ExtensionUnavailable": "Budget directives are not interpreted: {{meta.reason}}"
   },
   "ERROR_BOX_LOCATION": "{{file}} · lines {{start}}–{{end}}",
   "ERROR_BOX_LOCATION_LINE": "{{file}} · line {{line}}",

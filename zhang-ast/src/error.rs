@@ -70,4 +70,9 @@ pub enum ErrorKind {
     /// published, and its tables answer that they are unavailable. Metas `plugin` (its name), `reason` (`manifest`,
     /// `timeout`, `memory`, `trap`, `output` or `unavailable`) and `message`
     PluginAnalysisFailed,
+    /// the ledger uses what an official default plugin interprets, but the plugin is not running: budget directives,
+    /// or `budget` metadata of an `open`, in a ledger served with plugins off (`ZHANG_PLUGINS=off`), which stops
+    /// `zhang:budget` too. Reported once, on the first such directive; the budget tables and queries answer that they
+    /// are unavailable. Metas `plugin` (`zhang:budget`) and `reason`
+    ExtensionUnavailable,
 }
