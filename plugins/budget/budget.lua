@@ -9,7 +9,9 @@
 --      directives;
 --   2. the accounts of every budget, from the `budget` metadata of the `open`s;
 --   3. the parameters of each budget's label of `postings.budgets`;
---   4. the activity of each budget per month, summed and converted by zhang in one aggregation per budget;
+--   4. the activity of each budget per month, summed and converted by zhang: one aggregation per commodity, grouped by
+--      budget with unnest(), and one per budget for the budgets it cannot tell apart (closed, or with postings before
+--      their definition or that no price converts);
 --   5. the errors of postings: a posting to a budget not defined yet or closed (once per account and budget), and an
 --      amount in another commodity than its budget's that no price converts, once every price is known;
 --   6. what the budget directives put in, converted by zhang (zhang.convert) and added up exactly (zhang.decimal);
@@ -351,27 +353,120 @@ function M.analyze(input)
   local last = input.last_transaction
 
   -- 4. and 5. the postings of each budget's accounts, aggregated by zhang
-  -- Whether a price converts every posting a budget counts: a conversion found at a date is found at every later date,
-  -- so it is enough that each pair of a commodity and a cost currency of the budget's accounts converts into the
-  -- budget's commodity from the first date the pair occurs on one of them. Such a budget adds up its postings
-  -- converted; another one keeps those no price converts apart, and reads them, the errors of after the fold.
-  local everyone = {}
-  for _, of_budget in pairs(accounts) do
-    for _, account in ipairs(of_budget) do everyone[account] = true end
+  local activity = {}
+  local member = "account IN :accounts AND open_meta_has(account, 'budget', :label, date, time)"
+  -- whether every account of a budget is of a debit-normal type (Assets, Expenses), whose postings possign leaves as
+  -- they are
+  local function debit_normal(of_budget)
+    for _, account in ipairs(of_budget) do
+      local root = account:match("^[^:]*")
+      if root ~= "Assets" and root ~= "Expenses" then return false end
+    end
+    return true
+  end
+  -- the sum of the activity in the budget's commodity :commodity, of postings that all convert into it
+  local function converted_sum(signed)
+    return "sum(" .. signed("CASE WHEN currency = :commodity THEN number ELSE number(convert(position, :commodity, date)) END") .. ")"
+  end
+
+  -- The budgets defined and never closed: their activity is aggregated in one pass per commodity, grouped by the
+  -- budgets of each posting's account at its date and time (unnest), which sums, for each of them, the postings its
+  -- own query would (the same rows, in the same order), and counts those no price converts into its commodity. A
+  -- budget with such postings, or with postings before its definition (the first seq of its groups tells), is
+  -- aggregated by its own query below instead, as a closed one is.
+  local grouped, commodities = {}, {}
+  for _, name in ipairs(names) do
+    local budget = budgets[name]
+    if not budget.close and accounts[name] then
+      local of_commodity = commodities[budget.commodity]
+      if not of_commodity then
+        of_commodity = {}
+        commodities[budget.commodity] = of_commodity
+      end
+      of_commodity[#of_commodity + 1] = name
+      grouped[name] = { months = {}, first = math.maxinteger, unconverted = 0 }
+    end
+  end
+  for _, commodity in ipairs(sorted(commodities)) do
+    local in_commodity, scope, plain = {}, {}, true
+    for _, name in ipairs(commodities[commodity]) do
+      in_commodity[name] = true
+      for _, account in ipairs(accounts[name]) do scope[account] = true end
+      plain = plain and debit_normal(accounts[name])
+    end
+    local signed = function(value) return plain and value or "possign(" .. value .. ", account)" end
+    local rows = zhang.query_params("SELECT unnest(open_meta_values(account, 'budget', date, time)) AS budget, "
+      .. "yearmonth(date) AS month, min(seq) AS first, count(CASE WHEN currency != :commodity "
+      .. "AND currency(convert(position, :commodity, date)) != :commodity THEN 1 END) AS unconverted, "
+      .. converted_sum(signed) .. " AS activity WHERE account IN :accounts GROUP BY budget, month",
+      { accounts = zhang.set(sorted(scope)), commodity = zhang.str(commodity) }).rows
+    for _, row in ipairs(rows) do
+      if in_commodity[row[1]] then
+        local of_budget = grouped[row[1]]
+        of_budget.months[row[2]] = row[5]
+        if row[3] < of_budget.first then of_budget.first = row[3] end
+        of_budget.unconverted = of_budget.unconverted + row[4]
+      end
+    end
+  end
+  -- whether the activity of the budget `name` is the one of its commodity's pass
+  local function from_pass(name)
+    local it = grouped[name]
+    return it ~= nil and it.first > budgets[name].seq and it.unconverted == 0
+  end
+
+  -- The other budgets: whether a price converts every posting such a budget counts. A conversion found at a date is
+  -- found at every later date, so it is enough that each pair of a commodity and a cost currency of the budget's
+  -- accounts converts into the budget's commodity from the first date the pair occurs on one of them. Such a budget
+  -- adds up its postings converted; another one keeps those no price converts apart, and reads them, the errors of
+  -- after the fold. The pairs are read per account. A budget ignores the postings in its own commodity, so an account
+  -- of budgets of one commodity only reads the pairs of its postings in other commodities; an account of budgets of
+  -- several commodities reads them all.
+  local others = {}
+  for _, name in ipairs(names) do
+    if not from_pass(name) then others[#others + 1] = name end
+  end
+  local commodity_of = {}
+  for _, name in ipairs(others) do
+    for _, account in ipairs(accounts[name] or {}) do
+      local commodity = commodity_of[account]
+      if commodity == nil then
+        commodity_of[account] = budgets[name].commodity
+      elseif commodity ~= budgets[name].commodity then
+        commodity_of[account] = false
+      end
+    end
+  end
+  local by_commodity = {}
+  for account, commodity in pairs(commodity_of) do
+    local key = commodity or ""
+    local of_commodity = by_commodity[key]
+    if not of_commodity then
+      of_commodity = {}
+      by_commodity[key] = of_commodity
+    end
+    of_commodity[account] = true
   end
   local held = {}
-  for _, row in ipairs(zhang.query_params("SELECT account, currency, cost_currency, min(date) AS since "
-    .. "WHERE account IN :accounts GROUP BY account, currency, cost_currency",
-    { accounts = zhang.set(sorted(everyone)) }).rows) do
-    local of_account = held[row[1]]
-    if not of_account then
-      of_account = {}
-      held[row[1]] = of_account
+  for _, commodity in ipairs(sorted(by_commodity)) do
+    local params = { accounts = zhang.set(sorted(by_commodity[commodity])) }
+    local other = ""
+    if commodity ~= "" then
+      params.commodity = zhang.str(commodity)
+      other = " AND currency != :commodity"
     end
-    of_account[#of_account + 1] = row
+    for _, row in ipairs(zhang.query_params("SELECT account, currency, cost_currency, min(date) AS since "
+      .. "WHERE account IN :accounts" .. other .. " GROUP BY account, currency, cost_currency", params).rows) do
+      local of_account = held[row[1]]
+      if not of_account then
+        of_account = {}
+        held[row[1]] = of_account
+      end
+      of_account[#of_account + 1] = row
+    end
   end
   local checks, conversions = {}, {}
-  for _, name in ipairs(names) do
+  for _, name in ipairs(others) do
     local budget = budgets[name]
     budget.converts = true
     -- the first date of each pair on the budget's accounts
@@ -398,8 +493,6 @@ function M.analyze(input)
     end
   end
 
-  local activity = {}
-  local member = "account IN :accounts AND open_meta_has(account, 'budget', :label, date, time)"
   local function first_postings(name, rows, kind_of)
     for _, row in ipairs(rows) do
       local place = row[3]
@@ -415,6 +508,9 @@ function M.analyze(input)
       first_postings(name, zhang.query_params("SELECT 1 AS kind, account, min(seq * " .. PLACE .. " + posting_index) "
         .. "AS first WHERE " .. member .. " GROUP BY kind, account", params).rows,
         function() return "BudgetDoesNotExist" end)
+    elseif from_pass(name) then
+      -- aggregated in its commodity's pass: no posting before its definition, after a close, or that no price converts
+      activity[name] = grouped[name].months
     else
       local close, commodity = budget.close, budget.commodity
       params.defined_seq = zhang.int(budget.seq)
@@ -436,15 +532,9 @@ function M.analyze(input)
       -- they are), otherwise as an inventory, where a posting no price converts stays in its own commodity and is
       -- left out
       -- (possign leaves the postings of Assets and Expenses as they are: a budget of those accounts only needs none)
-      local debit_normal = true
-      for _, account in ipairs(of_budget) do
-        local root = account:match("^[^:]*")
-        if root ~= "Assets" and root ~= "Expenses" then debit_normal = false end
-      end
-      local signed = function(value) return debit_normal and value or "possign(" .. value .. ", account)" end
-      local sum = budget.converts
-        and "sum(" .. signed("CASE WHEN currency = :commodity THEN number ELSE number(convert(position, :commodity, date)) END") .. ")"
-        or "sum(" .. signed("convert(position, :commodity, date)") .. ")"
+      local plain = debit_normal(of_budget)
+      local signed = function(value) return plain and value or "possign(" .. value .. ", account)" end
+      local sum = budget.converts and converted_sum(signed) or "sum(" .. signed("convert(position, :commodity, date)") .. ")"
       local months, firsts = {}, false
       activity[name] = months
       for _, row in ipairs(zhang.query_params("SELECT " .. kind .. " AS kind, yearmonth(date) AS month, " .. sum
