@@ -171,11 +171,11 @@ pub(crate) struct ConstSet {
     items: Vec<Value>,
     /// whether the items are the elements of a set (`IN :tags`) rather than a list
     from_set: bool,
-    /// hashed with the standard library's SipHash, keyed per process, not FxHash like the engine's other per-row maps:
-    /// the items come from the query or a parameter, which a client writes, and FxHash has no key, so colliding items
-    /// could make building the set quadratic
-    strings: HashSet<String>,
-    others: HashSet<Value>,
+    /// hashed with a key of their own ([`ItemHasher`]), not FxHash like the engine's other per-row maps: the items come
+    /// from the query or a parameter, which a client writes, and FxHash has no key, so colliding items could make
+    /// building the set quadratic
+    strings: HashSet<String, ItemHasher>,
+    others: HashSet<Value, ItemHasher>,
     /// a NULL item: a needle that matches no other item is then NULL, not FALSE
     has_null: bool,
 }
@@ -186,8 +186,8 @@ impl ConstSet {
         let mut set = ConstSet {
             items: vec![],
             from_set: false,
-            strings: HashSet::new(),
-            others: HashSet::new(),
+            strings: HashSet::with_hasher(item_hasher()),
+            others: HashSet::with_hasher(item_hasher()),
             has_null: false,
         };
         for item in &items {
@@ -207,11 +207,13 @@ impl ConstSet {
 
     /// The elements of the set of `x IN <set>`.
     pub fn from_set(elements: &BTreeSet<String>) -> ConstSet {
+        let mut strings = HashSet::with_capacity_and_hasher(elements.len(), item_hasher());
+        strings.extend(elements.iter().cloned());
         ConstSet {
             items: vec![],
             from_set: true,
-            strings: elements.iter().cloned().collect(),
-            others: HashSet::new(),
+            strings,
+            others: HashSet::with_hasher(item_hasher()),
             has_null: false,
         }
     }
@@ -240,6 +242,36 @@ impl ConstSet {
             self.items.clone()
         }
     }
+}
+
+/// The hasher of a [`ConstSet`]'s items: foldhash, with a random key per process and another for every set, both drawn
+/// through the standard library's `RandomState`, whose keys come from the system's random source.
+///
+/// A row of a query tests its value against the set, so the hash is on the path of every row: with the standard
+/// library's SipHash, the queries of a budget analysis over 100,000 transactions (`account IN :accounts` on every
+/// posting of the budgets' accounts) ran about 2 ms longer, of 75 ms, than with foldhash or FxHash.
+///
+/// foldhash is not a cryptographic hash. It resists precomputed collisions as long as its key is secret and its
+/// outputs are not observed, foldhash's own claim of "minimal" HashDoS resistance, and both hold here:
+///
+/// - the key is not foldhash's default one, made of addresses and the time, but random bits of the system's random
+///   source, and every set has a key of its own on top of the process's;
+/// - no answer shows a hash or the order of a set's items: a list's items are shown as written (EXPLAIN), a set's as
+///   the sorted [`Value::Set`], and a test answers a boolean.
+///
+/// Without the key, items chosen to collide do so no more often than random ones: building a set takes expected linear
+/// time.
+pub(crate) type ItemHasher = foldhash::fast::SeedableRandomState;
+
+/// a new [`ItemHasher`], with a random key of its own and the random key of the process
+fn item_hasher() -> ItemHasher {
+    use std::hash::{BuildHasher, Hasher};
+    static SHARED: std::sync::OnceLock<foldhash::SharedSeed> = std::sync::OnceLock::new();
+    // the hash of nothing under a new `RandomState`: 64 bits no one can tell without its keys, which the system's random
+    // source draws once per thread, and which move on for every new `RandomState`
+    let random = || std::collections::hash_map::RandomState::new().build_hasher().finish();
+    let shared = SHARED.get_or_init(|| foldhash::SharedSeed::from_u64(random()));
+    ItemHasher::with_seed(random(), shared)
 }
 
 /// The ancestor of an `under(subject, ancestor)` call ([`CExpr::as_under`]).

@@ -16,6 +16,8 @@ nom = "7"
 regex = "1"
 # a fast hash for the names the postings cache looks up per row (`table::cache`)
 rustc-hash = "2"
+# a fast keyed hash for the items of `IN`, which a client writes (`compiler::ConstSet`)
+foldhash = "0.2"
 # the parameters of a query given as JSON (`params::from_json`), as the API and plugins give them
 serde = { workspace = true }
 serde_json = { workspace = true }
