@@ -132,6 +132,8 @@ fn main() -> ExitCode {
         eprintln!("the budget baseline needs a release build: cargo run --release -p zhang --example budget_baseline");
         return ExitCode::FAILURE;
     }
+    // what `zhang` sets up at startup: how zhang-core gives the allocator's free memory back
+    allocator::install();
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
         [] => run_all(),
