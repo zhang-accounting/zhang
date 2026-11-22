@@ -11,7 +11,8 @@ http = ["dep:http"]
 [dependencies]
 bigdecimal = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
+# raw_value: the host reads the parts of an analyzer's output as their text (`plugin_abi::analysis::RawOutput`)
+serde_json = { workspace = true, features = ["raw_value"] }
 base64 = { workspace = true }
 chrono = { version = "0.4", default-features = false, features = ["std"] }
 http = { workspace = true, optional = true }

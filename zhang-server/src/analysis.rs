@@ -54,6 +54,10 @@ impl AnalysisHost for ServerAnalysisHost {
     fn publish(&self, ledger: &Ledger, provider: &str, output: &abi::Output) -> Result<Arc<dyn Any + Send + Sync>, String> {
         zhang_query::analysis::publish(ledger, provider, output)
     }
+
+    fn publish_raw(&self, ledger: &Ledger, provider: &str, output: &abi::RawOutput<'_>) -> Option<Arc<dyn Any + Send + Sync>> {
+        zhang_query::analysis::publish_raw(ledger, provider, output)
+    }
 }
 
 /// The host of the analyses, one for the process.

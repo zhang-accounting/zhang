@@ -277,15 +277,31 @@ fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPl
 }
 
 /// The data and the diagnostics of `output`, what `plugin` answered, checked whole: its size first, without reading
-/// it ([`abi::check_size`]), then the shapes.
+/// it ([`abi::check_size`]), then the shapes. An output is read the quick way first, straight into cells
+/// ([`AnalysisHost::publish_raw`](analysis::AnalysisHost::publish_raw)); one that it does not take is read again the
+/// long way, which says what does not hold.
 fn check(
     ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin, manifest: &abi::Manifest, output: &[u8],
 ) -> Result<(Arc<dyn Any + Send + Sync>, Vec<Diagnostic>), AnalysisFailure> {
     let invalid = |message: String| AnalysisFailure::new("output", message);
     abi::check_size(output, abi::MAX_OUTPUT_BYTES, abi::MAX_OUTPUT_NODES, abi::MAX_OUTPUT_OBJECTS)
         .map_err(|why| invalid(format!("its output is too large to read: {}", log_safe(&why))))?;
+    if let Some(checked) = quick_check(ledger, host, plugin, manifest, output) {
+        return Ok(checked);
+    }
     let output: abi::Output = serde_json::from_slice(output).map_err(|e| invalid(format!("its output is not one: {}", log_safe(&e.to_string()))))?;
     let diagnostics = analysis::diagnostics(ledger, &plugin.name, manifest, plugin.is_budget_provider(), &output.diagnostics).map_err(invalid)?;
     let data = host.publish(ledger, &plugin.name, &output).map_err(invalid)?;
     Ok((data, diagnostics))
+}
+
+/// [`check`] the quick way, after the size: the diagnostics and the data of `output`, or `None` when the quick reading
+/// does not take it or something does not hold.
+fn quick_check(
+    ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPlugin, manifest: &abi::Manifest, output: &[u8],
+) -> Option<(Arc<dyn Any + Send + Sync>, Vec<Diagnostic>)> {
+    let output: abi::RawOutput<'_> = serde_json::from_slice(output).ok()?;
+    let diagnostics = analysis::diagnostics(ledger, &plugin.name, manifest, plugin.is_budget_provider(), &output.diagnostics).ok()?;
+    let data = host.publish_raw(ledger, &plugin.name, &output)?;
+    Some((data, diagnostics))
 }

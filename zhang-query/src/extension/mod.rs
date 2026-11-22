@@ -46,6 +46,7 @@ pub(crate) mod abi;
 pub(crate) mod budget;
 mod compat;
 pub(crate) mod labels;
+pub(crate) mod reader;
 pub(crate) mod series;
 pub(crate) mod snapshot;
 

@@ -97,6 +97,47 @@ pub(crate) fn publish(provider: &Provider, mut tables: Vec<(String, TableData)>,
     Ok(published)
 }
 
+#[cfg(test)]
+impl Snapshot {
+    /// Everything the snapshot holds, written out with every cell's `Debug` (a decimal with its scale): for tests that
+    /// compare two snapshots exactly.
+    pub fn describe(&self) -> String {
+        use std::fmt::Write;
+        let mut out = format!("digest {:?}\n", self.digest);
+        let meta = |meta: &Option<Arc<Meta>>| format!("{:?}", meta.as_deref());
+        for (name, data) in &self.tables {
+            match data {
+                TableData::Records(rows) => {
+                    for row in rows {
+                        writeln!(out, "{name} {:?} {}", row.cells, meta(&row.meta)).unwrap();
+                    }
+                }
+                TableData::Series(partitions) => {
+                    for partition in partitions {
+                        writeln!(
+                            out,
+                            "{name} until {} {:?} {:?}",
+                            partition.until,
+                            partition.until_cause.map(|it| it.seq),
+                            partition.first_cause.map(|it| it.seq)
+                        )
+                        .unwrap();
+                        for fact in &partition.facts {
+                            writeln!(out, "  {} {:?} {}", fact.period, fact.cells, meta(&fact.meta)).unwrap();
+                        }
+                    }
+                }
+            }
+        }
+        for (name, labels) in &self.labels {
+            for label in labels {
+                writeln!(out, "{name} {:?} {:?}", label.label, label.params).unwrap();
+            }
+        }
+        out
+    }
+}
+
 /// The snapshot of a native provider of a ledger: its parts are built from the ledger on first use, and checked. A
 /// catalog may serve some of the provider's tables from an analyzer instead ([`super::abi`]); the parts it serves are
 /// the same whichever of them it serves.

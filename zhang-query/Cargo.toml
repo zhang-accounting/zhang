@@ -17,6 +17,7 @@ regex = "1"
 # a fast hash for the names the postings cache looks up per row (`table::cache`)
 rustc-hash = "2"
 # the parameters of a query given as JSON (`params::from_json`), as the API and plugins give them
+serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { version = "1", default-features = false }
 
