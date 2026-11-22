@@ -6646,11 +6646,13 @@ version = "0.1.0"
 dependencies = [
  "bigdecimal",
  "chrono",
+ "foldhash",
  "indexmap 2.14.2",
  "mimalloc",
  "nom",
  "regex",
  "rustc-hash",
+ "serde",
  "serde_json",
  "tempfile",
  "uuid",
