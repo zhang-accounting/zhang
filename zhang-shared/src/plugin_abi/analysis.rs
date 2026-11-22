@@ -401,7 +401,8 @@ pub struct QueryParamManifest {
 /// tables. The host checks all of it against the plugin's [`Manifest`] and publishes it whole, or nothing of it. A cell
 /// is JSON as the query API writes one: a string, an integer, a boolean, a date `YYYY-MM-DD`, an amount
 /// `{"number": "12.50", "currency": "CNY"}` with its number as text, a set as a list of strings, metadata as
-/// `{"key": ["value"]}`, or `null`. A decimal is text too: a JSON number in a `decimal` or `amount` cell is refused.
+/// `{"key": ["value"]}`, or `null`. A decimal is text too: a JSON number in a `decimal` or `amount` cell is refused, and
+/// so is a decimal of more than [`MAX_CONVERTED_DIGITS`] digits written out in full.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Output {
     #[serde(default)]

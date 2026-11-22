@@ -242,17 +242,14 @@ impl Visitor<'_> for Number {
     }
 
     fn visit_str<E: serde::de::Error>(self, text: &str) -> Result<BigDecimal, E> {
-        match crate::params::decimal(text) {
-            Ok(Value::Decimal(number)) => Ok(number),
-            _ => stop(),
-        }
+        super::abi::output_decimal(text).or_else(|_| stop())
     }
 }
 
 /// A cell of a type other than `str` written as the text `text`: a decimal or a date.
 fn text_cell<E: serde::de::Error>(ty: DataType, text: &str) -> Result<Value, E> {
     match ty {
-        DataType::Decimal => crate::params::decimal(text).or_else(|_| stop()),
+        DataType::Decimal => super::abi::output_decimal(text).map(Value::Decimal).or_else(|_| stop()),
         DataType::Date => parse_date(text).map(Value::Date).map_or_else(stop, Ok),
         _ => stop(),
     }

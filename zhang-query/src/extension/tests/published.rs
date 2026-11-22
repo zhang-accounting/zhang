@@ -650,3 +650,93 @@ fn the_quick_way_reads_an_output_as_the_long_way_does_or_leaves_it_to_it() {
         assert_eq!(quick, None, "{text}");
     }
 }
+
+#[test]
+fn a_decimal_of_an_output_has_at_most_a_thousand_digits_written_out() {
+    use crate::extension::abi::{output_decimal, MAX_OUTPUT_DIGITS};
+    assert_eq!(MAX_OUTPUT_DIGITS, 1000);
+    let digits = |n: usize| "9".repeat(n);
+    for taken in [
+        digits(1000),
+        format!("-{}", digits(1000)),
+        format!("{}.{}", digits(500), digits(500)),
+        format!("0.{}", digits(999)),
+        "1e999".to_owned(),
+        "-12.50".to_owned(),
+        format!(" {} ", digits(1000)),
+    ] {
+        assert!(output_decimal(&taken).is_ok(), "{taken:.40}");
+    }
+    for refused in [
+        digits(1001),
+        format!("{}.{}", digits(500), digits(501)),
+        format!("0.{}", digits(1000)),
+        "1e1000".to_owned(),
+        "1e-1000".to_owned(),
+        format!("1{}", "0".repeat(1000)),
+        digits(999_999),
+    ] {
+        let err = output_decimal(&refused).unwrap_err();
+        assert_eq!(
+            err, "it has more than 1000 digits written out in full, the most an analyzer writes",
+            "{refused:.40}"
+        );
+    }
+}
+
+#[test]
+fn a_decimal_cell_of_999_999_digits_is_refused_at_once_both_ways() {
+    let mut ledger = ledger(TEXT);
+    attach(&mut ledger, &[("shop", shop(), false), ("cells", cells(), false)]);
+    let long = "9".repeat(999_999);
+    let row = |d: &str, a: &str| {
+        format!(r#"{{"s": "x", "i": 1, "d": "{d}", "t": "2024-01-31", "b": true, "a": {{"number": "{a}", "currency": "USD"}}, "e": null, "m": null}}"#)
+    };
+    // 30 such cells, then a row the quick way leaves to the long way: both read them all
+    let mut rows = (0..15).map(|_| row(&long, &long)).collect::<Vec<_>>();
+    rows.push(r#"{"s": "x", "unknown": 1}"#.to_owned());
+    for text in [
+        format!(r#"{{"tables": {{"all": [{}]}}}}"#, row(&long, "1")),
+        format!(r#"{{"tables": {{"all": [{}]}}}}"#, row("1", &long)),
+        format!(r#"{{"tables": {{"all": [{}]}}}}"#, rows.join(", ")),
+        format!(r#"{{"labels": {{"items": [{{"label": "a", "params": {{"accounts": null, "min": "{long}"}}}}]}}}}"#),
+    ] {
+        let started = std::time::Instant::now();
+        let provider = if text.contains("\"all\"") { "cells" } else { "shop" };
+        let (long_way, quick) = both_ways(&ledger, provider, &text);
+        let err = match long_way {
+            Ok(_) => panic!("the long way took a decimal of 999,999 digits"),
+            Err(err) => err,
+        };
+        assert!(err.contains("more than 1000 digits written out in full"), "{err:.200}");
+        assert_eq!(quick, None);
+        // parsing them would take seconds each
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+    }
+}
+
+/// The worst an output costs now, both ways: as many decimals of 1000 digits as 32 MiB holds, and a row the quick way
+/// leaves to the long way at the end. `cargo test --release -p zhang-query --lib -- --ignored --nocapture worst`
+#[test]
+#[ignore]
+fn the_worst_output_of_decimals_costs() {
+    let mut ledger = ledger(TEXT);
+    attach(&mut ledger, &[("cells", cells(), false)]);
+    let long = "9".repeat(1000);
+    let row =
+        format!(r#"{{"s": "x", "i": 1, "d": "{long}", "t": "2024-01-31", "b": true, "a": {{"number": "{long}", "currency": "USD"}}, "e": null, "m": null}}"#);
+    let count = (abi::MAX_OUTPUT_BYTES - 1000) / (row.len() + 2);
+    let mut rows = vec![row; count];
+    rows.push(r#"{"s": "x", "unknown": 1}"#.to_owned());
+    let text = format!(r#"{{"tables": {{"all": [{}]}}}}"#, rows.join(", "));
+    assert!(text.len() <= abi::MAX_OUTPUT_BYTES);
+    let started = std::time::Instant::now();
+    let (long_way, quick) = both_ways(&ledger, "cells", &text);
+    println!(
+        "{} bytes, {} decimals of 1000 digits: both ways in {:?}",
+        text.len(),
+        2 * count,
+        started.elapsed()
+    );
+    assert!(long_way.is_err() && quick.is_none());
+}

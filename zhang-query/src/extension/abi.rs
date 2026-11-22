@@ -20,6 +20,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use bigdecimal::BigDecimal;
 use chrono::Datelike;
 use serde_json::{Map, Value as Json};
 use zhang_ast::amount::Amount;
@@ -340,10 +341,46 @@ impl Values {
     }
 }
 
+/// The most digits a decimal of an analyzer's output has, written out in full, before and after its point together:
+/// what `zhang_convert` reads and answers ([`abi::MAX_CONVERTED_DIGITS`]). A longer one is refused before it is parsed,
+/// which takes the square of its length: a decimal of the 999,999 digits a ledger's number may have costs most of a
+/// second, and an output holds a million values.
+pub const MAX_OUTPUT_DIGITS: u64 = abi::MAX_CONVERTED_DIGITS;
+
+/// The decimal written `text` in an analyzer's output: a decimal as a query's parameter reads one, of at most
+/// [`MAX_OUTPUT_DIGITS`] digits written out in full. Its text is bounded before it is parsed (its digits, its sign, its
+/// point and its exponent together), then the number, so that `1e5000` is refused as `1` with 5,000 zeros is.
+pub(crate) fn output_decimal(text: &str) -> Result<BigDecimal, String> {
+    let too_long = || format!("it has more than {} digits written out in full, the most an analyzer writes", MAX_OUTPUT_DIGITS);
+    let trimmed = text.trim();
+    if trimmed.len() as u64 > MAX_OUTPUT_DIGITS + 32 || trimmed.bytes().filter(u8::is_ascii_digit).count() as u64 > MAX_OUTPUT_DIGITS {
+        return Err(too_long());
+    }
+    let number = match crate::params::decimal(trimmed).map_err(json_error)? {
+        Value::Decimal(number) => number,
+        _ => return Err("a decimal is a string, such as \"12.50\"".to_owned()),
+    };
+    match written_digits(&number) > MAX_OUTPUT_DIGITS {
+        true => Err(too_long()),
+        false => Ok(number),
+    }
+}
+
+/// The digits of `number` written out in full, before and after its point together (`1e3` is `1000`: 4).
+fn written_digits(number: &BigDecimal) -> u64 {
+    let (digits, scale) = (number.digits(), number.fractional_digit_count());
+    match scale > 0 {
+        // the digits, with a zero before the point when they are all after it
+        true => digits.max(scale.unsigned_abs() + 1),
+        false if bigdecimal::Zero::is_zero(number) => 1,
+        false => digits.saturating_add(scale.unsigned_abs()),
+    }
+}
+
 /// The cell `json` of a column of the type `ty`, as the query API writes one: see [`abi::Output`].
 pub(crate) fn cell(ty: DataType, json: &Json) -> Result<Value, String> {
     let decimal = |json: &Json| match json {
-        Json::String(_) => from_json(DataType::Decimal, json).map_err(json_error),
+        Json::String(text) => output_decimal(text).map(Value::Decimal),
         _ => Err("a decimal is a string, such as \"12.50\"".to_owned()),
     };
     match (ty, json) {
