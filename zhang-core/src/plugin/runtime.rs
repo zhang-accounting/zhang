@@ -147,11 +147,15 @@ impl PluginRuntime {
             .with_functions(PluginHost::functions_for_instances(&self.bindings))
             .with_wasi(true);
         // never extism's own cache, which `EXTISM_CACHE_CONFIG` or wasmtime's configuration file set up
-        match &self.disk_cache {
+        let compiled = match &self.disk_cache {
             Some(cache) => builder.with_cache(cache.clone()),
             None => builder.with_cache_disabled(),
         }
-        .compile()
+        .compile();
+        // compiling, or reading the code back from the disk cache, freed the buffers it took on this thread: they are
+        // given up now, for any thread to reuse, as a compile is rare (once per plugin and settings)
+        crate::memory::return_freed();
+        compiled
     }
 
     /// how many times the module was compiled, for any settings
@@ -348,6 +352,23 @@ mod tests {
             generation += 1;
             assert_eq!(pool_state(&runtime), (1, generation), "capabilities are part of the settings");
         }
+    }
+
+    /// a compilation gives up the buffers it freed through the hook the binary set
+    /// ([`crate::memory::set_return_freed`]), on the thread that compiled; reusing the compiled code does not
+    #[test]
+    fn a_compilation_returns_the_memory_it_freed() {
+        thread_local!(static RETURNED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
+        fn count() {
+            RETURNED.with(|it| it.set(it.get() + 1));
+        }
+        crate::memory::set_return_freed(count);
+        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/config_echo.wat").to_vec()).with_disk_cache(None);
+        let settings = Manifest::default().with_config([("zhang.plugin", "returned")].into_iter());
+        drop(runtime.instantiate(settings.clone(), host("2026-10-05T00:00:00Z")).unwrap());
+        assert_eq!(RETURNED.with(std::cell::Cell::get), 1, "once, after the compilation");
+        drop(runtime.instantiate(settings, host("2026-10-05T00:00:00Z")).unwrap());
+        assert_eq!(RETURNED.with(std::cell::Cell::get), 1, "not when the compiled code is reused");
     }
 
     #[test]

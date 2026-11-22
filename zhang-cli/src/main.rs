@@ -232,6 +232,7 @@ fn init_logger() {
 #[tokio::main]
 async fn main() -> ExitCode {
     // console_subscriber::init();
+    allocator::install();
     init_logger();
     let opts = Opts::parse();
 

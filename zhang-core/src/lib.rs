@@ -16,6 +16,7 @@ pub mod extensions;
 pub mod inputs;
 pub mod inventory;
 pub mod ledger;
+pub mod memory;
 pub mod options;
 pub mod outcome;
 pub mod pipeline;
