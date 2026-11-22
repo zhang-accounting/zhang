@@ -102,6 +102,10 @@ jobs:
       - name: fake frontend build
         run: mkdir -p dist
         working-directory: ./frontend
+      # the release builds with `--locked`: a manifest change whose Cargo.lock was not updated must fail here, not
+      # in the nightly release (metadata resolves the whole workspace and compiles nothing)
+      - name: Cargo.lock is up to date
+        run: cargo metadata --locked --format-version 1 > /dev/null
       # zhang-server/tests/sdk_plugins.rs builds the example plugins for wasm32 with cargo, into
       # target/tmp/sdk-plugins, in every test process. The job that saves the cache builds them here first, so the
       # cache carries their dependencies (rust-cache keeps the dependencies of nested target directories) and the
