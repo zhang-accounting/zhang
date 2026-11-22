@@ -152,8 +152,8 @@ impl PluginRuntime {
             None => builder.with_cache_disabled(),
         }
         .compile();
-        // compiling, or reading the code back from the disk cache, freed the buffers it took: the allocator gives them
-        // back to the system now, as a compile is rare (once per plugin and settings) and a load does not reuse them
+        // compiling, or reading the code back from the disk cache, freed the buffers it took on this thread: they are
+        // given up now, for any thread to reuse, as a compile is rare (once per plugin and settings)
         crate::memory::return_freed();
         compiled
     }
@@ -354,7 +354,7 @@ mod tests {
         }
     }
 
-    /// a compilation gives the buffers it freed back to the system through the hook the binary set
+    /// a compilation gives up the buffers it freed through the hook the binary set
     /// ([`crate::memory::set_return_freed`]), on the thread that compiled; reusing the compiled code does not
     #[test]
     fn a_compilation_returns_the_memory_it_freed() {
