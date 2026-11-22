@@ -244,7 +244,10 @@ fn run(ledger: &Ledger, host: &dyn analysis::AnalysisHost, plugin: &RegisteredPl
         };
     }
     let started = Instant::now();
-    let input = match serde_json::to_vec(&input) {
+    // the records go once written: the call holds the text only
+    let written = serde_json::to_vec(&input);
+    drop(input);
+    let input = match written {
         Ok(input) => input,
         Err(error) => return Outcome::failed(AnalysisFailure::new("trap", format!("its input cannot be written: {error}")), false),
     };
