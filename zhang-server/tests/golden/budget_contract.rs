@@ -186,7 +186,15 @@ enum Budgets {
     Native,
     /// the budget analyzer of the SDK's examples, as the default plugin `zhang:budget`
     Analyzer,
+    /// the bundled script `zhang:budget` (`plugins/budget/budget.lua`), as the default plugin: RFC #698's `plugin`
+    /// mode. Its answers are compared with the golden files by value, and every difference is classified by the testing
+    /// guide's allowed differences ([`zhang_testkit::budget_parity`])
+    Script,
 }
+
+/// The differences the script's answers have with the golden files, by case and file: collected by [`compare`], and
+/// reported by the test that runs the script.
+static SCRIPT_DIFFERENCES: std::sync::Mutex<Vec<(String, zhang_testkit::budget_parity::Difference)>> = std::sync::Mutex::new(Vec::new());
 
 /// The budget analyzer of `zhang-plugin-sdk/examples/budget`, built for wasm32 once per process; `None` when the
 /// wasm32 target is missing (on CI that fails, as `sdk_plugins` does).
@@ -237,6 +245,14 @@ async fn server(dir: &Path, entry: &str, now: Clock, budgets: Budgets) -> Result
     let source = data_source_for(entry);
     let ledger = match budgets {
         Budgets::Native => Ledger::load_with_clock(dir.to_path_buf(), entry.to_owned(), source.clone(), now),
+        Budgets::Script => {
+            let options = zhang_server::analysis::load_options_for(Arc::new(PluginPolicy::default()), zhang_server::analysis::BudgetImpl::Plugin);
+            let ledger = Ledger::load_with_options(dir.to_path_buf(), entry.to_owned(), source.clone(), now, options);
+            if let Ok(ledger) = &ledger {
+                zhang_testkit::budget_parity::assert_published(ledger);
+            }
+            ledger
+        }
         Budgets::Analyzer => {
             let module = budget_analyzer().expect("the budget analyzer is built");
             let mut options = zhang_server::analysis::load_options(Arc::new(PluginPolicy::default()));
@@ -508,6 +524,30 @@ async fn round_trip(entry: &str, main: &str, text: &str, now: &Clock, requests: 
 fn compare(budgets: Budgets, path: &Path, actual: &str) {
     match budgets {
         Budgets::Native => golden::assert_text(path, actual),
+        Budgets::Script => {
+            let expected = std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            let file = path.strip_prefix(cases_dir()).unwrap_or(path).display().to_string();
+            let found = match path.extension().and_then(|it| it.to_str()) {
+                Some("json") => {
+                    let expected: Value = serde_json::from_str(&expected).unwrap_or_else(|error| panic!("{file}: {error}"));
+                    let actual: Value = serde_json::from_str(actual).expect("the rendered answers are JSON");
+                    zhang_testkit::budget_parity::differences("", &expected, &actual)
+                }
+                _ => expected
+                    .lines()
+                    .zip(actual.lines())
+                    .enumerate()
+                    .filter(|(_, (a, b))| a != b)
+                    .map(|(line, (a, b))| zhang_testkit::budget_parity::Difference {
+                        path: format!("line {}", line + 1),
+                        native: json!(a),
+                        plugin: json!(b),
+                        allowed: None,
+                    })
+                    .collect(),
+            };
+            SCRIPT_DIFFERENCES.lock().unwrap().extend(found.into_iter().map(|it| (file.clone(), it)));
+        }
         Budgets::Analyzer => {
             let expected = std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
             if expected != actual {
@@ -838,8 +878,8 @@ async fn budget_contract_as_an_analyzer() {
 
 /// A budget closed at a time the ledger's timezone skips (02:45 on 2024-03-10 in New York, whose clocks go from 02:00
 /// to 03:00) closes at that time as written: its `close_time` is `02:45:00`, the posting at 03:30 is after the close
-/// (`BudgetClosed`, no activity), its event's time is the instant zhang reads, 03:45. The analyzers answer as the native
-/// budgets do. #835 has no such case; RFC #698's differential fuzzer found it.
+/// (`BudgetClosed`, no activity), its event's time is the instant zhang reads, 03:45. The analyzers, the SDK's and the
+/// bundled script, answer as the native budgets do. #835 has no such case; RFC #698's differential fuzzer found it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_close_at_a_time_the_timezone_skips_closes_as_written() {
     const LEDGER: &str = "option \"operating_currency\" \"CNY\"\noption \"timezone\" \"America/New_York\"\n\
@@ -856,7 +896,7 @@ async fn a_close_at_a_time_the_timezone_skips_closes_as_written() {
     ];
     let scratch = Scratch::zhang(LEDGER);
     let now = Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2024-03-20T12:00:00Z").unwrap().to_utc());
-    let mut runs = vec![Budgets::Native];
+    let mut runs = vec![Budgets::Native, Budgets::Script];
     if budget_analyzer().is_some() {
         runs.push(Budgets::Analyzer);
     }
@@ -885,6 +925,55 @@ async fn a_close_at_a_time_the_timezone_skips_closes_as_written() {
     for other in &seen[1..] {
         assert_eq!(other, &seen[0]);
     }
+}
+
+/// Every case, with the bundled script `zhang:budget` computing the budgets instead of the native code (RFC #698's
+/// `plugin` mode): the same golden files, ids and places of the errors included, but for the differences the testing
+/// guide allows, which are listed. The list is also written to `budget-contract-script.txt` in the test's temporary
+/// directory.
+#[tokio::test(flavor = "multi_thread")]
+async fn budget_contract_as_the_budget_script() {
+    for case in CASES {
+        run_with(case, Budgets::Script).await;
+    }
+    budget_contract_schema_with(Budgets::Script).await;
+    let found = std::mem::take(&mut *SCRIPT_DIFFERENCES.lock().unwrap());
+    let report = found.iter().map(|(file, difference)| format!("{file} {difference}\n")).collect::<String>();
+    let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join("budget-contract-script.txt");
+    std::fs::write(&path, &report).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let allowed = found.iter().filter(|(_, it)| it.allowed.is_some()).count();
+    eprintln!("{} differences with the golden files, {allowed} of them allowed:\n{report}", found.len());
+    assert_eq!(
+        allowed,
+        found.len(),
+        "the script differs from the golden files where the testing guide allows no difference:\n{report}"
+    );
+}
+
+/// The bundled script `zhang:budget` declares what the native provider declares, descriptions and BQL included: the
+/// manifest the SDK's budget analyzer reads, which a test of zhang-query checks against the native provider.
+#[test]
+fn the_budget_script_declares_the_native_manifest() {
+    let scratch = Scratch::zhang("1970-01-01 open Assets:Cash\n  budget: \"Food\"\n");
+    let options = zhang_server::analysis::load_options_for(Arc::new(PluginPolicy::default()), zhang_server::analysis::BudgetImpl::Plugin);
+    let ledger = Ledger::load_with_options(
+        scratch.dir().to_path_buf(),
+        "main.zhang".to_owned(),
+        data_source_for("main.zhang"),
+        Clock::System,
+        options,
+    )
+    .expect("the ledger loads");
+    let script = ledger
+        .plugins
+        .analyzers()
+        .find(|plugin| plugin.is_budget_provider())
+        .expect("zhang:budget is registered");
+    assert!(script.script().is_some(), "zhang:budget is the bundled script");
+    let declared = serde_json::to_value(script.analyzer_manifest().expect("its manifest holds")).unwrap();
+    let native: zhang_shared::plugin_abi::analysis::Manifest =
+        serde_json::from_str(include_str!("../../../zhang-plugin-sdk/examples/budget/manifest.json")).expect("the native manifest");
+    assert_eq!(declared, serde_json::to_value(native).unwrap());
 }
 
 /// A `zhang:budget` that declares the budget errors and whose analysis traps: the WAT text of a module whose `manifest`

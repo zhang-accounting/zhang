@@ -35,8 +35,11 @@
 //! | a handler's `State`, a response as JSON, the server's router (feature `server`) | [`http`] |
 //! | a beanquery oracle case set, run and compared under one set of rules (feature `query`) | [`oracle::load_case_files`] and the other loaders, [`oracle::run_case`] |
 //! | a generated household ledger of any size, with budgets or without, byte for byte the same for a spec (the budget baseline) | [`budget_ledger::Spec`] |
+//! | the budgets of a ledger computed natively and by the budget script, compared (RFC #698's `both`, feature `server`) | [`budget_parity::compare`] |
 
 pub mod budget_ledger;
+#[cfg(feature = "server")]
+pub mod budget_parity;
 pub mod dialect;
 pub mod fixtures;
 pub mod golden;

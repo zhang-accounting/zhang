@@ -61,6 +61,15 @@ sidebar:
 - 每个错误的类型、metas、范围（文件、起点、终点、行）和 id，以及同一位置上各错误的顺序；
 - 每个数值（按数值比较）、每个状态码，以及每一列的名称和类型。
 
+### 预算脚本与原生预算的对照
+
+在内置脚本 `zhang:budget`（`plugins/budget/budget.lua`）成为预算的唯一实现（RFC #698 P3.3）之前，张记账用原生代码计算预算，由一个测试开关选择实现：
+
+- `zhang_server::analysis::BudgetImpl` 取 `native`、`plugin`（脚本，作为默认插件注册，代替原生提供者和原生检查）或 `both`，`load_options_for` 用它加载账本。带 `zhang-server` 的 `budget-switch` feature（预算基线则用 `zhang` 的同名 feature）的构建在服务器的每次加载中从 `ZHANG_BUDGET_IMPL` 读取它；`both` 在那里用脚本加载，因为服务器只提供一个账本。不带该 feature 的构建（所有发布版）都用原生实现加载。
+- `budget_contract_as_the_budget_script` 用脚本运行契约的每个用例，对照同样的黄金文件（包括错误的 id 和位置），并列出每个差异以及允许它的上述规则；其他任何差异都会让它失败。加上原生的用例，它就是 `both` 模式下的契约，每次运行测试都会运行。
+- `the_budget_script_answers_the_reference_figures_on_every_ledger` 在仓库的每个账本上，用 `budget_reference` 的独立计算检查脚本给出的预算页面，就像 `the_handlers_answer_the_reference_figures_on_every_ledger` 检查原生实现那样。设置 `ZHANG_BUDGET_IMPL=plugin`（或 `both`）时，`budget_commodity` 的每个测试（包括手算的小账本）都用脚本加载：`ZHANG_BUDGET_IMPL=plugin cargo nextest run -p zhang-server --test golden -E 'test(/budget_commodity/)'`。
+- `zhang_testkit::budget_parity` 就是 `both`：它用原生实现和脚本各加载一次账本，按服务器提供账本的方式提供，比较按 id 精确的错误、三张预算表、`#postings` 的 `budgets`、错误页以及预算页面的命名查询。`budget_parity::the_bench_ledgers_answer_alike_both_ways` 按需在预算基线的两个账本上运行它：`cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(the_bench_ledgers)'`。
+
 ## 约定
 
 - 测试名是陈述事实的 `snake_case` 句子：`a_pad_books_the_difference_now`、`every_ledger_has_an_oracle`。
