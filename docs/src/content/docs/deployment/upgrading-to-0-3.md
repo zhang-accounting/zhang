@@ -10,8 +10,8 @@ This page lists what to check. The [changelog](https://github.com/zhang-accounti
 ## Before you upgrade
 
 1. Back up the ledger folder, or commit it if it is a Git repository. Include `.zhang/passkeys.json` if you use [passkeys](/deployment/authentication/#passkeys).
-2. Note which plugins the ledger loads (`plugin` directives) and what they need: network access, a long `timeout`, files of the ledger. The server now limits all three, see [Plugins](#plugins).
-3. If you use the Docker tag `kilerd/zhang:snapshot`, switch to `kilerd/zhang:latest` or a version tag such as `kilerd/zhang:0.3.0`: images are published for releases only, and `snapshot` is no longer updated.
+2. Note which plugins the ledger loads (`plugin` directives) and what they need: network access, a long `timeout`, files of the ledger. The server now limits all three, see [Plugins](#plugins). If the ledger has budgets, keep plugins on: budgets are a plugin in 0.3.
+3. If you use the Docker tag `kilerd/zhang:snapshot`, switch to `kilerd/zhang:latest` or a version tag such as `kilerd/zhang:0.3.0`: images are published for releases only, and `snapshot` is no longer updated. To keep the compiled code of plugins when the container is re-created, mount a volume of its own at `/root/.cache/zhang`, see [Docker](/getting-started/installation/#docker).
 
 ## Plugins
 
@@ -28,7 +28,7 @@ The server, not the ledger, now has the last word on what plugins may do. By def
 
 **`ZHANG_PLUGINS=off` turns budgets off too.** Budgets are interpreted by the official plugin `zhang:budget`, which every ledger has, without a `plugin` directive and whatever its `features.plugin` option says, and which the operator's switch stops as it stops every plugin. A server run with `--plugins off` or `ZHANG_PLUGINS=off` logs that budgets are off when it starts; the budget pages and queries answer that the budget tables are unavailable, and the error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error. The query function `account_budgets()` still answers, as it reads only the `budget` metadata of the accounts' `open` directives. Budgets need `ZHANG_PLUGINS` `read`, the default, or `write`.
 
-**Plugins keep their compiled code in a cache of Zhang's own**, in the subdirectory `zhang-wasmtime-cache` of `~/.cache/zhang`, or of the directory [`ZHANG_PLUGIN_CACHE_DIR`](/guides/plugins/#compiled-code) sets, about 128 MiB at most. The cache in wasmtime's default directory (`~/.cache/wasmtime` on Linux) is no longer used, and you can delete it unless another program uses wasmtime; `EXTISM_CACHE_CONFIG` and wasmtime's configuration file are no longer read. As the cache holds code the server runs, Zhang uses it only in directories that belong to the user running it and that no other user can write to, and never in the ledger's folder. A directory Zhang cannot write to, such as on a read-only file system, or one it refuses, no longer stops every plugin from loading: Zhang runs them without the cache and logs a warning when it starts.
+**Plugins keep their compiled code in a cache of Zhang's own**, in the subdirectory `zhang-wasmtime-cache` of `~/.cache/zhang`, or of the directory [`ZHANG_PLUGIN_CACHE_DIR`](/guides/plugins/#compiled-code) sets, about 128 MiB at most. The cache in wasmtime's default directory (`~/.cache/wasmtime` on Linux) is no longer used, and you can delete it unless another program uses wasmtime; `EXTISM_CACHE_CONFIG` and wasmtime's configuration file are no longer read. As the cache holds code the server runs, Zhang uses it only in directories that belong to the user running it and that no other user can write to, and never in the ledger's folder. A directory Zhang cannot write to, such as on a read-only file system, or one it refuses, no longer stops every plugin from loading: Zhang runs them without the cache and logs a warning when it starts. If you set `EXTISM_CACHE_CONFIG` to move wasmtime's cache, set `ZHANG_PLUGIN_CACHE_DIR` instead; the cache's size is fixed at about 128 MiB.
 
 Plugin directives themselves change too:
 
@@ -71,6 +71,10 @@ Start 0.3, open the web UI and look at the error list on the **Overview** page. 
 ## Sign-in
 
 The browser's password popup is replaced by a login page, with passkeys. Sign-ins last 30 days; set `ZHANG_SESSION_SECRET` so that they survive a restart of the server. The mobile app signs in through the web UI, see [Mobile app sign-in](/deployment/authentication/#mobile-app-sign-in); `ZHANG_APP_RETURN_SCHEMES` ignores web schemes such as `https`.
+
+## Memory
+
+The `zhang` binary of 0.3 allocates memory with [mimalloc](https://github.com/microsoft/mimalloc) instead of the system's allocator. After a reload, which every write and every change of a ledger file causes, the memory of the ledger it replaced goes back to the system instead of staying with the server, so a server that writes often holds far less than with the system's allocator; right after it loads a small ledger, it may hold a few tens of MiB more. If you set a memory limit for Zhang, such as a container's, look at its memory under 0.3 after a few writes before you change the limit. A build from source with `--no-default-features` uses the system's allocator.
 
 ## After upgrading
 

@@ -10,8 +10,8 @@ description: 把张记账从 0.2 升级到 0.3 时，账本、插件和调用 AP
 ## 升级之前
 
 1. 备份账本文件夹，如果它是 Git 仓库，就提交一次。如果你使用[通行密钥](/zh-cn/deployment/authentication/#通行密钥)，备份中要包含 `.zhang/passkeys.json`。
-2. 记下账本加载了哪些插件（`plugin` 指令），以及它们需要什么：网络访问、较长的 `timeout`、账本中的文件。服务器现在会限制这三项，见[插件](#插件)。
-3. 如果你使用 Docker 标签 `kilerd/zhang:snapshot`，请改用 `kilerd/zhang:latest` 或版本标签，例如 `kilerd/zhang:0.3.0`：镜像只在发布时推送，`snapshot` 不再更新。
+2. 记下账本加载了哪些插件（`plugin` 指令），以及它们需要什么：网络访问、较长的 `timeout`、账本中的文件。服务器现在会限制这三项，见[插件](#插件)。如果账本使用了预算，请保持插件开启：在 0.3 中，预算也是一个插件。
+3. 如果你使用 Docker 标签 `kilerd/zhang:snapshot`，请改用 `kilerd/zhang:latest` 或版本标签，例如 `kilerd/zhang:0.3.0`：镜像只在发布时推送，`snapshot` 不再更新。要在重新创建容器后保留插件编译后的代码，请在 `/root/.cache/zhang` 挂载一个单独的卷，见 [Docker](/zh-cn/getting-started/installation/#docker)。
 
 ## 插件
 
@@ -28,7 +28,7 @@ description: 把张记账从 0.2 升级到 0.3 时，账本、插件和调用 AP
 
 **`ZHANG_PLUGINS=off` 也会关闭预算。** 预算由官方插件 `zhang:budget` 解释：每个账本都有它，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响，而运维者的开关会像停止其他插件一样停止它。以 `--plugins off` 或 `ZHANG_PLUGINS=off` 运行的服务器会在启动时记录预算已关闭；预算页面和查询会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。查询函数 `account_budgets()` 仍然会返回结果，因为它只读取账户 `open` 指令的 `budget` 元数据。预算需要 `ZHANG_PLUGINS` 为 `read`（默认值）或 `write`。
 
-**插件编译后的代码保存在张记账自己的缓存中**：放在 `~/.cache/zhang`（或 [`ZHANG_PLUGIN_CACHE_DIR`](/zh-cn/guides/plugins/#编译后的代码) 指定的目录）的子目录 `zhang-wasmtime-cache` 里，最多约 128 MiB。wasmtime 默认目录（Linux 上为 `~/.cache/wasmtime`）中的缓存不再使用，如果没有其他程序使用 wasmtime，可以删除它；`EXTISM_CACHE_CONFIG` 和 wasmtime 的配置文件也不再读取。由于缓存保存服务器会运行的代码，张记账只在属于运行它的用户、其他用户不能写入的目录中使用缓存，并且从不在账本文件夹中使用。张记账无法写入或拒绝使用的目录（例如在只读文件系统上）不会再让所有插件都无法加载：张记账会在没有缓存的情况下运行它们，并在启动时记录一条警告。
+**插件编译后的代码保存在张记账自己的缓存中**：放在 `~/.cache/zhang`（或 [`ZHANG_PLUGIN_CACHE_DIR`](/zh-cn/guides/plugins/#编译后的代码) 指定的目录）的子目录 `zhang-wasmtime-cache` 里，最多约 128 MiB。wasmtime 默认目录（Linux 上为 `~/.cache/wasmtime`）中的缓存不再使用，如果没有其他程序使用 wasmtime，可以删除它；`EXTISM_CACHE_CONFIG` 和 wasmtime 的配置文件也不再读取。由于缓存保存服务器会运行的代码，张记账只在属于运行它的用户、其他用户不能写入的目录中使用缓存，并且从不在账本文件夹中使用。张记账无法写入或拒绝使用的目录（例如在只读文件系统上）不会再让所有插件都无法加载：张记账会在没有缓存的情况下运行它们，并在启动时记录一条警告。如果你曾用 `EXTISM_CACHE_CONFIG` 改变 wasmtime 缓存的位置，请改为设置 `ZHANG_PLUGIN_CACHE_DIR`；缓存的大小固定为约 128 MiB。
 
 插件指令本身也有变化：
 
@@ -71,6 +71,10 @@ description: 把张记账从 0.2 升级到 0.3 时，账本、插件和调用 AP
 ## 登录
 
 浏览器的密码弹窗被登录页面取代，并且可以使用通行密钥。登录状态保持 30 天；设置 `ZHANG_SESSION_SECRET`，登录状态才能在服务器重启后保留。移动端通过网页界面登录，见[移动端登录](/zh-cn/deployment/authentication/#移动端登录)；`ZHANG_APP_RETURN_SCHEMES` 会忽略 `https` 等网页协议。
+
+## 内存
+
+0.3 的 `zhang` 程序使用 [mimalloc](https://github.com/microsoft/mimalloc) 而不是系统的内存分配器。每次写入和每次账本文件的修改都会触发重新加载；重新加载之后，被替换的账本占用的内存会还给系统，而不是留在服务器进程中，所以经常写入的服务器占用的内存比使用系统分配器时少得多；刚加载完一个小账本时，它可能会多占用几十 MiB。如果你为张记账设置了内存上限（例如容器的内存上限），请先在 0.3 上进行几次写入、观察它的内存，再决定是否调整上限。使用 `--no-default-features` 从源码构建的程序使用系统的分配器。
 
 ## 升级之后
 
