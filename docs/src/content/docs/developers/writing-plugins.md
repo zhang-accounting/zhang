@@ -746,7 +746,8 @@ A type not in this table, or a value not of that shape, is a `query` error witho
 
 Where they work:
 
-- `zhang_emit_error` reports into the error list from a processor or mapper. While the plugin registers (`name`, `version`, `supported_type`) what it reports is dropped, and in a router it is only logged.
+- `zhang_emit_error` reports into the error list from a processor or mapper. While the plugin registers (`name`, `version`, `supported_type`) what it reports is dropped, and in a router it is only logged. A run keeps at most 1,000 errors, 1 MiB of them in all (their messages, metas and spans): past that, the errors are dropped, and one more error says how many were.
+- The files and directories a processor or mapper reads are recorded so that a change to them reloads the ledger: at most 10,000 of them, 1 MiB of paths in all, per run. Past that, every path the plugin's `allowed_paths` grant is recorded instead, so that any change under one reloads it.
 - `zhang_now` works everywhere. In a router it reads the clock afresh for each request, and a call while registering does not make the ledger depend on the date.
 - `zhang_read_file` and `zhang_list_dir` answer `denied` outside a processor or mapper, and for any path `allowed_paths` does not grant.
 - `zhang_query`, `zhang_query_params`, `zhang_query_builtin`, `zhang_query_schema`, `zhang_ledger_info`, `zhang_write_preview` and `zhang_write_commit` answer `unavailable` outside a router request, but for the query functions, `zhang_ledger_info` and `zhang_convert`, which an analyzer calls while it analyses the ledger. An analysis runs no built-in query: `zhang_query_builtin` answers a `query` error there.

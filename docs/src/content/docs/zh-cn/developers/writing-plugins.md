@@ -612,7 +612,8 @@ fn route(request: Request) -> Result<Response, Error> {
 
 它们在哪里可用：
 
-- `zhang_emit_error` 在 processor 或 mapper 中把问题报告到错误列表。插件注册期间（`name`、`version`、`supported_type`）报告的内容会被丢弃，在 router 中则只会写入日志。
+- `zhang_emit_error` 在 processor 或 mapper 中把问题报告到错误列表。插件注册期间（`name`、`version`、`supported_type`）报告的内容会被丢弃，在 router 中则只会写入日志。一次运行最多保留 1,000 条错误，合计 1 MiB（消息、元数据和 span）：超出后的错误会被丢弃，并另加一条错误说明丢弃了多少条。
+- processor 或 mapper 读取的文件和目录会被记录下来，它们变化时账本会重新加载：每次运行最多记录 10,000 个，路径合计 1 MiB。超出后改为记录插件 `allowed_paths` 授权的每个路径，其下任何变化都会让账本重新加载。
 - `zhang_now` 在任何地方都可用。在 router 中，它为每个请求重新读取时钟；在注册期间调用它不会让账本依赖于日期。
 - `zhang_read_file` 和 `zhang_list_dir` 在 processor 或 mapper 之外，以及对 `allowed_paths` 未授予的任何路径，都返回 `denied`。
 - `zhang_query`、`zhang_query_params`、`zhang_query_builtin`、`zhang_query_schema`、`zhang_ledger_info`、`zhang_write_preview` 和 `zhang_write_commit` 在 router 请求之外返回 `unavailable`；但查询函数、`zhang_ledger_info` 和 `zhang_convert` 在分析器分析账本时可用。分析期间不运行内置查询：`zhang_query_builtin` 会返回 `query` 错误。
