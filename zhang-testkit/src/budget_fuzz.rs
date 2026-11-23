@@ -14,8 +14,10 @@
 //! - accounts of the five types linked to up to three budgets, closed and opened again the same day (at a time or not)
 //!   or the next day with other budgets, and postings around the close;
 //! - prices quoted either way, from a later date on, zero, or not at all (GBP and XAU never have one); shares held at
-//!   cost and sold from their lots; postings at a price, implicit postings, zero postings, two postings of an account
-//!   in one transaction; a `pad` and a `balance` on an account of a budget;
+//!   cost and sold from their lots (one posting selling lots at costs in two currencies, one that converts and one that
+//!   does not), maybe on a budget's account; postings at a price, implicit postings, zero postings, two postings of an
+//!   account in one transaction, postings that net to zero in a month; a `pad` and a `balance` on an account of a
+//!   budget; a budget whose accounts are all Income, Liabilities or Equity ones;
 //! - postings at the very instant of a budget directive of their account's budget (a definition, an add, a close);
 //! - a date typo: a transaction or a budget directive decades ahead, maybe two directives of the budget that day, or
 //!   a transaction in 9999 with a dozen budgets more, so that the unbounded queries of `#budgets` have too many months;
@@ -64,6 +66,7 @@ pub const FEATURES: &[&str] = &[
     "a budget defined after postings to its accounts",
     "a budget defined twice",
     "a budget named but never defined",
+    "a budget of Income, Liabilities or Equity accounts only",
     "a budget of an account of another type than Expenses",
     "a budget-add of an undefined budget",
     "a budget-close of an undefined budget",
@@ -77,6 +80,7 @@ pub const FEATURES: &[&str] = &[
     "a posting at the instant of a budget directive",
     "a posting at a price",
     "a posting no price converts",
+    "a sale from lots at costs in two currencies",
     "a second file",
     "a transfer between undefined budgets",
     "a transfer from a budget to itself",
@@ -87,6 +91,7 @@ pub const FEATURES: &[&str] = &[
     "an account opened later",
     "an amount in another commodity",
     "an amount of many digits",
+    "postings that net to zero in a month",
     "prices from a later month on",
     "shares held at cost and sold from their lots",
     "two directives of a budget at its last date",
@@ -320,6 +325,10 @@ impl Generator {
             let mut text = format!("{before} open {account}\n");
             if account == "Assets:Broker" {
                 text.push_str("  booking_method: \"FIFO\"\n");
+                // the account of the shares held at cost, sometimes a budget's
+                if self.random.chance(50) {
+                    text.push_str(&self.budget_metas(account, 2));
+                }
             }
             self.push(before, text);
         }
@@ -335,7 +344,13 @@ impl Generator {
             } else {
                 before
             };
-            let metas = if linked { self.budget_metas(account, 3) } else { String::new() };
+            let mut metas = if linked { self.budget_metas(account, 3) } else { String::new() };
+            // a budget no expense account is linked to: its accounts are all of a type possign negates or not
+            if !EXPENSES.contains(&account) && account != "Assets:Cash" && self.random.chance(30) {
+                self.note("a budget of Income, Liabilities or Equity accounts only");
+                self.links.push((account, "Refunds"));
+                metas.push_str("  budget: \"Refunds\"\n");
+            }
             self.push(opened, format!("{opened} open {account}\n{metas}"));
             // closed, and opened again with other budgets the same day or the next
             if linked && self.random.chance(25) {
@@ -359,6 +374,12 @@ impl Generator {
     }
 
     fn definitions(&mut self) {
+        if self.links.iter().any(|(_, name)| *name == "Refunds") {
+            let first = self.first;
+            self.instants.push((first, None, "Refunds"));
+            self.push(first, format!("{first} budget Refunds CNY\n"));
+            self.defined.push(("Refunds", "CNY"));
+        }
         for name in NAMES.iter().copied().filter(|name| *name != "Ghost") {
             if self.random.chance(15) {
                 self.note("a budget named but never defined");
@@ -513,9 +534,37 @@ impl Generator {
         if self.random.chance(40) {
             self.note("shares held at cost and sold from their lots");
             let (buy, sell) = (self.day_of(0), self.day_of(self.months - 1));
-            self.push(buy, format!("{buy} * \"Broker\" \"buy\"\n  Assets:Broker 3 GOLD {{300 USD}}\n  Assets:Bank\n"));
             let gift = *self.random.pick(EXPENSES);
-            self.push(sell, format!("{sell} * \"Friend\" \"gift\"\n  Assets:Broker -2 GOLD {{}}\n  {gift}\n"));
+            if self.random.chance(50) {
+                self.push(buy, format!("{buy} * \"Broker\" \"buy\"\n  Assets:Broker 3 GOLD {{300 USD}}\n  Assets:Bank\n"));
+                self.push(sell, format!("{sell} * \"Friend\" \"gift\"\n  Assets:Broker -2 GOLD {{}}\n  {gift}\n"));
+            } else {
+                // one lot at a cost in dollars, which converts, and one in pounds, which does not: the posting that
+                // sells both is checked whole, through its first lot's cost currency
+                self.note("a sale from lots at costs in two currencies");
+                self.push(buy, format!("{buy} * \"Broker\" \"buy\"\n  Assets:Broker 1 GOLD {{300 USD}}\n  Assets:Bank\n"));
+                let next = buy.succ_opt().expect("a date");
+                self.push(
+                    next,
+                    format!("{next} * \"Broker\" \"buy\"\n  Assets:Broker 1 GOLD {{250 GBP}}\n  Assets:Bank\n"),
+                );
+                self.push(
+                    sell,
+                    format!("{sell} * \"Friend\" \"gift\"\n  Assets:Broker -2 GOLD {{}}\n  {gift} 300 USD\n  {gift} 250 GBP\n"),
+                );
+            }
+        }
+        // a purchase and its refund in one month, in dollars, on an account with a posting no price converts: on the
+        // way of a budget whose postings do not all convert, the month's activity is a sum of zero
+        if self.random.chance(30) {
+            self.note("postings that net to zero in a month");
+            let account = *self.random.pick(EXPENSES);
+            let month = self.random.below(self.months as usize) as u32;
+            let (one, two) = (self.day_of(month), self.day_of(month));
+            self.push(one, format!("{one} * \"Shop\" \"bought\"\n  {account} 42.50 USD\n  Assets:Bank\n"));
+            self.push(two, format!("{two} * \"Shop\" \"refunded\"\n  {account} -42.50 USD\n  Assets:Bank\n"));
+            let other = self.any_day();
+            self.push(other, format!("{other} * \"Abroad\" \"unpriced\"\n  {account} 3 XAU\n  Assets:Bank\n"));
         }
         if self.random.chance(15) {
             self.note("a pad and a balance on an account of a budget");
