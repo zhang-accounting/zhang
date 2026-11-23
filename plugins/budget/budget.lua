@@ -641,13 +641,15 @@ function M.analyze(input)
         early = early .. " OR " .. closed
       end
       -- the activity per month of the postings counted, in the budget's commodity, negated on an account of a
-      -- negative type (possign): summed converted when every posting converts (those in the budget's commodity as
-      -- they are), otherwise as an inventory, where a posting no price converts stays in its own commodity and is
-      -- left out
+      -- negative type (possign): summed converted when every posting converts, otherwise as an inventory, where a
+      -- posting no price converts stays in its own commodity and is left out. Either way the postings in the
+      -- budget's commodity are summed as they are, exactly as the native code adds them: convert() would multiply
+      -- them by 1 in its 28-digit context, rounding a number of more significant digits
       -- (possign leaves the postings of Assets and Expenses as they are: a budget of those accounts only needs none)
       local plain = debit_normal(of_budget)
       local signed = function(value) return plain and value or "possign(" .. value .. ", account)" end
-      local sum = budget.converts and converted_sum(signed) or "sum(" .. signed("convert(position, :commodity, date)") .. ")"
+      local sum = budget.converts and converted_sum(signed)
+        or "sum(" .. signed("CASE WHEN currency = :commodity THEN units(position) ELSE convert(position, :commodity, date) END") .. ")"
       local months, firsts = {}, false
       activity[name] = months
       for _, row in ipairs(zhang.query_params("SELECT " .. kind .. " AS kind, yearmonth(date) AS month, " .. sum

@@ -1,0 +1,13 @@
+; the budget directives of main.zhang and the opens linking accounts to budgets, as written, file after file
+; ---- written as zhang
+2024-07-31 open Expenses:Misc
+  budget: "Food"
+  budget: "Gifts-2024"
+2024-08-01 budget Gifts-2024 CNY
+  alias: "The Gifts-2024"
+; ---- written as beancount
+2024-07-31 open Expenses:Misc
+  budget: "Food"
+  budget: "Gifts-2024"
+2024-08-01 custom "budget" "Gifts-2024" "CNY"
+  alias: "The Gifts-2024"

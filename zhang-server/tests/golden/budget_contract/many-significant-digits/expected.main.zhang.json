@@ -1,0 +1,472 @@
+{
+  "case": "many-significant-digits",
+  "description": "A posting of 29 significant digits in the budget's commodity, on a budget summed as an inventory (see main.zhang): its activity keeps every digit. Found by RFC #698's differential fuzzer (seed 17).",
+  "ledger": "zhang-server/tests/golden/budget_contract/many-significant-digits/main.zhang",
+  "now": "2025-06-01T00:00:00Z",
+  "errors": [
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "main.zhang",
+      "line": 19,
+      "metas": [{"key": "account_name", "value": "Expenses:Misc"}, {"key": "budget_name", "value": "Food"}, {"key": "txn_id", "value": "22ad936e-b71f-6626-4ee6-bff1ad36c21e"}]
+    },
+    {
+      "kind": "BudgetDoesNotExist",
+      "file": "main.zhang",
+      "line": 19,
+      "metas": [{"key": "account_name", "value": "Expenses:Misc"}, {"key": "budget_name", "value": "Gifts-2024"}, {"key": "txn_id", "value": "22ad936e-b71f-6626-4ee6-bff1ad36c21e"}]
+    }
+  ],
+  "error_list": [
+    {
+      "id": "3f47eb88-cc04-08ed-4b6c-aeadabeaaef7",
+      "id_of": "main.zhang@876 BudgetDoesNotExist #0",
+      "span": {"file": "main.zhang", "start": 876, "end": 991, "line": 19},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Misc", "budget_name": "Food", "txn_id": "22ad936e-b71f-6626-4ee6-bff1ad36c21e"}
+    },
+    {
+      "id": "7b28478a-2a34-4b92-44f4-7c3e74555c3a",
+      "id_of": "main.zhang@876 BudgetDoesNotExist #1",
+      "span": {"file": "main.zhang", "start": 876, "end": 991, "line": 19},
+      "kind": "BudgetDoesNotExist",
+      "metas": {"account_name": "Expenses:Misc", "budget_name": "Gifts-2024", "txn_id": "22ad936e-b71f-6626-4ee6-bff1ad36c21e"}
+    }
+  ],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2025-06-01", "12:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-08-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Gifts-2024", "The Gifts-2024", null, "CNY", "2024-08-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2025-05-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Gifts-2024", "The Gifts-2024", null, "CNY", "2025-05-01", {"number": "0", "currency": "CNY"}, "160.81716468152480290049764055", {"number": "-160.81716468152480290049764055", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts-2024"}},
+          {"name": "budgets.budget_month", "params": {"name": "Gifts-2024", "month": "2024-08-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts-2024", "The Gifts-2024", null, "CNY", ["Expenses:Misc"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Gifts-2024", "The Gifts-2024", null, "CNY", "2024-08-01", {"number": "0", "currency": "CNY"}, "0", {"number": "0", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Gifts-2024", "month": "2024-08-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts-2024", "month": "2024-08-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts-2024"}},
+          {"name": "budgets.events", "params": {"name": "Gifts-2024", "month": "2024-08-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts-2024", "month": "2024-08-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts-2024", "The Gifts-2024", null, "CNY", ["Expenses:Misc"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts-2024"}},
+          {"name": "budgets.budget_month", "params": {"name": "Gifts-2024", "month": "2025-05-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts-2024", "The Gifts-2024", null, "CNY", ["Expenses:Misc"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Gifts-2024", "The Gifts-2024", null, "CNY", "2025-05-01", {"number": "0", "currency": "CNY"}, "160.81716468152480290049764055", {"number": "-160.81716468152480290049764055", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Gifts-2024", "month": "2025-05-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts-2024", "month": "2025-05-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2025-05-16", "00:00:00", 1747310400, "Expenses:Misc", "1f8a01d9-b3df-1123-aea7-e4ea0b7fec23", "Shop", "29 significant digits in the budget's commodity", {"number": "160.81716468152480290049764055", "currency": "CNY"}, {"number": "160.81716468152480290049764055", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts-2024"}},
+          {"name": "budgets.events", "params": {"name": "Gifts-2024", "month": "2025-05-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts-2024", "month": "2025-05-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts-2024", "The Gifts-2024", null, "CNY", ["Expenses:Misc"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2025-05-16", "00:00:00", 1747310400, "Expenses:Misc", "1f8a01d9-b3df-1123-aea7-e4ea0b7fec23", "Shop", "29 significant digits in the budget's commodity", {"number": "160.81716468152480290049764055", "currency": "CNY"}, {"number": "160.81716468152480290049764055", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [["Gifts-2024", "2024-08-01", "CNY", "The Gifts-2024", null, ["Expenses:Misc"], null, null]]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": []
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "Gifts-2024",
+              "2024-08-01",
+              2024,
+              8,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2024-09-01",
+              2024,
+              9,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2024-10-01",
+              2024,
+              10,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2024-11-01",
+              2024,
+              11,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2024-12-01",
+              2024,
+              12,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2025-01-01",
+              2025,
+              1,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2025-02-01",
+              2025,
+              2,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2025-03-01",
+              2025,
+              3,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2025-04-01",
+              2025,
+              4,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2025-05-01",
+              2025,
+              5,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "160.81716468152480290049764055", "currency": "CNY"},
+              {"number": "-160.81716468152480290049764055", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ],
+            [
+              "Gifts-2024",
+              "2025-06-01",
+              2025,
+              6,
+              "CNY",
+              "The Gifts-2024",
+              null,
+              {"number": "-160.81716468152480290049764055", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "-160.81716468152480290049764055", "currency": "CNY"},
+              false,
+              ["Expenses:Misc"]
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            [
+              "2024-08-01",
+              "00:00:00",
+              "Expenses:Misc",
+              "in pounds, before the budget's definition",
+              {"number": "33.800", "currency": "GBP"},
+              []
+            ],
+            [
+              "2024-08-01",
+              "00:00:00",
+              "Assets:Bank",
+              "in pounds, before the budget's definition",
+              {"number": "-307.58000", "currency": "CNY"},
+              []
+            ],
+            [
+              "2025-05-16",
+              "00:00:00",
+              "Expenses:Misc",
+              "29 significant digits in the budget's commodity",
+              {"number": "160.81716468152480290049764055", "currency": "CNY"},
+              ["Gifts-2024"]
+            ],
+            [
+              "2025-05-16",
+              "00:00:00",
+              "Assets:Bank",
+              "29 significant digits in the budget's commodity",
+              {"number": "-160.81716468152480290049764055", "currency": "CNY"},
+              []
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}
