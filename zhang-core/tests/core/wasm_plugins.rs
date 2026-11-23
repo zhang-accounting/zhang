@@ -2603,6 +2603,33 @@ mod lua {
     }
 
     #[test]
+    fn errors_caught_in_a_loop_never_creep_past_the_lua_memory() {
+        // every Lua error is thrown with an exception object: were it to stay allocated, or to grow the memory past the
+        // Lua memory's edge, a script catching errors in a loop would hold more every round, then grow the instance past
+        // its limit, a trap. With the memory full: 300 rounds of a plain error and a memory error, whose pages past the
+        // edge (64 KiB a round) would be more than the reserve of a 32 MiB limit (8 MiB), then 100,000 plain errors
+        let dir = ledger_dir(&["error_loop.lua"]);
+        let content = with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "error_loop.lua")));
+        let small = PluginPolicy {
+            max_memory: 32 * MIB,
+            ..PluginPolicy::default()
+        };
+        let ledger = load_with_policy(&dir, &content, small).unwrap();
+        let request = PluginRequest::new(
+            "GET",
+            "/",
+            vec![("rounds".to_owned(), "300".to_owned()), ("errors".to_owned(), "100000".to_owned())],
+            vec![],
+            vec![],
+        );
+
+        let body = json_body(&call(&ledger, "error-loop", &request).unwrap());
+
+        assert!(body["first"].as_u64().unwrap() > 0, "{body}");
+        assert!(body["gained"].as_u64().unwrap() < 100, "the rounds held more than the first fill: {body}");
+    }
+
+    #[test]
     fn a_memory_error_caught_and_raised_again_is_still_the_lua_memory() {
         // a script (or the prelude, for an output that does not fit) may catch the memory error and fail with Lua's
         // message in other words: the call ran out of its Lua memory all the same. Another error stays what it is

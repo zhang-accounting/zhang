@@ -367,12 +367,27 @@ impl PluginInstance {
 
     /// call the export `name` with `input`
     pub fn call<'a, 'b, T: extism::ToBytes<'a>, U: extism::FromBytes<'b>>(&'b mut self, name: impl AsRef<str>, input: T) -> Result<U, extism::Error> {
+        self.timed(|plugin| plugin.call(name, input))
+    }
+
+    /// Call the export `name` with `input`, and on an error the code the export returned with it. The code is the
+    /// module's to choose, and an export that returns a code other than 0 without an error succeeds here: for the Lua
+    /// interpreter, which sets an error with every failure and returns
+    /// [`OUT_OF_LUA_MEMORY`](crate::plugin::lua::OUT_OF_LUA_MEMORY) when the script ran out of its Lua memory
+    pub fn call_get_error_code<'a, 'b, T: extism::ToBytes<'a>, U: extism::FromBytes<'b>>(
+        &'b mut self, name: impl AsRef<str>, input: T,
+    ) -> Result<U, (extism::Error, i32)> {
+        self.timed(|plugin| plugin.call_get_error_code(name, input))
+    }
+
+    /// run `call` on the plugin, spending the lease when the call does not return in time
+    fn timed<'b, R>(&'b mut self, call: impl FnOnce(&'b mut Plugin) -> R) -> R {
         // the lease is spent unless the call returns in time: a call that panics (in a host function
         // or in wasmtime) unwinds through extism before it stops the call's timer, so the engine's
         // epoch is still bumped at the deadline, which would stop the next instance on that engine
         self.lease.in_call = true;
         let started = Instant::now();
-        let result = self.plugin.call(name, input);
+        let result = call(&mut self.plugin);
         self.lease.in_call = false;
         // a call ending near its timeout spends the lease for good: a later call of this instance
         // (a mapper makes one per directive) returning in time does not make the engine safe again

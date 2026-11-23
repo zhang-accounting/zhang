@@ -206,6 +206,15 @@ fn a_lua_analysis_that_fails_loads_the_ledger_with_one_error() {
             "memory",
             "envelopes.lua` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)".to_owned(),
         ),
+        // the same words from the script itself: the interpreter tells the memory by its exit code, not by the message
+        (
+            ENVELOPES.replace(
+                "local currency = zhang.ledger_info().operating_currency",
+                "error(\"plugin `envelopes.lua` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)\", 0)",
+            ),
+            "trap",
+            "envelopes.lua` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)".to_owned(),
+        ),
     ];
     for (script, reason, message) in cases {
         let ledger = load(&scratch("envelopes.lua", &script));
