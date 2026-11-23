@@ -480,7 +480,7 @@ end
 return M
 ```
 
-本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_builtin`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.convert`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。`zhang.decimal` 在解释器中精确地加、减和比较小数。本版本中 Lua 脚本可以是 router 和分析器：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为 `zhang.decimal` 不做乘法和除法，而宿主会收回被改成 JSON 数字的金额（[原因](/zh-cn/guides/lua-plugins/#暂不支持-processor-和-mapper)）。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，每个请求有 64 MiB 的内存预算，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
+本页的宿主函数在 Lua 中是 `zhang` 表（`zhang.query`、带类型参数的 `zhang.query_params`、`zhang.query_builtin`、`zhang.query_schema`、`zhang.ledger_info`、`zhang.now`、`zhang.convert`、`zhang.config`、`zhang.emit_error`），`{"Ok": …}`/`{"Err": …}` 变成返回值或抛出的 Lua 错误。`zhang.decimal` 在解释器中精确地加、减和比较小数。本版本中 Lua 脚本可以是 router 和分析器：声明 `Processor` 或 `Mapper` 的脚本不会加载，因为 `zhang.decimal` 不做乘法和除法，而宿主会收回被改成 JSON 数字的金额（[原因](/zh-cn/guides/lua-plugins/#暂不支持-processor-和-mapper)）。脚本拥有 `string`、`table`、`math`、`utf8` 和 `coroutine`，没有 `io`、`os` 和 `require`，它的 Lua 内存是实例的内存限制（`ZHANG_PLUGIN_MAX_MEMORY`）减去 32 MiB，默认 224 MiB，脚本大小上限 1 MiB。完整的 API、JSON 规则和错误见 [Lua 插件](/zh-cn/guides/lua-plugins/)。
 
 ## 写入
 
@@ -570,6 +570,7 @@ fn route(request: Request) -> Result<Response, Error> {
 | `zhang.allowed_hosts` | 插件能访问的主机，一个 JSON 数组：它的 `allowed_hosts` 中服务器允许的部分。`zhang.plugin` 保留指令请求的内容 |
 | `zhang.timeout_ms` | 一次调用最长能运行多久，单位为毫秒：它的 `timeout`（或默认值）在服务器允许的范围内的值。扁平的 `timeout` 键保留指令请求的内容 |
 | `zhang.allowed_writes` | 插件能写入的指令种类，一个 JSON 数组，例如 `["transaction"]`：它的 `allowed_writes` 中服务器允许的部分，所以除非服务器以 `--plugins write` 运行，否则为 `[]`。要判断写入能否成功，读这个键，而不是 `zhang.plugin` |
+| `zhang.max_memory` | 插件的一个实例最多能使用的内存，单位为字节，一个十进制 `u64`：以 64 KiB 的整页计的 `ZHANG_PLUGIN_MAX_MEMORY`（默认 `268435456`）。它计入实例的所有线性内存，包括 Extism 自己的内存，其中存放输入、输出和宿主函数的回答；超过它会让调用失败 |
 
 没有设置 `zhang.abi` 的张记账早于 ABI v1：它不设置任何 `zhang.*` 键，也不链接下面的任何宿主函数。
 
@@ -625,4 +626,4 @@ fn route(request: Request) -> Result<Response, Error> {
 | `processor` 和 `mapper` 导出函数、扁平配置（选项和元数据）、`allowed_hosts` | 0.2.0 |
 | 真正提供服务的 `router` 导出函数、`zhang.abi`、`zhang.plugin`、`zhang.seed`、`zhang.allowed_hosts`、`zhang.timeout_ms`、上面除写入函数之外的所有宿主函数、`allowed_paths`、`timeout`、`seed`、`features.plugins`、忽略未知插件类型 | 0.2.0 之后的发布版 |
 | `zhang_write_preview`、`zhang_write_commit`、`capabilities` 导出函数、`allowed_writes`、`zhang.allowed_writes` | 0.2.0 之后带有写入能力的发布版 |
-| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert`、Lua 分析器，在 RFC #698 完成之前是实验性的 | 带有分析器的发布版（RFC #698） |
+| `Analyzer` 类型（`manifest`、`analyze`）、`zhang_convert`、Lua 分析器、`zhang.max_memory`，在 RFC #698 完成之前是实验性的 | 带有分析器的发布版（RFC #698） |

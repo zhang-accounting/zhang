@@ -686,7 +686,8 @@ and `message` (what happened). The reasons are:
 - `manifest`: what the plugin declares does not hold, or one of its table or column names is taken (by zhang, or by a
   plugin declared before it), or it would pass a limit (64 columns per table, 16 label columns per ledger). Its tables
   are not in the ledger at all;
-- `timeout` and `memory`: its analysis ran longer than its `timeout`, or needed more memory than the server allows;
+- `timeout` and `memory`: its analysis ran longer than its `timeout`, or needed more memory than the server allows
+  (`ZHANG_PLUGIN_MAX_MEMORY`; a Lua script gets it less 32 MiB, see [Lua plugins](/guides/lua-plugins/#limits));
 - `trap`: its analysis failed;
 - `output`: what it answered does not hold: a diagnostic of a kind it does not declare or naming no entry of the
   ledger, a cell of the wrong type, more than a million values or 64 MiB;
@@ -694,8 +695,8 @@ and `message` (what happened). The reasons are:
 
 The error is on the plugin's directive. The next load analyses the ledger again.
 
-**Fix:** a `timeout` meta on the directive gives a slow analysis more time, within the server's limit. Otherwise the
-message says what to fix in the plugin, or ask its author.
+**Fix:** a `timeout` meta on the directive gives a slow analysis more time, within the server's limit, and a larger
+`ZHANG_PLUGIN_MAX_MEMORY` gives it more memory. Otherwise the message says what to fix in the plugin, or ask its author.
 
 ## ExtensionUnavailable
 

@@ -25,6 +25,7 @@ use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
 use crate::plugin::host::{PluginHost, MESSAGE_META};
 use crate::plugin::log_safe;
+use crate::plugin::lua::is_out_of_lua_memory;
 use crate::plugin::router::{ledger_info, RouterHost};
 use crate::plugin::store::RegisteredPlugin;
 use crate::plugin_policy::{Size, MAX_MEMORY_ENV};
@@ -86,7 +87,9 @@ impl RegisteredPlugin {
                         if cause.len() < text.len() {
                             warn!("analyzer {} failed: {}", log_safe(&self.name), log_safe(&text));
                         }
-                        AnalysisFailure::new("trap", log_safe(cause).into_owned())
+                        // a script that ran out of its Lua memory needed more memory than the server allows, too
+                        let reason = if is_out_of_lua_memory(cause) { "memory" } else { "trap" };
+                        AnalysisFailure::new(reason, log_safe(cause).into_owned())
                     }
                 })
         })();

@@ -130,6 +130,10 @@ pub mod config {
     /// `allowed_writes` within what the server allows (none unless the operator runs it with `ZHANG_PLUGINS=write`).
     /// [`PLUGIN`] holds what the directive asked for. A plugin reads this, not the directive, to tell what it may do
     pub const ALLOWED_WRITES: &str = "zhang.allowed_writes";
+    /// config key holding the most memory one instance of the plugin may use, in bytes, a decimal `u64`: the server's
+    /// limit (`ZHANG_PLUGIN_MAX_MEMORY`) in whole WebAssembly pages of 64 KiB, which counts every linear memory of the
+    /// instance, Extism's own included. The Lua interpreter takes its Lua memory from it
+    pub const MAX_MEMORY: &str = "zhang.max_memory";
     /// Config key holding the source of a Lua script plugin (`plugin "x.lua"`), which the host hands to the
     /// embedded Lua interpreter module instead of a module of the plugin's own. Set only for a script.
     pub const SCRIPT: &str = "zhang.script";

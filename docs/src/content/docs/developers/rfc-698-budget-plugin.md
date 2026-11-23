@@ -427,7 +427,7 @@ it:
 | --- | --- | --- |
 | Call time | The plugin's `timeout`, capped by `ZHANG_PLUGIN_MAX_TIMEOUT` (30 s) | After I1 a reload no longer stalls readers, but a write still waits for its reload: analysis time is write latency, gated in G1 and P4 |
 | Analyses of one load | `ZHANG_PLUGIN_MAX_TIMEOUT` together (as built in P1.4): each runs at most what the analyses before it left, and one whose turn comes after it fails with `timeout` without running | A load's analyses cannot add more than one time limit to a write |
-| Memory | `ZHANG_PLUGIN_MAX_MEMORY` (256 MiB per instance); Lua's 64 MiB of values | Unchanged |
+| Memory | `ZHANG_PLUGIN_MAX_MEMORY` (256 MiB per instance); Lua's 64 MiB of values (as built after the review of #891: the instance's limit less 32 MiB for Extism's memory, 224 MiB by default; a ledger of monthly budgets, 45 categories × 120 months, needs 96 to 112 MiB) | One setting for the operator |
 | Each query | `POST /api/query` limits: 10 s and 1,000,000 values | Unchanged |
 | Queries per analysis | 10,000 | Keeps a looping script finite before the timeout |
 | Output | 1,000,000 values and 64 MiB of JSON (as built in P1.4: 32 MiB, 4,000,000 JSON values and 400,000 objects, counted before anything is decoded) | Bounds the host's copy |

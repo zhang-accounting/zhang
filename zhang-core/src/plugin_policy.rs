@@ -147,6 +147,12 @@ impl PluginPolicy {
     pub fn max_memory_pages(&self) -> u32 {
         u32::try_from(self.max_memory / WASM_PAGE).unwrap_or(u32::MAX).max(1)
     }
+
+    /// the most memory one instance gets, in bytes: [`PluginPolicy::max_memory_pages`] whole pages, which a plugin reads
+    /// in its config key `zhang.max_memory`
+    pub fn instance_memory(&self) -> u64 {
+        u64::from(self.max_memory_pages()) * WASM_PAGE
+    }
 }
 
 impl Display for PluginPolicy {
@@ -335,5 +341,8 @@ mod test {
         assert_eq!(policy(64 * KIB + 1).max_memory_pages(), 1, "rounded down");
         assert_eq!(policy(1).max_memory_pages(), 1, "at least one page");
         assert_eq!(policy(u64::MAX).max_memory_pages(), u32::MAX);
+        assert_eq!(PluginPolicy::default().instance_memory(), DEFAULT_MAX_MEMORY);
+        assert_eq!(policy(100 * KIB).instance_memory(), 64 * KIB, "whole pages");
+        assert_eq!(policy(1).instance_memory(), 64 * KIB);
     }
 }

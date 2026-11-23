@@ -98,6 +98,7 @@ The server bounds every router plugin, whatever its `plugin` directive asks for.
 | Requests one plugin handles at once | 4 | `ZHANG_PLUGIN_MAX_CONCURRENCY` | up to 16 more wait up to 5 seconds for their turn; beyond that, 503 with `Retry-After: 1` |
 | Time one request runs | the plugin's `timeout`, at most 30 seconds | the `timeout` meta, within `ZHANG_PLUGIN_MAX_TIMEOUT` | 504 |
 | Memory of one plugin instance | 256 MiB | `ZHANG_PLUGIN_MAX_MEMORY` | 500 |
+| Memory of a [Lua script](/guides/lua-plugins/#limits) | 224 MiB: the instance's memory less 32 MiB (a quarter of a limit under 128 MiB) for the request, the response and the host's answers | `ZHANG_PLUGIN_MAX_MEMORY` | Lua's memory error, which the script may catch; else 500 |
 
 Sizes are written as `4MiB`, `512KiB` or a number of bytes. A request holds the ledger's read lock for as long as the plugin runs: a reload loads the new ledger meanwhile, but replaces the one served only once the plugin returns, and while it waits to, no other request is served. A plugin that may write (it is granted writes and the server runs with `ZHANG_PLUGINS=write`) also holds off every write and reload of the ledger until it returns. Think twice before raising `ZHANG_PLUGIN_MAX_TIMEOUT` above its 30 seconds. A router plugin reaches the network like any plugin, within what [the server allows](/guides/plugins/#what-the-server-allows).
 

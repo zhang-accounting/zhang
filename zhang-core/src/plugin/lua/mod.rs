@@ -49,6 +49,15 @@ pub fn interpreter_digest() -> u64 {
 /// the longest script the host loads
 pub const MAX_SCRIPT_LEN: usize = 1024 * 1024;
 
+/// Whether `message` is the interpreter's error for a call that ran out of its Lua memory: `` plugin `<script>`
+/// exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host) ``. The interpreter
+/// gives a script the memory limit of its instance ([`crate::plugin_policy::PluginPolicy::max_memory`], which it reads
+/// in the config key `zhang.max_memory`) less a reserve for Extism's own memory, and stops it there with a Lua memory
+/// error rather than letting the instance trap at the limit (`tools/lua-runtime/runtime.cpp`, "memory budget")
+pub fn is_out_of_lua_memory(message: &str) -> bool {
+    message.starts_with("plugin `") && message.contains(" of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is ")
+}
+
 /// the module of a `plugin` directive, as the host runs it
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PluginModule {

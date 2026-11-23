@@ -98,6 +98,7 @@ X-Content-Type-Options: nosniff
 | 一个插件同时处理的请求数 | 4 | `ZHANG_PLUGIN_MAX_CONCURRENCY` | 最多再有 16 个请求排队等待最多 5 秒；超出时返回 503，带 `Retry-After: 1` |
 | 一个请求的运行时间 | 插件的 `timeout`，最多 30 秒 | `timeout` 元数据，不超过 `ZHANG_PLUGIN_MAX_TIMEOUT` | 504 |
 | 一个插件实例的内存 | 256 MiB | `ZHANG_PLUGIN_MAX_MEMORY` | 500 |
+| [Lua 脚本](/zh-cn/guides/lua-plugins/#限制)的内存 | 224 MiB：实例的内存减去为请求、响应和宿主的回答保留的 32 MiB（限制低于 128 MiB 时为它的四分之一） | `ZHANG_PLUGIN_MAX_MEMORY` | Lua 的内存错误，脚本可以捕获；否则 500 |
 
 大小写作 `4MiB`、`512KiB` 或字节数。插件运行期间，请求一直持有账本的读锁：这期间重新加载可以载入新的账本，但要等插件返回后才会替换正在提供的账本，而在它等待替换时，其他请求都得不到服务。可以写入的插件（被授予了写入，且服务器以 `ZHANG_PLUGINS=write` 运行）还会让账本的所有写入和重新加载都等到它返回。把 `ZHANG_PLUGIN_MAX_TIMEOUT` 调到 30 秒以上之前请三思。Router 插件和其他插件一样，只能在[服务器允许的范围](/zh-cn/guides/plugins/#服务器允许的范围)内访问网络。
 
