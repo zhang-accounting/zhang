@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::future::{Future, IntoFuture};
 use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -459,7 +460,9 @@ impl ReloadSender {
     }
 }
 
-pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
+/// Serves the ledger `opts` names until `stop` resolves (the binary resolves it on SIGINT and SIGTERM), then stops
+/// gracefully ([`serve_until`]). A stop that comes while the ledger is still loading returns at once, without serving.
+pub async fn serve(mut opts: ServeConfig, stop: impl Future<Output = ()> + Send + 'static) -> ZhangResult<()> {
     info!("version: {}, build date: {}", env!("ZHANG_BUILD_VERSION"), env!("ZHANG_BUILD_DATE"));
     info!("{}", opts.plugins);
     // the disk cache of compiled plugin code is set up now, before anything compiles, so that it is refused in the
@@ -474,7 +477,15 @@ pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
             stopped.provider, stopped.reason
         );
     }
-    let ledger = load_served_ledger(&mut opts).await?;
+    // polled from now on, so that the signals are listened for during the load already
+    let mut stop = Box::pin(stop);
+    let ledger = tokio::select! {
+        ledger = load_served_ledger(&mut opts) => ledger?,
+        () = &mut stop => {
+            info!("stopped before the ledger was loaded");
+            return Ok(());
+        }
+    };
     let ledger_data = Arc::new(RwLock::new(ledger));
     let broadcaster = Broadcaster::create();
     let (tx, rx) = mpsc::channel(1);
@@ -494,7 +505,7 @@ pub async fn serve(mut opts: ServeConfig) -> ZhangResult<()> {
     if !opts.no_report {
         start_report_tasker();
     }
-    start_server(opts, ledger_data, broadcaster.clone(), reload_sender.clone()).await
+    start_server(opts, ledger_data, broadcaster.clone(), reload_sender.clone(), stop).await
 }
 
 /// The ledger `opts` serves, loaded. The root of a ledger on the local file system is made canonical first, in
@@ -862,25 +873,67 @@ fn schedule_midnight_reload(ledger: &Ledger, reload_sender: &Arc<ReloadSender>) 
 
 pub async fn start_server(
     opts: ServeConfig, ledger_data: Arc<RwLock<Ledger>>, broadcaster: Arc<Broadcaster>, reload_sender: Arc<ReloadSender>,
+    stop: impl Future<Output = ()> + Send + 'static,
 ) -> ZhangResult<()> {
     info!("zhang is listening on http://{}:{}/", opts.addr, opts.port);
     // read the query result limit once, at startup, so a bad value is reported right away
     routes::query::max_result_values();
 
     let app = create_server_app(opts, ledger_data, broadcaster, reload_sender);
-    run_app(app).await.map_err(|e| ZhangError::CustomError(e.to_string()))
+    run_app(app, stop).await.map_err(|e| ZhangError::CustomError(e.to_string()))
 }
 
 /// [`GotchaApp::run`], serving with the peer address of the connections, which the sign-in rate
-/// limit falls back to without `X-Forwarded-For`.
-async fn run_app(app: ServerApp) -> Result<(), Box<dyn std::error::Error>> {
+/// limit falls back to without `X-Forwarded-For`, until `stop` resolves ([`serve_until`]). The event streams of the
+/// clients end as it does ([`Broadcaster::close`]): a stream stays open as long as its client is there, and would hold
+/// the stop up to its grace.
+async fn run_app(app: ServerApp, stop: impl Future<Output = ()> + Send + 'static) -> Result<(), Box<dyn std::error::Error>> {
     app.logger()?;
     let config = app.config().await?;
     let state = app.state(&config).await?;
     let router = app.build_router(GotchaContext { config: config.clone(), state }).await?;
     let listener = tokio::net::TcpListener::bind((config.basic.host.as_str(), config.basic.port)).await?;
-    axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await?;
+    let broadcaster = app.broadcaster.clone();
+    let stop = async move {
+        stop.await;
+        broadcaster.close().await;
+    };
+    serve_until(listener, router, stop, STOP_GRACE).await?;
+    info!("stopped");
     Ok(())
+}
+
+/// How long a stop waits for the requests in progress, below the 10 seconds `docker stop` waits before it kills
+pub const STOP_GRACE: Duration = Duration::from_secs(5);
+
+/// Serves `router` on `listener` until `stop` resolves, then stops gracefully: it accepts no new connection, lets the
+/// requests in progress finish, so that a write to the ledger's files is not cut off halfway, and returns once they
+/// did, or after `grace` with those still open (a response that streams on, a client that stopped reading). Each
+/// connection is served with its peer address ([`axum::extract::ConnectInfo`]).
+pub async fn serve_until(
+    listener: tokio::net::TcpListener, router: axum::Router, stop: impl Future<Output = ()> + Send + 'static, grace: Duration,
+) -> std::io::Result<()> {
+    let (stopping, stopped) = oneshot::channel::<()>();
+    let server = axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>())
+        .with_graceful_shutdown(async move {
+            stop.await;
+            let _ = stopping.send(());
+        })
+        .into_future();
+    // the sender goes only with the server, whose result is taken then
+    let deadline = async move {
+        match stopped.await {
+            Ok(()) => tokio::time::sleep(grace).await,
+            Err(_) => std::future::pending().await,
+        }
+    };
+    tokio::select! {
+        served = server => served,
+        () = deadline => {
+            warn!("connections were still open {grace:?} after the stop, closing them");
+            Ok(())
+        }
+    }
 }
 
 fn log_auth_settings(auth: &AuthState, opts: &ServeConfig) {
@@ -1594,5 +1647,99 @@ mod served_root_test {
         let relative = relative_to_cwd(&ledger);
         assert!(relative.is_relative(), "{}", relative.display());
         assert!(edit_reloads_ledger_served_from(relative, &ledger.join("main.zhang")).await);
+    }
+}
+
+/// A stop of the server ([`serve_until`]) lets the requests in progress finish, and is not held up past its grace by a
+/// connection that does not end
+#[cfg(test)]
+mod stop_test {
+    use std::convert::Infallible;
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use axum::body::{Body, Bytes};
+    use axum::routing::get;
+    use axum::Router;
+    use tokio::net::TcpListener;
+    use tokio::sync::{oneshot, Notify};
+
+    use super::serve_until;
+
+    /// A request that started before the stop gets its whole answer, then the server returns and takes no new
+    /// connection
+    #[tokio::test]
+    async fn a_stop_lets_the_requests_in_progress_finish() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let started = Arc::new(Notify::new());
+        let router = Router::new().route(
+            "/write",
+            get({
+                let started = started.clone();
+                move || async move {
+                    started.notify_one();
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    "written"
+                }
+            }),
+        );
+        let (stop, stopped) = oneshot::channel::<()>();
+        let server = tokio::spawn(serve_until(
+            listener,
+            router,
+            async move {
+                stopped.await.ok();
+            },
+            Duration::from_secs(30),
+        ));
+
+        let request = tokio::spawn(reqwest::get(format!("http://{address}/write")));
+        started.notified().await;
+        stop.send(()).unwrap();
+        let response = request.await.unwrap().expect("the request in progress is answered");
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.text().await.unwrap(), "written");
+        tokio::time::timeout(Duration::from_secs(10), server)
+            .await
+            .expect("the server returns once the request is answered")
+            .unwrap()
+            .unwrap();
+        assert!(
+            reqwest::get(format!("http://{address}/write")).await.is_err(),
+            "a stopped server takes no new connection"
+        );
+    }
+
+    /// A response that streams on does not hold the stop up past its grace
+    #[tokio::test]
+    async fn a_stop_waits_no_longer_than_its_grace() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let router = Router::new().route(
+            "/endless",
+            get(|| async { Body::from_stream(futures::stream::pending::<Result<Bytes, Infallible>>()) }),
+        );
+        let (stop, stopped) = oneshot::channel::<()>();
+        let server = tokio::spawn(serve_until(
+            listener,
+            router,
+            async move {
+                stopped.await.ok();
+            },
+            Duration::from_millis(200),
+        ));
+
+        let response = reqwest::get(format!("http://{address}/endless")).await.unwrap();
+        assert_eq!(response.status(), 200);
+        let stopping = Instant::now();
+        stop.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), server)
+            .await
+            .expect("the server returns after its grace")
+            .unwrap()
+            .unwrap();
+        assert!(stopping.elapsed() < Duration::from_secs(5), "the stop took {:?}", stopping.elapsed());
+        drop(response);
     }
 }

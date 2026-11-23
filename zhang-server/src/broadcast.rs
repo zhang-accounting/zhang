@@ -86,6 +86,23 @@ mod test {
         assert_eq!(buffered, 10, "the client let go gets what its buffer holds, then its stream ends");
     }
 
+    /// As the server stops, the streams of the clients end, those of the clients that come after too, so that no
+    /// connection holds the stop up
+    #[tokio::test]
+    async fn a_closed_broadcaster_lets_every_client_go() {
+        let broadcaster = super::Broadcaster::create();
+        let mut before = broadcaster.new_client().await;
+        broadcaster.close().await;
+        assert_eq!(broadcaster.client_number().await, 0);
+        let mut after = broadcaster.new_client().await;
+        assert_eq!(broadcaster.client_number().await, 0, "a client that comes after the close is not kept");
+        broadcaster.broadcast(BroadcastEvent::Reload).await;
+        for client in [&mut before, &mut after] {
+            let _connected = client.recv().await.expect("connected");
+            assert!(client.recv().await.is_none(), "the stream ends");
+        }
+    }
+
     /// The ping leaves room for a reload event in the buffer of a client that does not read
     #[tokio::test]
     async fn a_ping_leaves_room_for_a_reload() {
@@ -128,6 +145,8 @@ pub struct Broadcaster {
 #[derive(Debug, Clone, Default)]
 struct BroadcasterInner {
     clients: Vec<Sender<Event>>,
+    /// the server stops ([`Broadcaster::close`]): no client is kept any more
+    closed: bool,
 }
 
 impl Broadcaster {
@@ -164,15 +183,27 @@ impl Broadcaster {
             .retain(|client| client.capacity() < PING_ROOM || !matches!(client.try_send(Event::default().comment("ping")), Err(TrySendError::Closed(_))));
     }
 
-    /// Registers client with broadcaster, returning an SSE response body.
+    /// Registers client with broadcaster, returning an SSE response body. Once the broadcaster is closed, the client
+    /// gets `Connected` and its stream ends.
     pub async fn new_client(&self) -> Receiver<Event> {
         let (tx, rx) = tokio::sync::mpsc::channel(10);
 
         tx.send(BroadcastEvent::Connected.to_data()).await.unwrap();
 
-        self.inner.lock().await.clients.push(tx);
+        let mut inner = self.inner.lock().await;
+        if !inner.closed {
+            inner.clients.push(tx);
+        }
 
         rx
+    }
+
+    /// Lets every client go, and each that comes after, as the server stops: their streams end once they read what
+    /// their buffer holds, so that the connections close and the stop does not wait for them
+    pub async fn close(&self) {
+        let mut inner = self.inner.lock().await;
+        inner.closed = true;
+        inner.clients.clear();
     }
 
     /// Broadcasts `msg` to all clients, without waiting for any: a client that does not read (a suspended phone, a

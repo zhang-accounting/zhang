@@ -1,5 +1,6 @@
 use std::convert::TryFrom;
 use std::fmt::Debug;
+use std::future::Future;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -99,8 +100,9 @@ pub struct ServerOpts {
 
 impl Opts {
     /// run the command; the error when it failed, so `main` prints it and exits with a non-zero code: the user
-    /// sees why, and supervisors (systemd, Docker, Railway, ...) see the failure instead of a clean exit
-    pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+    /// sees why, and supervisors (systemd, Docker, Railway, ...) see the failure instead of a clean exit. `serve`
+    /// stops gracefully once `stop` resolves; `update` does not listen to it, a signal ends it as it ends any process
+    pub async fn run(self, stop: impl Future<Output = ()> + Send + 'static) -> Result<(), Box<dyn std::error::Error>> {
         match self {
             Opts::Serve(mut opts) => {
                 let file_system = opts.source.clone().or(FileSystem::from_env()).unwrap_or(FileSystem::Fs);
@@ -110,21 +112,24 @@ impl Opts {
                 let passkey_secret = opts.passkey.or_else(|| env_value("ZHANG_PASSKEY")).filter(|it| !it.is_empty());
                 // a limit the operator set but mistyped stops the server, rather than running without it
                 let plugins = plugin_settings(opts.plugins, env_value)?;
-                let result = zhang_server::serve(ServeConfig {
-                    path: opts.path,
-                    endpoint: opts.endpoint,
-                    addr: opts.addr,
-                    port: opts.port,
-                    auth_credential,
-                    passkey_secret,
-                    passkey_rp_id: env_value("ZHANG_PASSKEY_RP_ID"),
-                    passkey_origin: env_value("ZHANG_PASSKEY_ORIGIN"),
-                    session_secret: env_value("ZHANG_SESSION_SECRET"),
-                    app_return_schemes: env_value("ZHANG_APP_RETURN_SCHEMES"),
-                    no_report: opts.no_report,
-                    data_source: Arc::new(data_source),
-                    plugins,
-                })
+                let result = zhang_server::serve(
+                    ServeConfig {
+                        path: opts.path,
+                        endpoint: opts.endpoint,
+                        addr: opts.addr,
+                        port: opts.port,
+                        auth_credential,
+                        passkey_secret,
+                        passkey_rp_id: env_value("ZHANG_PASSKEY_RP_ID"),
+                        passkey_origin: env_value("ZHANG_PASSKEY_ORIGIN"),
+                        session_secret: env_value("ZHANG_SESSION_SECRET"),
+                        app_return_schemes: env_value("ZHANG_APP_RETURN_SCHEMES"),
+                        no_report: opts.no_report,
+                        data_source: Arc::new(data_source),
+                        plugins,
+                    },
+                    stop,
+                )
                 .await;
                 // the initial load (and binding the port) can fail here; reload failures while
                 // serving keep the previous ledger and never reach this point
@@ -229,6 +234,41 @@ fn init_logger() {
     env_logger::Builder::from_env(Env::new().filter_or("ZHANG_LOG", filter)).init();
 }
 
+/// Resolves once the process is asked to stop: on SIGINT (Ctrl+C) and, on Unix, on SIGTERM, the signal `docker stop`,
+/// Kubernetes and systemd send. A signal that cannot be listened for is logged and never resolves.
+async fn stop_signal() {
+    let interrupt = async {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => "SIGINT",
+            Err(e) => {
+                log::warn!("cannot listen for SIGINT: {e}");
+                std::future::pending().await
+            }
+        }
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        use tokio::signal::unix::{signal, SignalKind};
+        match signal(SignalKind::terminate()) {
+            Ok(mut terminate) => {
+                terminate.recv().await;
+                "SIGTERM"
+            }
+            Err(e) => {
+                log::warn!("cannot listen for SIGTERM: {e}");
+                std::future::pending().await
+            }
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<&str>();
+    let signal = tokio::select! {
+        signal = interrupt => signal,
+        signal = terminate => signal,
+    };
+    info!("received {signal}, stopping: no new connections, the requests in progress finish");
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     // console_subscriber::init();
@@ -236,21 +276,15 @@ async fn main() -> ExitCode {
     init_logger();
     let opts = Opts::parse();
 
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            info!("receive ctrl+c, exit");
+    match opts.run(stop_signal()).await {
+        Ok(()) => {
+            println!("operation completed");
             ExitCode::SUCCESS
         }
-        result = opts.run() => match result {
-            Ok(()) => {
-                println!("operation completed");
-                ExitCode::SUCCESS
-            }
-            Err(e) => {
-                // on stderr whatever the log filter is: a command that fails must say why (#491)
-                eprintln!("error: {e}");
-                ExitCode::FAILURE
-            }
+        Err(e) => {
+            // on stderr whatever the log filter is: a command that fails must say why (#491)
+            eprintln!("error: {e}");
+            ExitCode::FAILURE
         }
     }
 }
