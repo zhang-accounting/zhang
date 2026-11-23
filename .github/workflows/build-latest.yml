@@ -15,6 +15,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# the jobs only read the repository: every token they hold is read-only (the repository default is write)
+permissions:
+  contents: read
+
 jobs:
   frontend-style-check:
     runs-on: ubuntu-22.04
