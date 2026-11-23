@@ -58,10 +58,11 @@ impl PluginStore {
     }
 
     /// [`PluginStore::insert_plugin`] for a plugin the embedder registers for every ledger
-    /// ([`crate::analysis::LoadOptions::default_plugins`]): marked default, and compiled once for every load of the same
-    /// module with the same settings ([`super::cache`]), so that a reload, and so a write, compiles it no more. A
-    /// plugin of the ledger, read from its files, is compiled at every load: its module may change at any time, and its
-    /// compiled code would be kept for a ledger no longer served.
+    /// ([`crate::analysis::LoadOptions::default_plugins`]): marked default, and registered once for every load of the
+    /// same module with the same settings ([`super::cache::runtime`]), so that a reload, and so a write, reads back what
+    /// it declared instead of running it. A plugin of the ledger, read from its files, registers at every load: its
+    /// script or config may change at any time. Either reuses the compiled code of its module across loads
+    /// ([`super::cache::code`]).
     #[allow(clippy::too_many_arguments)]
     pub fn insert_default_plugin(
         &mut self, plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
@@ -74,7 +75,7 @@ impl PluginStore {
         Ok(conflict)
     }
 
-    /// [`PluginStore::insert_plugin`], with the compiled code of the plugin kept across loads when `shared`
+    /// [`PluginStore::insert_plugin`], with what the plugin declared kept across loads when `shared`
     #[allow(clippy::too_many_arguments)]
     fn insert(
         &mut self, _plugin: &Plugin, module: PluginModule, declaration: PluginDeclaration, span: &SpanInfo, clock: &LoadClock, timezone: Tz, files: FileAccess,
@@ -83,22 +84,21 @@ impl PluginStore {
         let plugin_name = _plugin.module.as_str().to_string();
         let started = std::time::Instant::now();
 
-        // the runtime compiles the module for the settings it is asked for and builds every instance
-        // of the plugin, this registering one included, from the compiled code. Registering uses the
-        // settings every other instance gets, so the plugin's `capabilities` export sees its config and
-        // the compiled code is reused by the first stage run or request. A script's module is the
-        // embedded Lua interpreter, and the script rides in the config of every manifest
+        // the runtime builds every instance of the plugin, this registering one included, from the
+        // compiled code of its module, with the settings each is asked for. Registering uses the
+        // settings every other instance gets, so the plugin's `capabilities` export sees its config. A
+        // script's module is the embedded Lua interpreter, and the script rides in the config of every
+        // manifest
         let (module_bytes, script) = module.into_parts();
         let timeout = declaration.capabilities.timeout;
         let occurrence = self.occurrences(&declaration.directive.module);
         let manifest = settings(&declaration, occurrence, options, script.as_ref(), &policy);
-        // a default plugin's runtime, and the compiled code it keeps, outlive the load: the next load of the same module
-        // with the same settings reuses them. A ledger's own plugin is compiled anew at every load
-        // TODO(P3): a Lua script of the ledger compiles the interpreter at every load; it could share the interpreter's
-        // compiled code as a default plugin does
+        // the compiled code of the module outlives the load, whatever the plugin's settings: the next load of the same
+        // module, by any plugin, reuses it (the Lua interpreter, by every script). A default plugin's runtime, and what
+        // it declared, outlive the load too, for the next load of the same module with the same settings
         let runtime = match shared {
             true => super::cache::runtime(module_bytes, &manifest),
-            false => Arc::new(PluginRuntime::new(module_bytes)),
+            false => Arc::new(PluginRuntime::of(super::cache::code(module_bytes))),
         };
 
         // what a default plugin declares is read once for its runtime, which is kept for its module and its settings
@@ -263,9 +263,9 @@ fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> Zh
 
 /// the settings of every instance of the plugin `declaration` declares, the `occurrence`-th of its module, within
 /// what `policy` allows: its config (the ledger's `options`, its own meta, the values the host sets, and a Lua `script`
-/// under the reserved keys, so a script edit compiles anew), its allowed hosts, its timeout capped at the policy's
-/// `max_timeout` (the cap a router call gets, so registering, a stage and a request share one compiled code), and the
-/// policy's memory limit. The module itself belongs to the runtime, which compiles it for these settings
+/// under the reserved keys, so a script edit takes effect at the next load), its allowed hosts, its timeout capped at the
+/// policy's `max_timeout` (the cap a router call gets, so registering, a stage and a request have one manifest), and the
+/// policy's memory limit. The module itself belongs to the runtime, which builds each instance with these settings
 fn settings(declaration: &PluginDeclaration, occurrence: usize, options: &[OptionDomain], script: Option<&LuaScript>, policy: &PluginPolicy) -> Manifest {
     let reserved = declaration
         .host_config(occurrence)
@@ -398,8 +398,9 @@ impl RegisteredPlugin {
         self.default
     }
 
-    /// how many times the plugin's module was compiled, by this load and, for a default plugin, by the loads before it
-    /// that kept its compiled code ([`super::cache`])
+    /// how many times registering and running the plugin compiled its module, in this load and, for a default plugin,
+    /// in the loads before it that kept its runtime: none when compiled code of the module was idle, kept from an
+    /// earlier load or another plugin's ([`super::cache`])
     pub fn compilations(&self) -> usize {
         self.runtime.compilations()
     }
@@ -729,7 +730,8 @@ mod test {
             key: "title".to_owned(),
             value: "Home".to_owned(),
         }];
-        let module = PluginModule::Wasm(include_bytes!("../../tests/plugins/config_echo.wat").to_vec());
+        // bytes of this test's own, so that no other test shares its compiled code
+        let module = PluginModule::Wasm([include_bytes!("../../tests/plugins/config_echo.wat").as_slice(), b"\n;; registering\n"].concat());
         let clock = LoadClock::new(crate::clock::Clock::System);
         let mut store = PluginStore::default();
         let conflict = store
@@ -748,17 +750,17 @@ mod test {
         assert_eq!(conflict, None);
         let (plugin, _) = &store.ordered[0];
 
-        // registering compiled once (generation 1) with the config a run gets: the option and the meta
-        assert_eq!(plugin.runtime.pool_state(), (1, 1));
+        // registering compiled once, and gets the config a run gets: the option and the meta
+        assert_eq!((plugin.compilations(), plugin.runtime.idle()), (1, 1));
         let manifest = plugin.manifest(&options);
         assert_eq!(manifest.config["title"], "Home");
         assert_eq!(manifest.config["greeting"], "hi");
-        // a run with the same settings reuses that compiled code: the generation does not move
+        // a run reuses that compiled code
         let host = PluginHost::new("config-echo", SpanInfo::default(), clock, chrono_tz::UTC);
         let instance = plugin.runtime.instantiate(manifest, host).unwrap();
-        assert_eq!(plugin.runtime.pool_state(), (0, 1), "the registering compile is the one in use");
+        assert_eq!(plugin.runtime.idle(), 0, "the registering compile is the one in use");
         drop(instance);
-        assert_eq!(plugin.runtime.pool_state(), (1, 1));
+        assert_eq!((plugin.compilations(), plugin.runtime.idle()), (1, 1));
     }
 
     #[test]
@@ -825,8 +827,8 @@ mod test {
     }
 
     /// Every manifest of a plugin, registering, a stage and a request, caps the timeout at the policy's `max_timeout`,
-    /// the cap a router call gets: one manifest, so one compiled code per load (a default Lua router compiled twice
-    /// per load while registering used the uncapped minute and a request the cap)
+    /// the cap a router call gets: one manifest, so one runtime of a default plugin per load (a default Lua router
+    /// compiled twice per load while registering used the uncapped minute and a request the cap)
     #[test]
     fn should_cap_the_timeout_of_every_manifest_as_a_router_call_is_capped() {
         let plugin = registered_with_meta(&[]);

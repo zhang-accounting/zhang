@@ -56,7 +56,7 @@ impl RegisteredPlugin {
                 .runtime
                 .instantiate(self.manifest(&ledger.options.all()), plugin_host.clone())
                 .map_err(|e| AnalysisFailure::new("trap", format!("it cannot be loaded: {}", log_safe(&format!("{e:#}")))))?;
-            // the compiled plugin keeps the plugin's own timeout: this instance gets what is left, if that is less
+            // the instance has the plugin's own timeout: it gets what is left, if that is less
             plugin.limit_timeout(time_left);
             if !plugin.function_exists(abi::ANALYZE) {
                 return Err(AnalysisFailure::new(

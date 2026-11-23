@@ -2860,6 +2860,72 @@ mod lua {
         assert_eq!(errors(&load(&dir, &with_plugins(&twice))).len(), 1);
     }
 
+    /// a router script named `name` answering `answer` as its body and its version
+    fn answering(name: &str, answer: &str) -> String {
+        format!("local M = {{ name = \"{name}\", version = \"{answer}\" }}\nfunction M.router(request)\n  return {{ body = \"{answer}\" }}\nend\nreturn M\n")
+    }
+
+    /// what the router `name` of `ledger` answers to `GET /`
+    fn body_of(ledger: &Ledger, name: &str) -> String {
+        String::from_utf8(call(ledger, name, &get("/")).unwrap().body().clone()).unwrap()
+    }
+
+    /// A reload, and so every write, reuses the interpreter's compiled code: the process compiles it once (this test runs
+    /// in a process of its own under nextest, as CI runs it), and an edited script takes effect at the next load
+    #[test]
+    fn a_ledgers_script_compiles_the_interpreter_once_across_reloads_and_an_edit_takes_effect() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = dir.path().join("own.lua");
+        std::fs::write(&script, answering("own-script", "first")).unwrap();
+        let mut ledger = load(&dir, &with_plugins(&plugin(&dir, "own.lua")));
+        let compiled = |ledger: &Ledger| ledger.plugins.router("own-script").unwrap().compilations();
+        assert_eq!(body_of(&ledger, "own-script"), "first");
+        let mut compilations = compiled(&ledger);
+        for _ in 0..3 {
+            ledger.reload().unwrap();
+            assert_eq!(body_of(&ledger, "own-script"), "first");
+            compilations += compiled(&ledger);
+        }
+        std::fs::write(&script, answering("own-script", "edited")).unwrap();
+        ledger.reload().unwrap();
+        assert_eq!(
+            ledger.plugins.router("own-script").unwrap().version,
+            "edited",
+            "registered with the edited script"
+        );
+        assert_eq!(body_of(&ledger, "own-script"), "edited", "and runs it");
+        compilations += compiled(&ledger);
+        assert_eq!(compilations, 1, "five loads and their requests compiled the interpreter once");
+    }
+
+    /// Two scripts run on the interpreter's compiled code, one after the other, and share nothing else: each instance
+    /// runs its own script with its own config, and no global of one reaches the other
+    #[test]
+    fn two_scripts_share_the_interpreters_compiled_code_and_nothing_else() {
+        let script = |name: &str| {
+            format!(
+                "written_by = written_by or \"{name}\"\nlocal M = {{ name = \"script-{name}\", version = \"0.1.0\" }}\nfunction M.router(request)\n  calls = (calls or 0) + 1\n  return {{ json = {{ written_by = written_by, calls = calls, greeting = zhang.config(\"greeting\") }} }}\nend\nreturn M\n"
+            )
+        };
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.lua"), script("a")).unwrap();
+        std::fs::write(dir.path().join("b.lua"), script("b")).unwrap();
+        let plugins = format!(
+            "{}  greeting: \"hello a\"\n{}  greeting: \"hello b\"\n",
+            plugin(&dir, "a.lua"),
+            plugin(&dir, "b.lua")
+        );
+        let ledger = load(&dir, &with_plugins(&plugins));
+        for _ in 0..2 {
+            for name in ["a", "b"] {
+                let answer = json_body(&call(&ledger, &format!("script-{name}"), &get("/")).unwrap());
+                assert_eq!(answer, json!({"written_by": name, "calls": 1, "greeting": format!("hello {name}")}));
+            }
+        }
+        let compilations: usize = ledger.plugins.ordered.iter().map(|(plugin, _)| plugin.compilations()).sum();
+        assert_eq!(compilations, 1, "both scripts, registering and answering, ran on one compiled interpreter");
+    }
+
     /// a ledger declaring `router_write.lua` with the `writes` config `declared` (a JSON list, its `capabilities`
     /// export) and the `allowed_writes` grants `granted`
     fn lua_write_ledger(declared: Option<&str>, granted: &[&str]) -> (TempDir, Ledger) {
