@@ -45,10 +45,17 @@
 //! ratio of the medians of the runs' p95. It is judged on [`P95_PAIRS`] pairs, 60, run before it is judged.
 //!
 //! **To confirm.** When the two runs of the pairs ran at the same time (their reports' wall clocks overlap), a PASS
-//! whose interval's upper end is past [`CONFIRM_SHARE`], 70%, of what is allowed is reported `CONFIRM`: the two sides
-//! share the memory bandwidth and the caches, which can narrow a difference, so it is to be confirmed with pairs run one
-//! after the other (`budget_pairs` runs them). The native runs must show no snapshot of the budget analyzer
-//! (`--expect-analyzer`, or `zhang:budget`): a plugin compared with a plugin is refused.
+//! whose interval's upper end comes within a margin of what is allowed is reported `CONFIRM`: the two sides share the
+//! memory bandwidth and the caches, which can narrow a difference, so it is to be confirmed with pairs run one after
+//! the other (`budget_pairs` runs them). The margin is [`CONFIRM_MARGIN`], 30%, of the allowance, or twice the gap the
+//! calibration measured between the two ways for the timer and ledger (`budget_calibration.json`), whichever is larger.
+//!
+//! **The calibration.** `budget_compare --gaps <concurrent-out> <sequential-out>` reads two `budget_pairs` outputs of the
+//! same known heavier candidate, one with its pairs at the same time and one with `--sequential`, and prints the gaps
+//! as `budget_calibration.json` holds them: for each ledger and timer, how far apart the two median differences are.
+//!
+//! The native runs must show no snapshot of the budget analyzer (`--expect-analyzer`, or `zhang:budget`): a plugin
+//! compared with a plugin is refused.
 //!
 //! `--summary <file>` writes every verdict as JSON too, for `budget_pairs`, which adds pairs while one is inconclusive
 //! and confirms the `CONFIRM`s.
@@ -87,9 +94,15 @@ const P95_BAR: f64 = 1.1;
 /// otherwise: the bar is max(+10%, +1 ms) (RFC #698, decision 16, revised 2026-11-23)
 const P95_FLOOR_MS: f64 = 1.0;
 /// A PASS from pairs whose two runs ran at the same time is to be confirmed with pairs run one after the other when
-/// the upper end of its interval is past this share of what is allowed: the two sides share the memory bandwidth and
-/// the caches, so a candidate that moves more memory also slows the native side and narrows the difference.
-const CONFIRM_SHARE: f64 = 0.7;
+/// the upper end of its interval is within a margin of what is allowed: the two sides share the memory bandwidth and
+/// the caches, so a candidate that moves more memory also slows the native side and narrows the difference. The
+/// margin is this share of the allowance, or twice the gap the calibration measured for the timer and ledger
+/// ([`CALIBRATION`]), whichever is larger.
+const CONFIRM_MARGIN: f64 = 0.3;
+/// The calibration of pairs run at the same time against pairs run one after the other: for each ledger and timer, how
+/// far apart the two ways put the median difference of a known heavier candidate (`gaps_ms`). Refreshed with
+/// `budget_compare --gaps <concurrent-out> <sequential-out>` ("Budget Baseline" page, "Calibration").
+const CALIBRATION: &str = include_str!("budget_calibration.json");
 /// the budget analyzer, which the native runs must not show publishing anything
 const BUDGET_ANALYZER: &str = "zhang:budget";
 /// The pairs the named-query p95 is judged on, all run before it is judged (no optional stopping). A `requests` run
@@ -156,6 +169,12 @@ struct Verdict {
 }
 
 fn main() -> ExitCode {
+    let arguments = std::env::args().skip(1).collect::<Vec<_>>();
+    if let [flag, concurrent, sequential] = arguments.as_slice() {
+        if flag == "--gaps" {
+            return gaps(Path::new(concurrent), Path::new(sequential));
+        }
+    }
     let mut dirs = vec![];
     let mut options = Options {
         expect_analyzer: None,
@@ -249,12 +268,83 @@ fn main() -> ExitCode {
 fn usage() -> ExitCode {
     eprintln!(
         "usage: budget_compare <native-dir> <candidate-dir> [--expect-analyzer <provider>] [--include-invalid] [--summary <file>] \
-         [--p95-rule difference|ratio] [--p95-floor-ms {P95_FLOOR_MS}]"
+         [--p95-rule difference|ratio] [--p95-floor-ms {P95_FLOOR_MS}]\n       budget_compare --gaps <concurrent-out> <sequential-out>"
     );
     ExitCode::FAILURE
 }
 
 type Run = (PathBuf, Value);
+
+/// by ledger, the number of pairs and the median difference of each timer
+type Medians = BTreeMap<String, (usize, BTreeMap<&'static str, f64>)>;
+
+/// The median difference (candidate − native) of each timer's p50 over the valid pairs of `out` (a `budget_pairs`
+/// output, `<out>/native` and `<out>/candidate`), by ledger, with the number of pairs; and the commit and burden of the
+/// candidate's runs, and the day the first of them started.
+fn medians(out: &Path) -> (Medians, Value) {
+    let (natives, candidates) = (reports(&out.join("native")), reports(&out.join("candidate")));
+    let mut medians = BTreeMap::new();
+    let mut setup = Value::Null;
+    for (ledger, natives) in &natives {
+        let Some(candidates) = candidates.get(ledger) else { continue };
+        let pairs = natives
+            .iter()
+            .zip(candidates)
+            .filter(|((_, native), (_, candidate))| native["end_to_end"].is_object() && candidate["end_to_end"].is_object())
+            .filter(|((_, native), (_, candidate))| invalid(native).is_none() && invalid(candidate).is_none())
+            .collect::<Vec<_>>();
+        if let Some((_, (_, candidate))) = pairs.first() {
+            let day = candidate["validity"]["started_unix_ms"]
+                .as_i64()
+                .and_then(chrono::DateTime::from_timestamp_millis)
+                .map(|it| it.date_naive().to_string());
+            setup = json!({"commit": candidate["identity"]["commit"], "burden_mib": candidate["identity"]["burden_mib"], "measured": day});
+        }
+        let mut timers = BTreeMap::new();
+        for timer in TIMERS {
+            let p50 = |report: &Value| report["end_to_end"][timer]["total"]["p50_ms"].as_f64();
+            let differences = pairs
+                .iter()
+                .filter_map(|((_, native), (_, candidate))| Some(p50(candidate)? - p50(native)?))
+                .collect::<Vec<_>>();
+            if !differences.is_empty() {
+                timers.insert(timer, median(&differences));
+            }
+        }
+        medians.insert(ledger.clone(), (pairs.len(), timers));
+    }
+    (medians, setup)
+}
+
+/// The calibration's gaps, as `budget_calibration.json` holds them: for each ledger and timer, how far apart the
+/// median differences of the pairs at the same time (`concurrent`) and one after the other (`sequential`) are, in
+/// milliseconds, of the same known heavier candidate.
+fn gaps(concurrent: &Path, sequential: &Path) -> ExitCode {
+    let ((at_once, setup), (one_by_one, _)) = (medians(concurrent), medians(sequential));
+    let mut gaps = serde_json::Map::new();
+    let mut pairs = serde_json::Map::new();
+    for (ledger, (n, timers)) in &at_once {
+        let Some((m, others)) = one_by_one.get(ledger) else { continue };
+        let ledger_gaps = timers
+            .iter()
+            .filter_map(|(timer, at_once)| Some((timer.to_string(), json!(((others.get(timer)? - at_once).abs() * 10.0).round() / 10.0))))
+            .collect::<serde_json::Map<_, _>>();
+        gaps.insert(ledger.clone(), Value::Object(ledger_gaps));
+        pairs.insert(ledger.clone(), json!({"concurrent": n, "sequential": m}));
+    }
+    if gaps.is_empty() {
+        eprintln!("no ledger with valid end-to-end pairs both ways");
+        return ExitCode::FAILURE;
+    }
+    let calibration = json!({
+        "about": "the gap, in ms, between the median differences of a known heavier candidate measured with pairs at the same time and with pairs one after the other; budget_compare confirms a PASS within twice it of the allowance",
+        "candidate": setup,
+        "pairs": pairs,
+        "gaps_ms": gaps,
+    });
+    println!("{}", serde_json::to_string_pretty(&calibration).expect("JSON"));
+    ExitCode::SUCCESS
+}
 
 /// The reports with end-to-end timers or warm requests under `dir`, by ledger, each ledger's in the order of their
 /// paths.
@@ -556,16 +646,29 @@ fn cpu_sets(pairs: &[Pair]) -> String {
     format!("CPU sets: {}", sides.join("; "))
 }
 
-/// A PASS of pairs run at the same time whose interval's upper end is past [`CONFIRM_SHARE`] of what is allowed
-/// (`share`) is to be confirmed with pairs run one after the other: `CONFIRM`.
-fn confirm(decided: (&'static str, usize, String), share: f64, concurrent: bool) -> (&'static str, usize, String) {
+/// The gap the calibration measured for `timer` on `ledger`, in milliseconds, if any ([`CALIBRATION`]).
+fn calibrated_gap(ledger: &str, timer: &str) -> Option<f64> {
+    let calibration = serde_json::from_str::<Value>(CALIBRATION).expect("budget_calibration.json is JSON");
+    calibration["gaps_ms"][ledger][timer].as_f64()
+}
+
+/// The margin below its allowance that a PASS of pairs run at the same time must keep not to be confirmed:
+/// [`CONFIRM_MARGIN`] of the allowance, or twice the calibrated gap, whichever is larger.
+fn confirm_margin(allowance: f64, gap: Option<f64>) -> f64 {
+    (CONFIRM_MARGIN * allowance).max(2.0 * gap.unwrap_or(0.0))
+}
+
+/// A PASS of pairs run at the same time whose interval's upper end (`high`) is past `bar − margin` is to be confirmed
+/// with pairs run one after the other: `CONFIRM`.
+fn confirm(decided: (&'static str, usize, String), high: f64, bar: f64, margin: f64, concurrent: bool) -> (&'static str, usize, String) {
     match decided {
-        ("PASS", needs, _) if concurrent && share > CONFIRM_SHARE => (
+        ("PASS", needs, _) if concurrent && high > bar - margin => (
             "CONFIRM",
             needs,
             format!(
-                "PASS, to CONFIRM with pairs one after the other (upper end at {:.0}% of the allowance)",
-                100.0 * share
+                "PASS, to CONFIRM with pairs one after the other (upper end within {:.2} of the bar, margin {:.2})",
+                bar - high,
+                margin
             ),
         ),
         other => other,
@@ -658,8 +761,9 @@ fn timers(ledger: &str, pairs: &[Pair], concurrent: bool, verdict: &mut impl FnM
             .unwrap_or_else(|| "-".to_owned());
         let (outcome, needs, text) = match short.is_empty() {
             true => {
-                let share = interval.map(|(_, high, _)| high / allowance).unwrap_or(0.0);
-                confirm(decide(interval, allowance, false, n, needed, MOST_PAIRS), share, concurrent)
+                let high = interval.map(|(_, high, _)| high).unwrap_or(f64::MIN);
+                let margin = confirm_margin(allowance, calibrated_gap(ledger, timer));
+                confirm(decide(interval, allowance, false, n, needed, MOST_PAIRS), high, allowance, margin, concurrent)
             }
             false => ("REFUSED", 0, format!("REFUSED: fewer than 20 clean rounds ({})", short.join(", "))),
         };
@@ -765,13 +869,13 @@ fn p95(pairs: &[Pair], concurrent: bool, options: &Options, verdict: &mut impl F
                 P95Rule::Ratio => format!("[{low:.2}, {high:.2}] {:.1}%", 100.0 * coverage),
             })
             .unwrap_or_else(|| "-".to_owned());
-        let share = judged
-            .map(|(_, high, _)| match options.p95_rule {
-                P95Rule::Difference => high / bar,
-                P95Rule::Ratio => (high - 1.0) / (bar - 1.0),
-            })
-            .unwrap_or(0.0);
-        let (outcome, needs, text) = confirm(decide(judged, bar, true, n, P95_PAIRS, P95_PAIRS), share, concurrent);
+        // the p95 has no calibrated gap: its margin is a share of what it may grow by
+        let high = judged.map(|(_, high, _)| high).unwrap_or(f64::MIN);
+        let margin = match options.p95_rule {
+            P95Rule::Difference => confirm_margin(bar, None),
+            P95Rule::Ratio => confirm_margin(bar - 1.0, None),
+        };
+        let (outcome, needs, text) = confirm(decide(judged, bar, true, n, P95_PAIRS, P95_PAIRS), high, bar, margin, concurrent);
         failed |= outcome == "FAIL";
         verdict("named_query_p95", kind, n, outcome, needs);
         println!(
@@ -794,6 +898,66 @@ mod tests {
         assert_eq!(cpu_count("0,2,4-7"), Some(6));
         assert_eq!(cpu_count("7-3"), None);
         assert_eq!(cpu_count("x"), None);
+    }
+
+    /// a report with the analyzers it shows after its first load and at its end, and what the setup reads
+    fn report(analyzers: &[&str]) -> Value {
+        json!({
+            "mode": "e2e",
+            "sha256": "ledger",
+            "identity": {"build": "build", "commit": "commit"},
+            "analyzers": {"after_load": analyzers, "at_end": analyzers},
+            "validity": {"cpus_allowed": "16-23", "workers": 8},
+        })
+    }
+
+    #[test]
+    fn a_native_side_that_shows_the_budget_analyzer_is_refused() {
+        let options = Options {
+            expect_analyzer: Some("zhang:budget".to_owned()),
+            include_invalid: false,
+            summary: None,
+            p95_rule: P95Rule::Difference,
+            p95_floor_ms: P95_FLOOR_MS,
+        };
+        let run = |path: &str, analyzers: &[&str]| vec![(PathBuf::from(path), report(analyzers))];
+        let candidates = run("candidate/01.json", &["zhang:budget: ok"]);
+        // a plugin against a plugin
+        let refused = refusals(&run("native/01.json", &["zhang:budget: ok"]), &candidates, &options);
+        assert!(
+            refused
+                .iter()
+                .any(|it| it == "native/01.json is not native: it shows the analyzer zhang:budget: ok (after_load)"),
+            "{refused:?}"
+        );
+        // the native implementation against the plugin
+        assert_eq!(refusals(&run("native/01.json", &[]), &candidates, &options), Vec::<String>::new());
+        assert_eq!(
+            refusals(&run("native/01.json", &["zhang:budget: not published"]), &candidates, &options),
+            Vec::<String>::new()
+        );
+        // without --expect-analyzer, a native side with a snapshot of zhang:budget is refused all the same
+        let options = Options {
+            expect_analyzer: None,
+            ..options
+        };
+        let refused = refusals(&run("native/01.json", &["zhang:budget: failed (timeout)"]), &candidates, &options);
+        assert!(refused.iter().any(|it| it.contains("is not native")), "{refused:?}");
+    }
+
+    #[test]
+    fn a_pass_near_its_bar_is_confirmed_within_the_calibrated_margin() {
+        // 30% of the allowance, where no calibration measured a larger gap
+        assert!((confirm_margin(50.0, None) - 15.0).abs() < 1e-9);
+        assert!((confirm_margin(50.0, calibrated_gap("10000tx-30b-60m", "reload_then_errors")) - 15.0).abs() < 1e-9);
+        // twice the calibrated gap, where that is larger
+        let gap = calibrated_gap("100000tx-30b-60m", "reload_then_errors").expect("a calibrated gap");
+        assert!((confirm_margin(66.0, Some(gap)) - 2.0 * gap).abs() < 1e-9 && 2.0 * gap > 0.3 * 66.0);
+        let pass = || ("PASS", 0, "PASS".to_owned());
+        assert_eq!(confirm(pass(), 40.0, 66.0, 32.6, true).0, "CONFIRM");
+        assert_eq!(confirm(pass(), 30.0, 66.0, 32.6, true).0, "PASS");
+        // pairs run one after the other need no confirmation
+        assert_eq!(confirm(pass(), 40.0, 66.0, 32.6, false).0, "PASS");
     }
 
     #[test]

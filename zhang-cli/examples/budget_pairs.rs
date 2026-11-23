@@ -30,9 +30,10 @@
 //!   fewer than `--most-pairs` valid pairs, more pairs are run (at least as many as there are slots) and they are
 //!   judged again. The `requests` mode gets no more: its pairs are all run before the judgement.
 //! - **A PASS to confirm is confirmed**: `budget_compare` reports `CONFIRM` for a PASS of pairs run at the same time
-//!   whose interval reaches past 70% of what is allowed, as the two sides of a pair share the memory bandwidth and the
-//!   caches. Its mode and ledger then get `--confirm-pairs` pairs run one after the other, in `<out>/sequential/`,
-//!   judged the same way; their verdict is the one that counts (`<out>/verdicts.json`). `--no-confirm` skips it.
+//!   whose interval comes within a margin of what is allowed (30%, or twice the calibrated gap of the timer), as the two
+//!   sides of a pair share the memory bandwidth and the caches. Its mode and ledger then get `--confirm-pairs` pairs run
+//!   one after the other, in `<out>/sequential/`, judged the same way; their verdict is the one that counts
+//!   (`<out>/verdicts.json`). `--no-confirm` skips it.
 //!
 //! The binaries are run as they are: one binary for both sides with an environment each (`--native-env
 //! ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin`), or two; `--env` sets a variable on both sides
