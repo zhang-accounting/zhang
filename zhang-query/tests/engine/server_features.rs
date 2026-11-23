@@ -56,7 +56,7 @@ macro_rules! fixture_ledger {
     ($function:ident, $name:literal) => {
         fn $function() -> &'static Ledger {
             static CELL: OnceLock<Ledger> = OnceLock::new();
-            CELL.get_or_init(|| zhang_testkit::ledger::load_ledger(fixture_dir($name), "main.zhang"))
+            CELL.get_or_init(|| zhang_testkit::native::load_ledger(fixture_dir($name), "main.zhang"))
         }
     };
 }
@@ -72,7 +72,7 @@ fixture_ledger!(budgets, "budgets");
 fn oracle_ledger() -> &'static Ledger {
     static CELL: OnceLock<Ledger> = OnceLock::new();
     CELL.get_or_init(|| {
-        zhang_testkit::ledger::load_ledger(
+        zhang_testkit::native::load_ledger(
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/ledgers/server_features"),
             "main.zhang",
         )
@@ -957,8 +957,8 @@ fn d1_a_reloaded_ledger_is_queried_afresh() {
     let second = tempfile::tempdir().unwrap();
     write(first.path(), HEADER);
     write(second.path(), HEADER);
-    let mut ledger = zhang_testkit::ledger::load_ledger(first.path().to_path_buf(), "main.zhang");
-    let other = zhang_testkit::ledger::load_ledger(second.path().to_path_buf(), "main.zhang");
+    let mut ledger = zhang_testkit::native::load_ledger(first.path().to_path_buf(), "main.zhang");
+    let other = zhang_testkit::native::load_ledger(second.path().to_path_buf(), "main.zhang");
 
     let compiled = Query::compile("SELECT narration, position, balance, account_balance, seq FROM #postings WHERE account = 'Assets:Bank'").unwrap();
     let run = |ledger: &Ledger| cells(&compiled.execute_with_options(ledger, &Params::new(), &options()).unwrap());
@@ -2342,7 +2342,7 @@ fn big_ledger() -> Option<Ledger> {
         return None;
     }
     let start = Instant::now();
-    let ledger = zhang_testkit::ledger::load_ledger(dir, "main.zhang");
+    let ledger = zhang_testkit::native::load_ledger(dir, "main.zhang");
     eprintln!("loaded the big ledger in {:?}", start.elapsed());
     Some(ledger)
 }
@@ -2386,7 +2386,7 @@ fn perf_fixed_cost_per_query_on_fava_demo() {
     if !release_only() {
         return;
     }
-    let ledger = zhang_testkit::ledger::fava_demo_ledger();
+    let ledger = zhang_testkit::native::fava_demo_ledger();
     let slow = time_all(
         &ledger,
         &[
@@ -2416,7 +2416,7 @@ fn perf_parameterized_regex_costs_what_a_literal_costs() {
     let literal = "SELECT count(*) WHERE payee ~ 'restaurant' OR narration ~ 'restaurant' OR account ~ 'restaurant'";
     let parameterized = literal.replace("'restaurant'", ":keyword");
     let params = Params::new().bind("keyword", "restaurant");
-    let mut ledgers = vec![("fava-demo", zhang_testkit::ledger::fava_demo_ledger())];
+    let mut ledgers = vec![("fava-demo", zhang_testkit::native::fava_demo_ledger())];
     ledgers.extend(big_ledger().map(|it| ("big", it)));
     let mut slow = vec![];
     for (name, ledger) in &ledgers {

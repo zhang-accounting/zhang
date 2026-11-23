@@ -45,7 +45,7 @@ fn load_files(files: &[(&str, &str)]) -> (Ledger, PathBuf) {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, content.replace("{root}", &dir.to_string_lossy())).unwrap();
     }
-    (zhang_testkit::ledger::load_ledger(dir.clone(), "main.zhang"), dir)
+    (zhang_testkit::native::load_ledger(dir.clone(), "main.zhang"), dir)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -97,7 +97,7 @@ option "timezone" "Asia/Shanghai"
 
 #[test]
 fn balances_have_the_true_balance_and_whether_the_assertion_holds() {
-    let ledger = zhang_testkit::ledger::load_text(BALANCES);
+    let ledger = zhang_testkit::native::load_text(BALANCES);
     assert_eq!(
         run(&ledger, "SELECT date, account, amount, tolerance, discrepancy, actual, passed FROM #balances"),
         rows(&[
@@ -145,7 +145,7 @@ fn balances_have_the_true_balance_and_whether_the_assertion_holds() {
 /// failed check moved (the one of the 7th holds).
 #[test]
 fn failed_assertions_are_balance_check_errors() {
-    let ledger = zhang_testkit::ledger::load_text(BALANCES);
+    let ledger = zhang_testkit::native::load_text(BALANCES);
     let failed = run(&ledger, "SELECT date, account FROM #balances WHERE NOT passed ORDER BY date, account");
     let errors = run(
         &ledger,
@@ -191,7 +191,7 @@ option "operating_currency" "CNY"
 /// pads of its time are booked.
 #[test]
 fn passed_is_the_balance_check_of_zhang() {
-    let ledger = zhang_testkit::ledger::load_text(PARENT_ACCOUNTS);
+    let ledger = zhang_testkit::native::load_text(PARENT_ACCOUNTS);
     assert_eq!(
         run(&ledger, "SELECT date, account, amount, discrepancy, actual, passed FROM #balances"),
         rows(&[
@@ -224,7 +224,7 @@ fn passed_is_the_balance_check_of_zhang() {
 /// `balance ... with pad` pads from.
 #[test]
 fn balances_have_their_place_among_the_entries() {
-    let ledger = zhang_testkit::ledger::load_text(PARENT_ACCOUNTS);
+    let ledger = zhang_testkit::native::load_text(PARENT_ACCOUNTS);
     assert_eq!(
         run(&ledger, "SELECT seq, id, date, time, timestamp FROM #balances"),
         run(&ledger, "SELECT seq, id, date, time, timestamp FROM #entries WHERE type = 'balance'")
@@ -265,7 +265,7 @@ fn balances_have_their_place_among_the_entries() {
 /// `#entries` itself keeps beancount's order of a day: a balance first, a document last.
 #[test]
 fn seq_is_the_order_zhang_processes_the_ledger_in() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
@@ -359,7 +359,7 @@ option "operating_currency" "CNY"
 ///   written, before a balance at 03:15, while its timestamp is after that balance's.
 #[test]
 fn seq_puts_every_assertion_after_the_postings_it_includes() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 option "operating_currency" "CNY"
 option "timezone" "America/New_York"
@@ -442,7 +442,7 @@ option "timezone" "America/New_York"
 /// `balance ... with pad`, whose number (where zhang checks it) is higher than that of its padding.
 #[test]
 fn an_entry_after_an_assertion_comes_after_its_check() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
@@ -473,7 +473,7 @@ option "operating_currency" "CNY"
 /// A ledger with a balance assertion whose directive a plugin copied a week later, as a plugin that
 /// repeats an assertion does: the two share the position of the directive written.
 fn a_balance_and_its_copy() -> Ledger {
-    zhang_testkit::ledger::load_transformed(
+    zhang_testkit::native::load_transformed(
         r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
@@ -534,7 +534,7 @@ fn assertions_sharing_a_position_have_their_own_checks() {
 /// in `#balances` and in `#entries`.
 #[test]
 fn balances_have_the_id_of_their_check() {
-    let ledger = zhang_testkit::ledger::load_text(PARENT_ACCOUNTS);
+    let ledger = zhang_testkit::native::load_text(PARENT_ACCOUNTS);
     let ids = run(&ledger, "SELECT id FROM #balances ORDER BY seq")
         .into_iter()
         .map(|row| row[0].clone())
@@ -560,7 +560,7 @@ fn balances_have_the_id_of_their_check() {
 /// `#transactions` and the postings list each once, with the id, date and `seq` it was stored with.
 #[test]
 fn transactions_sharing_a_position_are_each_the_one_zhang_stored() {
-    let ledger = zhang_testkit::ledger::load_transformed(
+    let ledger = zhang_testkit::native::load_transformed(
         r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
@@ -614,7 +614,7 @@ option "operating_currency" "CNY"
 /// it from both.
 #[test]
 fn a_transaction_on_a_skipped_day_is_the_entry_of_its_directive() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 option "timezone" "Pacific/Apia"
 1970-01-01 commodity USD
@@ -638,7 +638,7 @@ option "timezone" "Pacific/Apia"
 /// `#transactions` read the date written.
 #[test]
 fn a_transaction_has_the_columns_zhang_stored_in_every_table() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 option "timezone" "Pacific/Apia"
 1970-01-01 commodity USD
@@ -853,7 +853,7 @@ fn documents_have_the_place_of_what_declares_them() {
 /// A ledger without document metadata has the rows of its directives only, as before.
 #[test]
 fn documents_without_metadata_are_the_directives() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 1970-01-01 open Assets:Bank
 2024-01-02 document Assets:Bank "statements/jan.pdf"
@@ -873,7 +873,7 @@ fn documents_without_metadata_are_the_directives() {
 /// of its transaction too.
 #[test]
 fn the_documents_of_a_split_posting_are_listed_once() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 1970-01-01 commodity USD
 1970-01-01 commodity AAPL
@@ -945,7 +945,7 @@ include "data/2024.bean"
         std::fs::create_dir_all(dir.join(name).parent().unwrap()).unwrap();
         std::fs::write(dir.join(name), content).unwrap();
     }
-    let ledger = zhang_testkit::ledger::load_ledger(dir.clone(), "main.bean");
+    let ledger = zhang_testkit::native::load_ledger(dir.clone(), "main.bean");
     let expected = [
         "attachments/statement.txt",
         "attachments/statement.txt",
@@ -967,7 +967,7 @@ include "data/2024.bean"
     assert_eq!(stored, expected);
     // the same paths in a zhang ledger are relative to its directory
     std::fs::rename(dir.join("main.bean"), dir.join("main.zhang")).unwrap();
-    let ledger = zhang_testkit::ledger::load_ledger(dir, "main.zhang");
+    let ledger = zhang_testkit::native::load_ledger(dir, "main.zhang");
     assert_eq!(
         run(&ledger, "SELECT path FROM #documents"),
         rows(&[
@@ -985,7 +985,7 @@ include "data/2024.bean"
 #[test]
 fn errors_identify_their_directive() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests/query-zhang-tables");
-    let ledger = zhang_testkit::ledger::load_ledger(dir.clone(), "main.zhang");
+    let ledger = zhang_testkit::native::load_ledger(dir.clone(), "main.zhang");
     let errors = run(&ledger, "SELECT file, id, span_start, span_end, source, meta('txn_id') FROM #errors");
     assert_eq!(errors.len(), 6);
     for error in &errors {
@@ -1015,7 +1015,7 @@ const TWO_ERRORS: &str = r#"
 
 #[test]
 fn errors_of_one_directive_share_its_span_and_have_ids_of_their_own() {
-    let ledger = zhang_testkit::ledger::load_text(TWO_ERRORS);
+    let ledger = zhang_testkit::native::load_text(TWO_ERRORS);
     let start = TWO_ERRORS.find("2024-01-02").unwrap();
     let end = TWO_ERRORS.trim_end().len();
     let span = |kind: &str| vec![kind.to_owned(), start.to_string(), end.to_string()];
@@ -1140,7 +1140,7 @@ fn budget_figures() -> Vec<Vec<String>> {
 
 #[test]
 fn budgets_convert_spending_and_additions_to_the_budget_commodity() {
-    let ledger = zhang_testkit::ledger::load_text(BUDGETS);
+    let ledger = zhang_testkit::native::load_text(BUDGETS);
     assert_eq!(run(&ledger, BUDGET_FIGURES), budget_figures());
     // the activity is what the postings table gives with convert() at each posting's date
     assert_eq!(
@@ -1170,7 +1170,7 @@ fn budgets_convert_spending_and_additions_to_the_budget_commodity() {
 /// spent. A month after the current one is not generated.
 #[test]
 fn budgets_run_through_the_current_month() {
-    let ledger = zhang_testkit::ledger::load_text(BUDGETS);
+    let ledger = zhang_testkit::native::load_text(BUDGETS);
     let june = NaiveDate::from_ymd_opt(2024, 6, 15).unwrap();
     assert_eq!(
         run_at(
@@ -1199,7 +1199,7 @@ fn budgets_run_through_the_current_month() {
 /// the date and time of its budget-close.
 #[test]
 fn budget_definitions_are_the_budgets_without_months() {
-    let ledger = zhang_testkit::ledger::load_text(BUDGETS);
+    let ledger = zhang_testkit::native::load_text(BUDGETS);
     assert_eq!(
         run(&ledger, "SELECT * FROM #budget_definitions"),
         rows(&[
@@ -1219,7 +1219,7 @@ fn budget_definitions_are_the_budgets_without_months() {
 /// `#budgets` and in `#budget_definitions`; `#budget_events` lists both closes.
 #[test]
 fn a_budget_is_closed_by_its_first_budget_close() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
@@ -1256,7 +1256,7 @@ option "operating_currency" "CNY"
 /// activity of each.
 #[test]
 fn an_account_of_two_budgets_counts_in_both() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
@@ -1309,7 +1309,7 @@ option "operating_currency" "CNY"
 
 #[test]
 fn a_reopened_account_counts_in_the_budgets_of_its_open_at_each_date() {
-    let ledger = zhang_testkit::ledger::load_text(REOPENED);
+    let ledger = zhang_testkit::native::load_text(REOPENED);
     assert_eq!(
         run(&ledger, "SELECT name, date, activity, available FROM #budgets WHERE month IN (3, 6, 7)"),
         rows(&[
@@ -1346,7 +1346,7 @@ fn a_reopened_account_counts_in_the_budgets_of_its_open_at_each_date() {
 /// beanquery's earliest `open` and `close`.
 #[test]
 fn account_status_is_the_rule_the_ledger_checks_with() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"1970-01-01 open Assets:Day
 2024-01-05 close Assets:Day
 1970-01-01 open Assets:Timed
@@ -1395,7 +1395,7 @@ fn account_status_is_the_rule_the_ledger_checks_with() {
 /// `open`, of an unknown account, or for a key that `open` lacks. `account_budgets()` is its alias with the key `budget`.
 #[test]
 fn open_meta_values_read_the_open_in_effect_at_a_date_and_time() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"option "operating_currency" "CNY"
 1970-01-01 commodity CNY
 1970-01-01 open Assets:Bank
@@ -1542,7 +1542,7 @@ const OPEN_META: &str = r#"option "operating_currency" "CNY"
 /// table, where nothing is read in place; and it fails on a time it does not read as `open_meta_values()` does.
 #[test]
 fn open_meta_has_answers_membership_in_open_meta_values() {
-    let ledger = zhang_testkit::ledger::load_text(OPEN_META);
+    let ledger = zhang_testkit::native::load_text(OPEN_META);
     assert_eq!(run(&ledger, "SELECT count(*)"), rows(&[&["23"]]));
     let (mut held, mut checked) = (0, 0);
     let mut agree = |from: &str, has: &str, values: &str| {
@@ -1629,7 +1629,7 @@ fn open_meta_has_answers_membership_in_open_meta_values() {
 /// the `budgets` column counts a posting in is among `open_meta_values(account, 'budget', date, time)`.
 #[test]
 fn account_budgets_is_an_alias_of_open_meta_values() {
-    let ledger = zhang_testkit::ledger::load_text(REOPENED);
+    let ledger = zhang_testkit::native::load_text(REOPENED);
     assert_eq!(run(&ledger, "SELECT count(*) FROM #postings"), rows(&[&["4"]]));
     assert_eq!(
         run(
@@ -1657,7 +1657,7 @@ fn budget_definitions_ignore_date_typos() {
     for index in 0..12 {
         text.push_str(&format!("2024-01-01 budget b{} CNY\n", index));
     }
-    let ledger = zhang_testkit::ledger::load_text(&text);
+    let ledger = zhang_testkit::native::load_text(&text);
     let unbounded = Query::compile("SELECT count(*) FROM #budgets")
         .unwrap()
         .execute_at(&ledger, &Params::new(), today());
@@ -1675,7 +1675,7 @@ fn budget_definitions_ignore_date_typos() {
 #[test]
 fn today_is_the_ledgers_clock_in_its_timezone() {
     let instant = chrono::DateTime::parse_from_rfc3339("2024-03-31T16:30:00Z").unwrap().to_utc();
-    let ledger = zhang_testkit::ledger::load_text_at(BUDGETS, zhang_core::clock::Clock::Fixed(instant));
+    let ledger = zhang_testkit::native::load_text_at(BUDGETS, zhang_core::clock::Clock::Fixed(instant));
     let run_now = |sql: &str| -> Vec<Vec<String>> {
         let result = Query::compile(sql)
             .and_then(|query| query.execute(&ledger, &Params::new()))
@@ -1724,7 +1724,7 @@ option "operating_currency" "CNY"
 /// month (7 CNY) nor at the latest price (8 CNY).
 #[test]
 fn budget_amounts_convert_at_their_own_date_within_the_month() {
-    let ledger = zhang_testkit::ledger::load_text(MID_MONTH_PRICE);
+    let ledger = zhang_testkit::native::load_text(MID_MONTH_PRICE);
     assert_eq!(
         run(&ledger, BUDGET_FIGURES),
         rows(&[
@@ -1761,7 +1761,7 @@ option "operating_currency" "CNY"
 /// month; the 5 CNY of the 20th are (35 CNY if both counted).
 #[test]
 fn budget_activity_starts_at_the_definition_of_the_budget() {
-    let ledger = zhang_testkit::ledger::load_text(DEFINED_MID_MONTH);
+    let ledger = zhang_testkit::native::load_text(DEFINED_MID_MONTH);
     assert_eq!(
         run(&ledger, BUDGET_FIGURES),
         rows(&[&["food", "2024-01-01", "100 CNY", "100 CNY", "5 CNY", "95 CNY", "FALSE"]])
@@ -1770,7 +1770,7 @@ fn budget_activity_starts_at_the_definition_of_the_budget() {
 
 #[test]
 fn budget_events_are_the_effects_of_the_budget_directives() {
-    let ledger = zhang_testkit::ledger::load_text(BUDGETS);
+    let ledger = zhang_testkit::native::load_text(BUDGETS);
     assert_eq!(
         run(&ledger, "SELECT * FROM #budget_events"),
         rows(&[
@@ -1795,7 +1795,7 @@ fn budget_events_are_the_effects_of_the_budget_directives() {
     );
     // meta() reads the metadata of the directive
     let ledger =
-        zhang_testkit::ledger::load_text("2024-01-01 budget food CNY\n2024-01-02 budget-add food 10 CNY\n  memo: \"start\"\n2024-01-03 budget-close food\n");
+        zhang_testkit::native::load_text("2024-01-01 budget food CNY\n2024-01-02 budget-add food 10 CNY\n  memo: \"start\"\n2024-01-03 budget-close food\n");
     assert_eq!(
         run(&ledger, "SELECT type, amount, meta('memo') FROM #budget_events"),
         rows(&[&["assign", "10 CNY", "start"], &["close", "NULL", "NULL"]])
@@ -1805,7 +1805,7 @@ fn budget_events_are_the_effects_of_the_budget_directives() {
 /// The examples of the query language reference for these tables run, and give what they say.
 #[test]
 fn the_documented_examples_run() {
-    let ledger = zhang_testkit::ledger::load_text(BUDGETS);
+    let ledger = zhang_testkit::native::load_text(BUDGETS);
     assert_eq!(
         run(
             &ledger,
@@ -1849,7 +1849,7 @@ fn the_documented_examples_run() {
 /// canonical table. Postings before the definition do not count, but are still booked.
 #[test]
 fn budget_activity_uses_only_postings_after_its_definition() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 1970-01-01 open Assets:Cash
 1970-01-01 open Expenses:Food
@@ -1874,7 +1874,7 @@ fn budget_activity_uses_only_postings_after_its_definition() {
 /// including metadata of the expense posting, now that the loader keeps no budget totals.
 #[test]
 fn budget_activity_counts_booked_cost_sales_and_preserves_posting_metadata() {
-    let ledger = zhang_testkit::ledger::load_text(
+    let ledger = zhang_testkit::native::load_text(
         r#"
 1970-01-01 commodity USD
 1970-01-01 open Assets:A

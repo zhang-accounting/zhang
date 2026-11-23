@@ -27,6 +27,7 @@
 //! | one of them by name | [`fixtures::fixture_ledger`], [`fixtures::fixture_dir`] |
 //! | the beancount oracle ledgers (pads, balances, document paths) | [`fixtures::oracle_ledgers`], [`fixtures::oracle_ledger_dir`] |
 //! | a ledger of either format from a directory | [`fixtures::load_dir`] |
+//! | the same loaders with the native budgets of RFC #698's test switch, whatever the features (until P5) | [`native`], [`fixtures::native_budgets`], [`fixtures::FixtureLedger::load_with`] |
 //! | a reproducible random source | [`XorShift`] |
 //! | a golden file (`UPDATE_GOLDEN=1` rewrites it) | [`golden::assert_text`], [`golden::assert_json`] |
 //! | where a transaction's metadata landed, random transactions and text layouts per dialect | [`dialect::Shape`], [`dialect::random_transaction`], [`dialect::random_layout`] |
@@ -48,6 +49,7 @@ pub mod golden;
 #[cfg(feature = "server")]
 pub mod http;
 pub mod ledger;
+pub mod native;
 #[cfg(feature = "query")]
 pub mod oracle;
 
