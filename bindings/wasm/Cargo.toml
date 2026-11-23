@@ -19,11 +19,15 @@ wasm-bindgen = { version = "0.2.91", features = ["serde-serialize"] }
 # code size when deploying.
 console_error_panic_hook = { version = "0.1.6", optional = true }
 
-talc = { version = "5.1", default-features = false, features = ["counters"] }
 zhang-core = { path = "../../zhang-core", features = ["wasm"] }
 zhang-query = { path = "../../zhang-query" }
 beancount = { path = "../../extensions/beancount" }
 serde-wasm-bindgen = "0.6"
+
+# the allocator of the playground (`src/lib.rs`), safe on single-threaded WebAssembly only: a native build of the crate,
+# for its tests, keeps the system's
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+talc = { version = "5.1", default-features = false, features = ["counters"] }
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.13"
