@@ -55,6 +55,9 @@ rand = "0.10"
 percent-encoding = "2"
 form_urlencoded = "1"
 http-body-util = "0.1"
+# the tracing events of the dependencies (gotcha, wasmtime) reach the binary's logger as `log` records: the server
+# sets up no tracing subscriber (`ServerApp::logger`)
+tracing = { version = "0.1", features = ["log"] }
 
 [build-dependencies]
 chrono = { version = "0.4" }

@@ -6,8 +6,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use clap::{Args, Parser};
-use env_logger::Env;
-use log::info;
+use log::{info, LevelFilter};
 use self_update::{UpdateStrategy, VersionStatus};
 use tokio::task::spawn_blocking;
 use zhang_core::plugin_policy::{parse_hosts, parse_size, parse_timeout, PluginLevel, ALLOWED_HOSTS_ENV, LEVEL_ENV, MAX_MEMORY_ENV, MAX_TIMEOUT_ENV};
@@ -222,16 +221,73 @@ fn plugin_settings(level: Option<PluginLevel>, env: impl Fn(&str) -> Option<Stri
     Ok(settings)
 }
 
+/// The log targets of dependencies that log at `info` what only their developers need, each with the level it shows at,
+/// at most: wasmtime's WASI layer logs a span per system call of a plugin (`clock_time_get`, `random_get`: ten lines
+/// per plugin load), gotcha the OpenAPI spec of each route as the server starts (some 45 lines), and `tracing::span`
+/// carries the spans that have no fields.
+const QUIET_TARGETS: [(&str, LevelFilter); 3] = [
+    ("wasmtime_wasi", LevelFilter::Warn),
+    ("gotcha", LevelFilter::Warn),
+    ("tracing::span", LevelFilter::Warn),
+];
+
 /// The log filter, in env_logger syntax: `ZHANG_LOG`, else `RUST_LOG`, else `info`, so that errors, warnings and
-/// the server's start-up lines show without any configuration
+/// the server's start-up lines show without any configuration (a variable set to nothing counts as not set), with the
+/// targets of [`QUIET_TARGETS`] quieted ([`quiet_noisy_targets`])
 fn log_filter(zhang_log: Option<&str>, rust_log: Option<&str>) -> String {
-    zhang_log.or(rust_log).unwrap_or("info").to_owned()
+    let filter = [zhang_log, rust_log]
+        .iter()
+        .flatten()
+        .map(|it| it.trim())
+        .find(|it| !it.is_empty())
+        .unwrap_or("info");
+    quiet_noisy_targets(filter)
+}
+
+/// `filter` with the targets of [`QUIET_TARGETS`] shown at their level at most, and never above the level of the
+/// targets `filter` names not (`RUST_LOG=error` quiets them to `error`). A target `filter` names, or a target before or
+/// under it (env_logger matches a target by its start), is left as `filter` says: `RUST_LOG=info,wasmtime_wasi=trace`
+/// shows the WASI spans again. A filter with no level for the targets it does not name shows none of them already.
+fn quiet_noisy_targets(filter: &str) -> String {
+    // `directives/regex`: the regex applies to the messages, after the directives
+    let directives = filter.split_once('/').map_or(filter, |(directives, _)| directives);
+    let mut others = None;
+    let mut named = vec![];
+    for directive in directives.split(',').map(str::trim).filter(|it| !it.is_empty()) {
+        match directive.split_once('=') {
+            Some((target, _)) => named.push(target.trim()),
+            None => match directive.parse::<LevelFilter>() {
+                Ok(level) => others = Some(level),
+                // a target alone: the target at every level
+                Err(_) => named.push(directive),
+            },
+        }
+    }
+    let Some(others) = others else {
+        return filter.to_owned();
+    };
+    let quieted = QUIET_TARGETS
+        .iter()
+        .filter(|(target, _)| !named.iter().any(|name| target.starts_with(name) || name.starts_with(target)))
+        .map(|(target, level)| format!("{target}={}", (*level).min(others).as_str().to_lowercase()))
+        .collect::<Vec<_>>();
+    if quieted.is_empty() {
+        filter.to_owned()
+    } else {
+        format!("{},{filter}", quieted.join(","))
+    }
 }
 
 fn init_logger() {
     let filter = log_filter(std::env::var("ZHANG_LOG").ok().as_deref(), std::env::var("RUST_LOG").ok().as_deref());
-    // `Env::new()` keeps `RUST_LOG_STYLE` for the colours; `ZHANG_LOG`, when it is set, is `filter` already
-    env_logger::Builder::from_env(Env::new().filter_or("ZHANG_LOG", filter)).init();
+    let mut logger = env_logger::Builder::new();
+    logger.parse_filters(&filter);
+    // colours only when stderr is a terminal (never in a pipe or a container's log), unless `RUST_LOG_STYLE` says
+    // `always` or `never`; `NO_COLOR` is honoured
+    if let Ok(style) = std::env::var("RUST_LOG_STYLE") {
+        logger.parse_write_style(&style);
+    }
+    logger.init();
 }
 
 /// Resolves once the process is asked to stop: on SIGINT (Ctrl+C) and, on Unix, on SIGTERM, the signal `docker stop`,
@@ -379,10 +435,64 @@ mod test {
     #[test]
     fn log_filter_reads_zhang_log_then_rust_log_then_defaults_to_info() {
         use crate::log_filter;
-        assert_eq!(log_filter(Some("debug"), None), "debug");
+        const QUIET: &str = "wasmtime_wasi=warn,gotcha=warn,tracing::span=warn";
+        assert_eq!(log_filter(Some("debug"), None), format!("{QUIET},debug"));
         assert_eq!(log_filter(Some("zhang_core=trace"), Some("info")), "zhang_core=trace");
-        assert_eq!(log_filter(None, Some("zhang_core=trace,warn")), "zhang_core=trace,warn");
-        assert_eq!(log_filter(None, None), "info");
+        assert_eq!(log_filter(None, Some("zhang_core=trace,warn")), format!("{QUIET},zhang_core=trace,warn"));
+        assert_eq!(log_filter(None, None), format!("{QUIET},info"));
+        // set to nothing is not set
+        assert_eq!(log_filter(Some(" "), Some("")), format!("{QUIET},info"));
+    }
+
+    #[test]
+    fn the_noisy_targets_are_quieted_unless_the_filter_names_them() {
+        use crate::quiet_noisy_targets;
+        assert_eq!(quiet_noisy_targets("info"), "wasmtime_wasi=warn,gotcha=warn,tracing::span=warn,info");
+        // never louder than the other targets
+        assert_eq!(quiet_noisy_targets("error"), "wasmtime_wasi=error,gotcha=error,tracing::span=error,error");
+        assert_eq!(quiet_noisy_targets("OFF"), "wasmtime_wasi=off,gotcha=off,tracing::span=off,OFF");
+        // a target the filter names, one before it or under it, is as the filter says
+        assert_eq!(
+            quiet_noisy_targets("info,wasmtime_wasi=trace"),
+            "gotcha=warn,tracing::span=warn,info,wasmtime_wasi=trace"
+        );
+        assert_eq!(quiet_noisy_targets("info,wasmtime=debug"), "gotcha=warn,tracing::span=warn,info,wasmtime=debug");
+        assert_eq!(
+            quiet_noisy_targets("gotcha::router,info"),
+            "wasmtime_wasi=warn,tracing::span=warn,gotcha::router,info"
+        );
+        assert_eq!(
+            quiet_noisy_targets("debug,tracing=trace,gotcha=info,wasmtime_wasi=info"),
+            "debug,tracing=trace,gotcha=info,wasmtime_wasi=info"
+        );
+        // no level for the targets it does not name: they show nothing already
+        assert_eq!(quiet_noisy_targets("zhang_core=trace"), "zhang_core=trace");
+        // the regex on the messages stays last
+        assert_eq!(
+            quiet_noisy_targets("info/reload"),
+            "wasmtime_wasi=warn,gotcha=warn,tracing::span=warn,info/reload"
+        );
+    }
+
+    /// The quieted filter, as env_logger reads it: the noisy targets show warnings and errors only, the others what
+    /// the filter says
+    #[test]
+    fn env_logger_reads_the_quieted_filter() {
+        use log::{Level, Metadata};
+
+        use crate::log_filter;
+        let enabled = |filter: &str, target: &str, level: Level| {
+            let logger = env_logger::Builder::new().parse_filters(&log_filter(Some(filter), None)).build();
+            log::Log::enabled(&logger, &Metadata::builder().target(target).level(level).build())
+        };
+        assert!(!enabled("info", "wasmtime_wasi::p1", Level::Info));
+        assert!(enabled("info", "wasmtime_wasi::p1", Level::Warn));
+        assert!(!enabled("info", "gotcha::router", Level::Info));
+        assert!(!enabled("info", "tracing::span", Level::Info));
+        assert!(enabled("info", "zhang_server", Level::Info));
+        assert!(enabled("info,wasmtime_wasi=trace", "wasmtime_wasi::p1", Level::Info));
+        assert!(enabled("info,gotcha=info", "gotcha::router", Level::Info));
+        assert!(!enabled("error", "wasmtime_wasi::p1", Level::Warn));
     }
 
     type ValidationPoint = (String, Value);
