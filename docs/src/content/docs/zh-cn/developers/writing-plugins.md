@@ -402,7 +402,7 @@ fn route(request: Request) -> Result<Response, Error> {
  "last_transaction": {"seq": 980, "date": "2024-11-03"}}
 ```
 
-`seq` 是记录在 `#entries` 中的行，`#postings` 也用它给交易编号。预算记录的字段是 `name` 和 `commodity`（`budget`）、`name` 和 `amount`（`budget-add`）、`from`、`to` 和 `amount`（`budget-transfer`）以及 `name`（`budget-close`），金额写作 `{"number": "500.00", "currency": "CNY"}`。`last_transaction` 是账本的最后一笔交易：日期最晚的交易中张记账最后处理的那一笔，带有它的 `seq` 和它在账本时区中的日期。随交易延伸的序列至少延伸到它，不必查询 `#transactions`。没有交易的账本没有这一项。
+`seq` 是记录在 `#entries` 中的行，`#postings` 也用它给交易编号。预算记录的字段是 `name` 和 `commodity`（`budget`）、`name` 和 `amount`（`budget-add`）、`from`、`to` 和 `amount`（`budget-transfer`）以及 `name`（`budget-close`），金额写作 `{"number": "500.00", "currency": "CNY"}`。`time` 和 `timestamp` 是记录在账本时区中的时刻和时间戳；时区跳过的时间（夏令时切换跳过的那一小时）会被读作一小时之后的时刻，这时记录还带有 `written_time`，即书写的时间。`last_transaction` 是账本的最后一笔交易：日期最晚的交易中张记账最后处理的那一笔，带有它的 `seq` 和它在账本时区中的日期。随交易延伸的序列至少延伸到它，不必查询 `#transactions`。没有交易的账本没有这一项。
 
 它返回诊断和它的表的行，按清单中的名称：
 

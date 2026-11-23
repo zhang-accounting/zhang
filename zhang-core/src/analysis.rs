@@ -361,11 +361,13 @@ pub fn input(ledger: &Ledger, manifest: &abi::Manifest) -> abi::Input {
                 name
             }
         });
+        let (time, written) = (hms(at.time()), hms(date.naive_datetime().time()));
         records.push(abi::Record {
             kind,
             seq,
             date: ymd(date.naive_date()),
-            time: hms(at.time()),
+            written_time: (written != time).then_some(written),
+            time,
             has_time: !matches!(date, Date::Date(_)),
             timestamp: at.timestamp(),
             fields: record_fields(&directive.data),
@@ -712,6 +714,17 @@ mod test {
         assert_eq!(all.ledger.timezone, "Asia/Shanghai");
         let some = input(&ledger, &manifest(&["budget-close", "custom:other"]));
         assert_eq!(some.records.iter().map(|it| it.kind.as_str()).collect::<Vec<_>>(), ["budget-close"]);
+    }
+
+    /// A time the ledger's timezone skips (New York's clocks go from 02:00 to 03:00 on 2024-03-10) is read as the instant
+    /// an hour later: the record says so, and keeps the time as written, which a close's time is compared as.
+    #[test]
+    fn a_record_at_a_time_the_timezone_skips_keeps_its_written_time() {
+        let ledger = load("option \"timezone\" \"America/New_York\"\n2024-01-01 budget Food CNY\n2024-03-10 02:45:00 budget-close Food\n2024-03-11 02:45:00 budget-close Food\n");
+        let records = serde_json::to_value(&input(&ledger, &manifest(&["budget-close"])).records).unwrap();
+        let times = |record: &serde_json::Value| (record["time"].clone(), record.get("written_time").cloned(), record["timestamp"].clone());
+        assert_eq!(times(&records[0]), (json!("03:45:00"), Some(json!("02:45:00")), json!(1710056700)));
+        assert_eq!(times(&records[1]), (json!("02:45:00"), None, json!(1710139500)));
     }
 
     fn reported(kind: &str, target: serde_json::Value) -> abi::Diagnostic {

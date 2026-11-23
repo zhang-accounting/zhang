@@ -174,6 +174,11 @@ pub struct Record {
     pub date: String,
     /// its time of day in the ledger's timezone, `HH:MM:SS`; `00:00:00` without one
     pub time: String,
+    /// its time of day as written, when that is not `time`: a time the ledger's timezone skips (the hour a
+    /// daylight-saving change jumps over), which `time` and `timestamp` give as the instant zhang reads it as, an hour
+    /// later. What zhang compares a close's time with is the written one
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub written_time: Option<String>,
     /// whether it is written with a time
     pub has_time: bool,
     /// the Unix time in seconds of its date and time in the ledger's timezone

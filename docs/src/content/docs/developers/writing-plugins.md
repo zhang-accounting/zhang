@@ -443,9 +443,11 @@ The `analyze` export reads the records, in the order Zhang processed the ledger:
 `seq` is the record's row of `#entries`, which `#postings` numbers its transactions with too. The fields of the budget
 kinds are `name` and `commodity` (`budget`), `name` and `amount` (`budget-add`), `from`, `to` and `amount`
 (`budget-transfer`) and `name` (`budget-close`), an amount being `{"number": "500.00", "currency": "CNY"}`.
-`last_transaction` is the ledger's last transaction, of the latest date the one Zhang processed last, with its `seq`
-and its date in the ledger's timezone: where a series that follows the transactions ends at least, without a query of
-`#transactions`. A ledger without transactions has none.
+`time` and `timestamp` are the record's time of day and instant in the ledger's timezone; a time the timezone skips
+(the hour a daylight-saving change jumps over) is read as the instant an hour later, and the record then also has
+`written_time`, the time as written. `last_transaction` is the ledger's last transaction, of the latest date the one
+Zhang processed last, with its `seq` and its date in the ledger's timezone: where a series that follows the
+transactions ends at least, without a query of `#transactions`. A ledger without transactions has none.
 
 It answers the diagnostics and the rows of its tables, by their names in the manifest:
 
