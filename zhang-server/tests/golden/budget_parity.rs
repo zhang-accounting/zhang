@@ -12,7 +12,7 @@ use std::any::Any;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -22,7 +22,7 @@ use zhang_core::analysis::{AnalysisCatalog, AnalysisHost, AnalyzerTables, LentLe
 use zhang_core::clock::Clock;
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::router::{Conversion, ConvertedAmount, QueryFailure, RawQueryParam, RouterHost};
-use zhang_core::plugin_policy::PluginPolicy;
+use zhang_core::plugin_policy::{parse_size, PluginPolicy, MAX_MEMORY_ENV};
 use zhang_server::analysis::{analysis_host, load_options_for, BudgetImpl};
 use zhang_shared::plugin_abi::{analysis as abi, HostError};
 use zhang_testkit::budget_ledger::{Spec, MAIN};
@@ -103,10 +103,13 @@ fn the_scale_of_a_decimal_is_allowed_only_where_the_answer_types_a_decimal() {
 }
 
 /// The server's host of analyses ([`zhang_server::analysis::analysis_host`]), which counts the queries the analysis of a
-/// load runs and times it, from the loan of the ledger to the analyzer to the publication of its output.
+/// load runs and the time they take, and times the analysis, from the loan of the ledger to the analyzer to the
+/// publication of its output.
 #[derive(Default)]
 struct Measured {
     queries: Arc<AtomicUsize>,
+    /// the time of the queries, in nanoseconds
+    querying: Arc<AtomicU64>,
     since: Mutex<Option<Instant>>,
     took: Mutex<Option<Duration>>,
 }
@@ -128,6 +131,7 @@ impl AnalysisHost for Measured {
         Arc::new(Counted {
             host: analysis_host().queries(ledger),
             queries: self.queries.clone(),
+            querying: self.querying.clone(),
         })
     }
 
@@ -142,21 +146,30 @@ impl AnalysisHost for Measured {
     }
 }
 
-/// The queries of an analysis, counted.
+/// The queries of an analysis, counted and timed.
 struct Counted {
     host: Arc<dyn RouterHost>,
     queries: Arc<AtomicUsize>,
+    querying: Arc<AtomicU64>,
+}
+
+impl Counted {
+    fn timed<T>(&self, query: impl FnOnce() -> T) -> T {
+        self.queries.fetch_add(1, Ordering::Relaxed);
+        let started = Instant::now();
+        let answer = query();
+        self.querying.fetch_add(started.elapsed().as_nanos() as u64, Ordering::Relaxed);
+        answer
+    }
 }
 
 impl RouterHost for Counted {
     fn query(&self, bql: &str) -> Result<Value, QueryFailure> {
-        self.queries.fetch_add(1, Ordering::Relaxed);
-        self.host.query(bql)
+        self.timed(|| self.host.query(bql))
     }
 
     fn query_with_params(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Value, QueryFailure> {
-        self.queries.fetch_add(1, Ordering::Relaxed);
-        self.host.query_with_params(bql, params)
+        self.timed(|| self.host.query_with_params(bql, params))
     }
 
     fn schema(&self) -> Result<Value, QueryFailure> {
@@ -168,31 +181,60 @@ impl RouterHost for Counted {
     }
 }
 
-/// What the script's analysis of a ledger cost: how many queries it ran, and how long it took when it published.
+/// What the script's analysis of a ledger cost: how many queries it ran and how long they took, how long the analysis
+/// took when it published, and the most memory the process held during the load (Linux only).
 struct Cost {
     queries: usize,
+    querying: Duration,
     took: Option<Duration>,
+    peak_rss: Option<u64>,
 }
 
 /// The ledger `dir/main.zhang` loaded with the bundled script `zhang:budget` computing its budgets, or with `script`
-/// in its place: what its analysis cost, and whether the script published (an error when it did not).
+/// in its place, under the plugin memory limit `ZHANG_PLUGIN_MAX_MEMORY` when it is set (as the server reads it): what
+/// its analysis cost, and whether the script published (an error when it did not).
 fn load_with_the_script(dir: &Path, clock: Clock, script: Option<&Arc<[u8]>>) -> (Cost, Result<(), String>) {
     let measured = Arc::new(Measured::default());
-    let mut options = load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Plugin);
+    let mut policy = PluginPolicy::default();
+    if let Ok(size) = std::env::var(MAX_MEMORY_ENV) {
+        policy.max_memory = parse_size(&size).unwrap_or_else(|error| panic!("{MAX_MEMORY_ENV}: {error}"));
+    }
+    let mut options = load_options_for(Arc::new(policy), BudgetImpl::Plugin);
     options.analysis = Some(measured.clone());
     if let Some(content) = script {
         for plugin in &mut options.default_plugins {
             plugin.content = content.clone();
         }
     }
+    let rss = PeakRss::reset();
     let outcome = Ledger::load_with_options(dir.to_path_buf(), MAIN.to_owned(), data_source_for(MAIN), clock, options)
         .map_err(|error| error.to_string())
         .and_then(|ledger| published(&ledger));
     let cost = Cost {
         queries: measured.queries.load(Ordering::Relaxed),
+        querying: Duration::from_nanos(measured.querying.load(Ordering::Relaxed)),
         took: *measured.took.lock().unwrap(),
+        peak_rss: rss.peak(),
     };
     (cost, outcome)
+}
+
+/// The peak resident memory of the process from now on, on Linux: the kernel's high-water mark (`VmHWM`), reset first
+/// (`clear_refs`).
+struct PeakRss(bool);
+
+impl PeakRss {
+    fn reset() -> PeakRss {
+        PeakRss(std::fs::write("/proc/self/clear_refs", "5").is_ok())
+    }
+
+    /// in bytes
+    fn peak(&self) -> Option<u64> {
+        let status = std::fs::read_to_string("/proc/self/status").ok().filter(|_| self.0)?;
+        let line = status.lines().find(|line| line.starts_with("VmHWM:"))?;
+        let kib: u64 = line.trim_start_matches("VmHWM:").trim().trim_end_matches("kB").trim().parse().ok()?;
+        Some(kib * 1024)
+    }
 }
 
 /// The second Sunday of March of `year`, when the clocks of New York skip from 02:00 to 03:00.
@@ -429,28 +471,120 @@ async fn the_budget_script_reads_thousands_of_closed_budgets_in_a_few_queries() 
     assert_alike("3,600 closed budgets", large.dir(), probe_clock(), &probe_requests(3_600)).await;
 }
 
-/// [`monthly_budgets`] of 4 categories over 110 months: 440 budgets, each with postings in all 110 months, so that the
-/// script's groupings by budget and month have more groups (48,400) than the 40,000 it reads at once: it reads them by
-/// ranges of months, which a census of the postings sizes, and answers as the native budgets do.
+/// [`monthly_budgets`] of 4 categories over 110 months: 440 budgets, each with postings in all 110 months, every posting
+/// in all 110 budgets of its account. The script groups the postings by account and month (440 cells), not by budget
+/// and month (48,400 groups), and adds up the cells of each budget: as many queries as for 4 categories over 30 months,
+/// and it answers as the native budgets do.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_budget_script_reads_budgets_of_every_month_on_one_account_by_ranges_of_months() {
+async fn the_budget_script_reads_budgets_of_every_month_on_one_account_by_account_and_month() {
     let clock = Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2025-01-15T12:00:00Z").unwrap().to_utc());
-    let scratch = Scratch::zhang(&monthly_budgets(4, 110));
-    let queries = queries_of("440 monthly budgets", scratch.dir(), clock);
-    // a census of the postings, then each grouping by budget in two ranges of months
-    assert!((10..=20).contains(&queries), "{queries} queries");
+    let (small, large) = (Scratch::zhang(&monthly_budgets(4, 30)), Scratch::zhang(&monthly_budgets(4, 110)));
+    let queries = [
+        queries_of("120 monthly budgets", small.dir(), clock),
+        queries_of("440 monthly budgets", large.dir(), clock),
+    ];
+    assert!(
+        queries[0] == queries[1] && queries[1] <= 8,
+        "the queries grow with the monthly budgets: {queries:?}"
+    );
     let names = [("C0-".to_owned(), "C0.".to_owned()), ("C3-".to_owned(), "C3.".to_owned())];
     let months = ["2015-01-01", "2019-06-01", "2024-02-01"].map(str::to_owned);
     let budgets = ["C0-000", "C0-060", "C1-109", "C3-033"].map(str::to_owned);
     let requests = requests_of(&names, &months, &budgets, &["2015-01-01", "2020-01-01"]);
-    assert_alike("440 monthly budgets", scratch.dir(), clock, &requests).await;
+    assert_alike("440 monthly budgets", large.dir(), clock, &requests).await;
 }
 
-/// What the script's analysis costs, on the probe of 3,600 closed budgets, on the 1,200 monthly budgets of one account
-/// per category and on the budget baseline's ledgers of 10,000 and 100,000 transactions: its queries and its time, and the time of the whole load with the script and
+/// [`monthly_budgets`] at the sizes of RFC #698's P4 (10 and 35 categories over 120 months: 1,200 and 4,200 budgets, every
+/// posting in the 120 budgets of its account): a few queries each, and the script answers as the native budgets do. On
+/// demand, in release:
+///
+/// ```sh
+/// cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(thousands_of_monthly_budgets)'
+/// ```
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "4,200 budgets: run on demand, in release"]
+async fn the_budget_script_reads_thousands_of_monthly_budgets_in_a_few_queries() {
+    let clock = Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2025-01-15T12:00:00Z").unwrap().to_utc());
+    for categories in [10, 35] {
+        let what = format!("{} monthly budgets", categories * 120);
+        let scratch = Scratch::zhang(&monthly_budgets(categories, 120));
+        let queries = queries_of(&what, scratch.dir(), clock);
+        assert!(queries <= 8, "{what}: {queries} queries");
+        let names = [("C0-".to_owned(), "C0.".to_owned()), ("C9-".to_owned(), "C9.".to_owned())];
+        let months = ["2015-01-01", "2019-06-01", "2024-12-01"].map(str::to_owned);
+        let budgets = ["C0-000", "C0-060", "C1-119", "C9-033"].map(str::to_owned);
+        let requests = requests_of(&names, &months, &budgets, &["2015-01-01", "2020-01-01", "2024-12-01"]);
+        assert_alike(&what, scratch.dir(), clock, &requests).await;
+    }
+}
+
+/// A ledger of `accounts` accounts with a posting every month for `months` months, each the one account of a budget
+/// (`B000`, `B001`, ..., in CNY): every fourth one closed in the middle, at noon between postings of that day, and
+/// every fourth one defined a year late; the postings are in CNY, some in USD, which converts, and every tenth
+/// account is an Income account (its postings negative, which count as positive activity).
+fn many_accounts(accounts: usize, months: u32) -> String {
+    let mut text = String::from(
+        "option \"operating_currency\" \"CNY\"\noption \"timezone\" \"Asia/Shanghai\"\n\
+         1970-01-01 commodity CNY\n1970-01-01 commodity USD\n2000-01-01 open Assets:Bank\n2000-01-01 price USD 7.10 CNY\n",
+    );
+    let start = NaiveDate::from_ymd_opt(2015, 1, 1).expect("a date");
+    let account = |i: usize| format!("{}:A{i:03}", if i % 10 == 9 { "Income" } else { "Expenses" });
+    for i in 0..accounts {
+        writeln!(text, "2014-12-01 open {}\n  budget: \"B{i:03}\"", account(i)).expect("a string");
+        let defined = if i % 4 == 2 { start + Months::new(12) } else { start };
+        writeln!(text, "{defined} budget B{i:03} CNY\n{defined} budget-add B{i:03} 1000 CNY").expect("a string");
+    }
+    let close = start + Months::new(months / 2) + Days::new(14);
+    for month in 0..months {
+        let day = start + Months::new(month) + Days::new(14);
+        if day == close {
+            for i in (1..accounts).step_by(4) {
+                writeln!(text, "{day} 12:00:00 budget-close B{i:03}").expect("a string");
+            }
+        }
+        for i in 0..accounts {
+            let (time, amount) = match i % 5 {
+                0 => ("09:00:00", "2.50 USD"),
+                1 => ("18:00:00", "1.5 CNY"),
+                _ => ("10:00:00", "12.25 CNY"),
+            };
+            let sign = if i % 10 == 9 { "-" } else { "" };
+            writeln!(text, "{day} {time} * \"P\" \"\"\n  {} {sign}{amount}\n  Assets:Bank", account(i)).expect("a string");
+        }
+    }
+    text
+}
+
+/// [`many_accounts`] of 404 accounts over 100 months: 404 budgets, 40,400 groups of a budget's postings of a month,
+/// more than the script reads at once. It reads them by ranges of months, which a census of the postings by month
+/// sizes, and answers as the native budgets do. On demand, in release:
+///
+/// ```sh
+/// cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(more_groups_than)'
+/// ```
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "40,400 transactions: run on demand, in release"]
+async fn the_budget_script_reads_more_groups_than_it_holds_by_ranges_of_months() {
+    let clock = Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2025-01-15T12:00:00Z").unwrap().to_utc());
+    let (small, large) = (Scratch::zhang(&many_accounts(8, 100)), Scratch::zhang(&many_accounts(404, 100)));
+    let queries = [queries_of("800 groups", small.dir(), clock), queries_of("40,400 groups", large.dir(), clock)];
+    // the groups, which are too many, then a census and the groups in two ranges
+    assert_eq!(queries[1], queries[0] + 3, "{queries:?}");
+    let names = [("B000".to_owned(), "B010".to_owned()), ("B200".to_owned(), "B210".to_owned())];
+    let months = ["2015-01-01", "2016-02-01", "2019-03-01", "2023-04-01"].map(str::to_owned);
+    let budgets = ["B000", "B001", "B002", "B403"].map(str::to_owned);
+    let requests = requests_of(&names, &months, &budgets, &["2015-01-01", "2019-03-01"]);
+    assert_alike("40,400 groups", large.dir(), clock, &requests).await;
+}
+
+/// What the script's analysis costs, on the probe of 3,600 closed budgets, on the monthly budgets of one account per
+/// category (`monthly`: 10 categories, 1,200 budgets; `monthly<N>`: N categories, `monthly35` 4,200 budgets) and on the
+/// budget baseline's ledgers of 10,000 and 100,000 transactions: its queries and their time, its time, the peak
+/// resident memory of the process during the load (Linux), and the time of the whole load with the script and
 /// natively, the median of `ZHANG_BUDGET_COST_RUNS` loads (5) of each. `ZHANG_BUDGET_COST_LEDGERS` chooses the ledgers
-/// (`probe,monthly,10k,100k`), and `ZHANG_BUDGET_COST_SCRIPT` a script to measure in place of the bundled one, such as an earlier
-/// `budget.lua`. On demand, in release:
+/// (`probe,monthly,10k,100k`), `ZHANG_BUDGET_COST_SCRIPT` a script to measure in place of the bundled one, such as an
+/// earlier `budget.lua`, and `ZHANG_PLUGIN_MAX_MEMORY` the memory of the script's instance, as the server reads it. On
+/// demand, in release:
 ///
 /// ```sh
 /// cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(the_budget_script_costs)' --no-capture
@@ -472,15 +606,22 @@ fn the_budget_script_costs() {
                 Scratch::zhang(&closed_budgets(3_600)),
                 Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2025-03-01T12:00:00Z").unwrap().to_utc()),
             ),
-            "monthly" => (
-                Scratch::zhang(&monthly_budgets(10, 120)),
-                Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2025-01-15T12:00:00Z").unwrap().to_utc()),
-            ),
             "10k" => (Spec::new(10_000, 30).generate().scratch(), Spec::new(10_000, 30).clock()),
             "100k" => (Spec::new(100_000, 30).generate().scratch(), Spec::new(100_000, 30).clock()),
-            other => panic!("no ledger {other}: probe, monthly, 10k or 100k"),
+            monthly if monthly.starts_with("monthly") => {
+                let categories = match &monthly["monthly".len()..] {
+                    "" => 10,
+                    count => count.parse().unwrap_or_else(|_| panic!("no ledger {monthly}: monthly<categories>")),
+                };
+                (
+                    Scratch::zhang(&monthly_budgets(categories, 120)),
+                    Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2025-01-15T12:00:00Z").unwrap().to_utc()),
+                )
+            }
+            other => panic!("no ledger {other}: probe, monthly, monthly<categories>, 10k or 100k"),
         };
         let (mut analyses, mut loads, mut natives, mut queries, mut failure) = (vec![], vec![], vec![], 0, None);
+        let (mut querying, mut peaks) = (vec![], vec![]);
         for _ in 0..runs {
             let started = Instant::now();
             let native = Ledger::load_with_options(
@@ -496,6 +637,8 @@ fn the_budget_script_costs() {
             let (cost, outcome) = load_with_the_script(scratch.dir(), clock, script.as_ref());
             loads.push(started.elapsed());
             analyses.extend(cost.took);
+            querying.push(cost.querying);
+            peaks.extend(cost.peak_rss);
             queries = cost.queries;
             failure = outcome.err();
         }
@@ -504,8 +647,13 @@ fn the_budget_script_costs() {
         } else {
             format!("{:.1?}", median(analyses))
         };
+        peaks.sort_unstable();
+        let peak = peaks
+            .get(peaks.len() / 2)
+            .map_or("-".to_owned(), |it| format!("{:.1} MiB", *it as f64 / 1048576.0));
         println!(
-            "COST {ledger}: {queries} queries, analysis {analysis}, load with the script {:.1?}, native load {:.1?}, {runs} runs{}",
+            "COST {ledger}: {queries} queries in {:.1?}, analysis {analysis}, peak RSS {peak}, load with the script {:.1?}, native load {:.1?}, {runs} runs{}",
+            median(querying),
             median(loads),
             median(natives),
             failure
