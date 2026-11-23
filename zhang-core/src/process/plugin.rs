@@ -126,12 +126,17 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
 /// module, if any, and then the plugins of the other directives, in order. A directive naming a default plugin, the
 /// embedder's or an official one ([`crate::extensions::DEFAULT_PROVIDERS`]), registers nothing of its own: a default
 /// plugin runs once, whatever the ledger's `features.plugin`, so that no option of the ledger turns budgets off.
+///
+/// An official plugin has no options, whichever implementation serves it: natively, or the bundled script the embedder
+/// registers for it (`zhang:budget`'s `plugins/budget/budget.lua` declares none). Its directive configures nothing, and
+/// each of its arguments and metas says so ([`configure_default`]), as before the script.
 pub(crate) fn register_all(ledger: &mut Ledger, directives: &[(Plugin, SpanInfo)]) -> ZhangResult<()> {
     ledger.extensions.unavailable = crate::extensions::stopped_by(&ledger.plugin_policy);
     let defaults = ledger.load_options.default_plugins.clone();
     for default in &defaults {
         let directive = directives.iter().find(|(plugin, _)| plugin.module.as_str() == default.module);
-        register_default(default, directive, ledger)?;
+        let official = crate::extensions::DEFAULT_PROVIDERS.contains(&default.module.as_str());
+        register_default(default, directive, !official, ledger)?;
     }
     let registered = |module: &str| defaults.iter().any(|default| default.module == module);
     // the first directive naming each default plugin: the one that configures it
@@ -142,8 +147,8 @@ pub(crate) fn register_all(ledger: &mut Ledger, directives: &[(Plugin, SpanInfo)
         if official || registered(module) {
             let first = *configuring.entry(module).or_insert(span);
             let later = (!std::ptr::eq(first, span)).then_some(first);
-            // an official plugin the embedder registers no module for is served natively, and has no options
-            configure_default(plugin, ledger, span, later, official && !registered(module));
+            // an official plugin has no options, served natively or by the script the embedder registers for it
+            configure_default(plugin, ledger, span, later, official);
         } else {
             register(plugin, ledger, span)?;
         }
@@ -153,12 +158,13 @@ pub(crate) fn register_all(ledger: &mut Ledger, directives: &[(Plugin, SpanInfo)
 
 /// A `plugin` directive naming a default plugin, at `span`. The first one configures the plugin, which
 /// [`register_default`] registered with its metas; a later one configures nothing, and says so naming the first,
-/// `configured_by`. An official plugin served natively (`native`), as `zhang:budget` is, has no options: each argument
-/// and meta of the first directive naming it configures nothing, and says so. Each says it with a
+/// `configured_by`. An official plugin (`official`), such as `zhang:budget`, has no options, whether zhang serves it
+/// natively or the embedder registers its bundled script: each argument and meta of the first directive naming it
+/// configures nothing, and says so. Each says it with a
 /// [`PluginError`](zhang_ast::error::ErrorKind::PluginError), as a router plugin that serves nothing does, whose
 /// `message` says what to remove. With plugins off the directive says, whatever the ledger's `features.plugin`, that
 /// the plugin is not loaded, and nothing else.
-fn configure_default(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo, configured_by: Option<&SpanInfo>, native: bool) {
+fn configure_default(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo, configured_by: Option<&SpanInfo>, official: bool) {
     let module = plugin.module.as_str();
     if !ledger.plugin_policy.loads_plugins() {
         let metas = std::collections::HashMap::from([
@@ -180,7 +186,7 @@ fn configure_default(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo, conf
         configures_nothing(ledger, message);
         return;
     }
-    if native {
+    if official {
         for argument in &plugin.value {
             let message = format!("the argument {:?} configures nothing: {module} has no options. Remove it", argument.as_str());
             configures_nothing(ledger, message);
@@ -209,28 +215,35 @@ fn located(ledger: &Ledger, span: &SpanInfo) -> String {
 }
 
 /// Register the default plugin `default` into `ledger` ([`crate::analysis::LoadOptions::default_plugins`]): as a
-/// `plugin` directive naming its module would, but whatever the ledger's `features.plugin`, and with the metas of
-/// `directive`, the first `plugin` directive naming its module, if the ledger has one: then what they ask for and the
-/// errors of the plugin go on that directive. Its compiled code is kept across loads
-/// ([`crate::plugin::store::PluginStore::insert_default_plugin`]). The operator's `ZHANG_PLUGINS=off` stops it as it
-/// stops every plugin.
+/// `plugin` directive naming its module would, but whatever the ledger's `features.plugin`, and, when `configurable`,
+/// with the metas of `directive`, the first `plugin` directive naming its module, if the ledger has one: then what they
+/// ask for and the errors of the plugin go on that directive. An official plugin is not `configurable`: it has no
+/// options, so it runs as without its directive's metas, and its errors still go on that directive. Its compiled code
+/// is kept across loads ([`crate::plugin::store::PluginStore::insert_default_plugin`]). The operator's
+/// `ZHANG_PLUGINS=off` stops it as it stops every plugin.
 #[cfg_attr(not(feature = "plugin_runtime"), allow(unused_variables))]
-pub(crate) fn register_default(default: &crate::analysis::DefaultPlugin, directive: Option<&(Plugin, SpanInfo)>, ledger: &mut Ledger) -> ZhangResult<()> {
+pub(crate) fn register_default(
+    default: &crate::analysis::DefaultPlugin, directive: Option<&(Plugin, SpanInfo)>, configurable: bool, ledger: &mut Ledger,
+) -> ZhangResult<()> {
     #[cfg(feature = "plugin_runtime")]
     {
         if !ledger.plugin_policy.loads_plugins() {
             return Ok(());
         }
-        let plugin = directive.map(|(plugin, _)| plugin.clone()).unwrap_or_else(|| Plugin {
+        let bare = || Plugin {
             module: zhang_ast::ZhangString::quote(default.module.as_str()),
             value: vec![],
             meta: zhang_ast::Meta::default(),
-        });
+        };
+        let plugin = match directive {
+            Some((plugin, _)) if configurable => plugin.clone(),
+            _ => bare(),
+        };
         let span = directive.map(|(_, span)| span.clone()).unwrap_or_default();
         let content = default.content.clone();
         let module = crate::plugin::lua::PluginModule::parse_as(&default.module, &default.file, || Ok(content.to_vec()))?;
         let mut declaration = crate::plugin::capabilities::PluginDeclaration::parse(&plugin);
-        if directive.is_some() {
+        if directive.is_some() && configurable {
             for error in &declaration.errors {
                 ledger.report(error.kind.clone(), &span, error.metas.clone());
             }
