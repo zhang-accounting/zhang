@@ -577,6 +577,70 @@ async fn the_budget_script_reads_more_groups_than_it_holds_by_ranges_of_months()
     assert_alike("40,400 groups", large.dir(), clock, &requests).await;
 }
 
+/// A ledger whose budgets need more memory than the server allows a plugin (`ZHANG_PLUGIN_MAX_MEMORY`, `max_memory`)
+/// loads without them: its one `PluginAnalysisFailed`, of the reason `memory`, says how much Lua memory the limit gave
+/// and names the setting, and it has no budget error. A larger limit gives the script more Lua memory (#901), and the
+/// same ledger publishes: what the error codes tell the operator to do. The default limit publishes, and is checked
+/// against the smallest limit that does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_budget_analysis_out_of_memory_publishes_once_the_server_allows_more_memory() {
+    use zhang_core::plugin_policy::MIB;
+
+    let clock = Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2025-01-15T12:00:00Z").unwrap().to_utc());
+    let scratch = Scratch::zhang(&monthly_budgets(4, 110));
+    let load = |max_memory: u64| {
+        let policy = PluginPolicy {
+            max_memory,
+            ..PluginPolicy::default()
+        };
+        let options = load_options_for(Arc::new(policy), BudgetImpl::Plugin);
+        Ledger::load_with_options(scratch.dir().to_path_buf(), MAIN.to_owned(), data_source_for(MAIN), clock, options)
+    };
+    let kinds = |ledger: &Ledger| ledger.errors.iter().map(|error| error.error_type.to_string()).collect::<Vec<_>>();
+    // the smallest limit, by steps of 4 MiB, at which the script publishes, and the failure just below it
+    const STEP: u64 = 4;
+    let mut failure = None;
+    let mut enough = None;
+    for limit in (8..=256).step_by(STEP as usize) {
+        match load(limit * MIB) {
+            Ok(ledger) if published(&ledger).is_ok() => {
+                eprintln!("{limit} MiB: published");
+                enough = Some(limit);
+                break;
+            }
+            Ok(ledger) => {
+                eprintln!("{limit} MiB: {:?}", ledger.errors.iter().map(|it| &it.metas).collect::<Vec<_>>());
+                failure = Some((limit, ledger));
+            }
+            // too small for the interpreter to start: the load stops, saying so
+            Err(error) => eprintln!("{limit} MiB: the load stops: {error}"),
+        }
+    }
+    let enough = enough.expect("the default limit, 256 MiB, publishes");
+    let (limit, failed) = failure.expect("a limit too small for 440 monthly budgets");
+    eprintln!("440 monthly budgets: {limit} MiB fails, {enough} MiB publishes");
+    assert_eq!(limit + STEP, enough, "the limit just below the first that publishes fails the analysis");
+    assert_eq!(kinds(&failed), ["PluginAnalysisFailed"], "{limit} MiB: its one error, and no budget error");
+    let error = &failed.errors[0];
+    assert_eq!(error.metas["reason"], "memory", "{limit} MiB: {:?}", error.metas);
+    assert!(
+        error.metas["message"].contains("Lua memory") && error.metas["message"].contains("ZHANG_PLUGIN_MAX_MEMORY"),
+        "{limit} MiB: {}",
+        error.metas["message"]
+    );
+    // the budget tables say that they are unavailable, and where to read why
+    let unavailable = zhang_query::Query::compile_in(&zhang_query::Catalog::of_ledger(&failed), "SELECT name FROM #budgets", &Default::default())
+        .expect("#budgets compiles")
+        .execute(&failed, &zhang_query::Params::new())
+        .expect_err("#budgets is unavailable");
+    assert_eq!(
+        unavailable.message,
+        "table #budgets is unavailable: plugin zhang:budget failed (see the ledger errors)"
+    );
+    let default = load(PluginPolicy::default().max_memory).expect("the ledger loads");
+    assert!(published(&default).is_ok(), "the default limit publishes");
+}
+
 /// What the script's analysis costs, on the probe of 3,600 closed budgets, on the monthly budgets of one account per
 /// category (`monthly`: 10 categories, 1,200 budgets; `monthly<N>`: N categories, `monthly35` 4,200 budgets) and on the
 /// budget baseline's ledgers of 10,000 and 100,000 transactions: its queries and their time, its time, the peak

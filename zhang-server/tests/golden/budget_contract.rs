@@ -1071,13 +1071,18 @@ fn failing_budget_analyzer() -> String {
 }
 
 /// Every case, with a `zhang:budget` that reports the budget errors and whose analysis fails, in place of the bundled
-/// script: the load runs the native budget checks after it, and has the errors of the native fold (RFC #698's test
-/// switch), ids, places and order included, next to the failure.
-// TODO(P5): the native checks go; the failure then leaves no budget error, only its PluginAnalysisFailed
+/// script: the script is the only implementation of budgets, so the load has its one `PluginAnalysisFailed`, on the
+/// first use of budgets, and no budget error. Every other error is the native load's, ids, places and order included.
 #[tokio::test(flavor = "multi_thread")]
-async fn budget_contract_errors_when_zhang_budget_fails() {
+async fn budget_contract_has_one_error_and_no_budget_error_when_zhang_budget_fails() {
     let module: Arc<[u8]> = Arc::from(failing_budget_analyzer().into_bytes());
-    let without_failures = |errors: Vec<Value>| errors.into_iter().filter(|error| error["kind"] != "PluginAnalysisFailed").collect::<Vec<_>>();
+    let budget_kinds = ["BudgetDoesNotExist", "DefineDuplicatedBudget", "BudgetCommodityMismatch", "BudgetClosed"];
+    let without = |errors: Vec<Value>, kinds: &[&str]| {
+        errors
+            .into_iter()
+            .filter(|error| !kinds.contains(&error["kind"].as_str().unwrap_or_default()))
+            .collect::<Vec<_>>()
+    };
     let mut failed_loads = 0;
     for name in CASES {
         let Case { copy, entries, now, .. } = read_case(name);
@@ -1097,7 +1102,7 @@ async fn budget_contract_errors_when_zhang_budget_fails() {
                 .errors
                 .iter()
                 .filter(|error| error.error_type == zhang_ast::error::ErrorKind::PluginAnalysisFailed)
-                .count();
+                .collect::<Vec<_>>();
             let status = &failed
                 .extensions
                 .analyzer("zhang:budget")
@@ -1106,26 +1111,23 @@ async fn budget_contract_errors_when_zhang_budget_fails() {
                 .status;
             match status {
                 SnapshotStatus::Failed { .. } => {
-                    assert_eq!(failures, 1, "{name}/{entry}");
+                    assert_eq!(failures.len(), 1, "{name}/{entry}");
                     failed_loads += 1;
+                    // the module declares no table: the budget tables of a failed analysis of the script, which
+                    // declares them, are checked by budget_parity's out-of-memory test
                 }
-                SnapshotStatus::Skipped => assert_eq!(failures, 0, "{name}/{entry}"),
+                SnapshotStatus::Skipped => assert_eq!(failures.len(), 0, "{name}/{entry}"),
                 SnapshotStatus::Ok => panic!("{name}/{entry}: the analysis traps"),
             }
+            let errors = error_list(&failed, &dir);
             assert_eq!(
-                without_failures(error_list(&failed, &dir)),
-                error_list(&native, &dir),
-                "{name}/{entry}: the native budget checks stand in for the failed analysis"
+                without(errors.clone(), &["PluginAnalysisFailed"]),
+                without(error_list(&native, &dir), &budget_kinds),
+                "{name}/{entry}: no budget error, and every other error of the native load"
             );
-            assert_eq!(
-                failed
-                    .errors
-                    .iter()
-                    .filter(|error| error.error_type != zhang_ast::error::ErrorKind::PluginAnalysisFailed)
-                    .map(|error| &error.id)
-                    .collect::<Vec<_>>(),
-                native.errors.iter().map(|error| &error.id).collect::<Vec<_>>(),
-                "{name}/{entry}: in the order of the native fold"
+            assert!(
+                errors.iter().all(|error| !budget_kinds.contains(&error["kind"].as_str().unwrap_or_default())),
+                "{name}/{entry}: no budget error"
             );
         }
     }

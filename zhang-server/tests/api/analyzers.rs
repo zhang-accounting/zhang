@@ -674,14 +674,12 @@ fn with_default_budget(analyze: Analyze, manifest: Value) -> Ledger {
     load_with(&scratch, options, Clock::System)
 }
 
-/// Until the native budget code goes (P5), its checks stand in for `zhang:budget`'s diagnostics when its analysis
-/// fails: the ledger keeps its budget errors, where and as they always were, next to the analysis's failure.
+/// The bundled script is the only implementation of budgets: when the analysis of `zhang:budget` fails, the ledger has
+/// its one error and no budget error. The native budget checks run only with RFC #698's test switch, where they report
+/// what the script reports, with the same ids.
 #[test]
-fn the_native_budget_checks_stand_in_when_zhang_budget_fails() {
+fn a_failed_zhang_budget_leaves_its_error_and_no_budget_error() {
     let kinds = |ledger: &Ledger| ledger.errors.iter().map(|it| it.error_type.to_string()).collect::<Vec<_>>();
-    let natively = zhang_server::analysis::load_options_for(Arc::new(PluginPolicy::default()), zhang_server::analysis::BudgetImpl::Native);
-    let native = load_with(&scratch(&[]), natively, Clock::System);
-    assert_eq!(kinds(&native), ["BudgetDoesNotExist", "BudgetDoesNotExist"]);
     let ids = |ledger: &Ledger| {
         ledger
             .errors
@@ -690,16 +688,21 @@ fn the_native_budget_checks_stand_in_when_zhang_budget_fails() {
             .map(|it| it.id.clone())
             .collect::<Vec<_>>()
     };
-    // failed: the native errors, with their ids, and the failure
+    let natively = zhang_server::analysis::load_options_for(Arc::new(PluginPolicy::default()), zhang_server::analysis::BudgetImpl::Native);
+    let native = load_with(&scratch(&[]), natively, Clock::System);
+    assert_eq!(kinds(&native), ["BudgetDoesNotExist", "BudgetDoesNotExist"]);
+    // the script: the same errors
+    let script = load(&scratch(&[]));
+    assert_eq!((kinds(&script), ids(&script)), (kinds(&native), ids(&native)));
+    // failed: its error only
     let failed = with_default_budget(Analyze::Traps, budget_manifest());
-    assert_eq!(kinds(&failed), ["BudgetDoesNotExist", "BudgetDoesNotExist", "PluginAnalysisFailed"]);
-    assert_eq!(ids(&failed), ids(&native));
+    assert_eq!(kinds(&failed), ["PluginAnalysisFailed"]);
     // published: its own diagnostics only (here none)
     let published = with_default_budget(Analyze::Output(json!({})), budget_manifest());
     assert_eq!(kinds(&published), Vec::<String>::new());
-    // one that reports no budget error leaves the native checks theirs
+    // one that reports no budget error: no budget error either, the native checks run only with the test switch
     let mut quiet = budget_manifest();
     quiet["diagnostics"] = json!([]);
     let other = with_default_budget(Analyze::Output(json!({})), quiet);
-    assert_eq!(kinds(&other), ["BudgetDoesNotExist", "BudgetDoesNotExist"]);
+    assert_eq!(kinds(&other), Vec::<String>::new());
 }

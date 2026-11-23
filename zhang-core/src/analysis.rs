@@ -597,16 +597,6 @@ impl Reported {
         self.at_directives.is_empty() && self.after_fold.is_empty() && self.on_plugins.is_empty()
     }
 
-    /// These, then `later`: at each directive, after the fold and on the analyzers.
-    pub fn then(mut self, later: Reported) -> Reported {
-        for (index, errors) in later.at_directives {
-            self.at_directives.entry(index).or_default().extend(errors);
-        }
-        self.after_fold.extend(later.after_fold);
-        self.on_plugins.extend(later.on_plugins);
-        self
-    }
-
     /// Add `diagnostics`, of an analyzer whose own diagnostics go to `plugin_span` (none for a default plugin the ledger
     /// gives nothing to read), of `directives`.
     pub fn add(&mut self, diagnostics: Vec<Diagnostic>, plugin_span: Option<&SpanInfo>, directives: &[Spanned<Directive>]) {
@@ -843,24 +833,6 @@ mod test {
         // a load without a fold of directives
         let merged = merge(vec![error("l0")], &[], Reported::default());
         assert_eq!(merged.len(), 1);
-    }
-
-    #[test]
-    fn reports_follow_one_another_at_every_place() {
-        let mut first = Reported::default();
-        first.at_directives.insert(1, vec![error("n1")]);
-        first.after_fold.push(error("n-after"));
-        let mut later = Reported::default();
-        later.at_directives.insert(1, vec![error("d1")]);
-        later.at_directives.insert(2, vec![error("d2")]);
-        later.after_fold.push(error("d-after"));
-        later.on_plugins.push(error("failed"));
-        let both = first.then(later);
-        let names = |errors: &[ErrorDomain]| errors.iter().map(|it| it.metas["n"].clone()).collect::<Vec<_>>();
-        assert_eq!(names(&both.at_directives[&1]), ["n1", "d1"]);
-        assert_eq!(names(&both.at_directives[&2]), ["d2"]);
-        assert_eq!(names(&both.after_fold), ["n-after", "d-after"]);
-        assert_eq!(names(&both.on_plugins), ["failed"]);
     }
 
     #[cfg(feature = "plugin_runtime")]

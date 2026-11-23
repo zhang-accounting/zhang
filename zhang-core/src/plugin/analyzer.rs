@@ -20,7 +20,7 @@ use log::{info, warn};
 use zhang_shared::plugin_abi::analysis as abi;
 
 use crate::analysis::{self, AnalysisFailure, AnalyzerTables, Diagnostic, Lend, Reported};
-use crate::extensions::{AnalyzerSlot, Snapshot, SnapshotStatus};
+use crate::extensions::{AnalyzerSlot, Snapshot};
 use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
 use crate::plugin::host::{PluginHost, MESSAGE_META};
@@ -217,18 +217,6 @@ pub(crate) fn analyze(ledger: &mut Ledger) -> Reported {
         }
     }
     reported
-}
-
-/// Whether the analyzer `zhang:budget` of `ledger` published its snapshot, its diagnostics with it: then they stand
-/// for the native budget checks' errors (`Ledger::analyze`).
-pub(crate) fn budget_published(ledger: &Ledger) -> bool {
-    ledger
-        .plugins
-        .analyzers()
-        .find(|plugin| plugin.is_budget_provider())
-        .and_then(|plugin| ledger.extensions.analyzer(&plugin.name))
-        .and_then(|slot| slot.snapshot.get())
-        .is_some_and(|snapshot| snapshot.status == SnapshotStatus::Ok)
 }
 
 /// What one analysis ended with: what it publishes, and its diagnostics or why it failed.
