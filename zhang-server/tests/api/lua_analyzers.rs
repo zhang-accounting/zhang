@@ -220,3 +220,63 @@ fn a_lua_analysis_that_fails_loads_the_ledger_with_one_error() {
         assert!(unavailable.message.contains("unavailable"), "{}", unavailable.message);
     }
 }
+
+/// The shorter forms of the output and the last transaction of the input (RFC #698 G1): a record table's rows listed,
+/// amounts as pairs, a series fact that leaves out what it carries and takes it from the fact before it, and the
+/// ledger's last transaction, which is the latest date's last one, as `#transactions` orders them.
+#[test]
+fn a_lua_analyzer_reads_the_last_transaction_and_answers_in_the_shorter_forms() {
+    const SHORT: &str = r#"
+local M = {
+  name = "short", version = "0.1.0", types = { "Analyzer" }, analysis_abi = 1, namespace = "short",
+  consumes = { "custom:envelope" }, open_meta = {},
+  tables = {
+    { name = "funds", kind = "records", order = "published",
+      columns = { { name = "name", type = "str" }, { name = "funded", type = "amount" },
+                  { name = "last", type = "date" }, { name = "last_seq", type = "int" } } },
+    { name = "months", kind = "series", partition = { "name" },
+      period = { column = "date", unit = "month", derive = {} },
+      columns = { { name = "name", type = "str", fill = "carry" }, { name = "date", type = "date" },
+                  { name = "note", type = "str", fill = "carry" }, { name = "spent", type = "amount", fill = "zero" } } },
+  },
+}
+function M.analyze(input)
+  local last, funds = input.last_transaction, {}
+  for _, record in ipairs(input.records) do
+    local values = record.fields.values
+    -- the cells in the order of the columns, then the metadata
+    funds[#funds + 1] = { values[1], { values[2], "CNY" }, last.date, last.seq, record.meta }
+  end
+  local rows = {
+    { date = "2024-01-01", note = "first", spent = { "25.50", "CNY" }, ["$meta"] = { note = { "january" } } },
+    -- the note and the metadata left out: those of January
+    { date = "2024-02-01", spent = { "71.00", "CNY" } },
+    { date = "2024-03-01", note = "third", spent = { "5.00", "CNY" }, ["$meta"] = { note = { "march" } } },
+  }
+  return { tables = { funds = funds },
+           series = { months = { partitions = { { key = { name = "Food" }, ["until"] = "2024-03-01", rows = rows } } } } }
+end
+return M
+"#;
+    let ledger = load(&scratch("short.lua", SHORT));
+    let snapshot = ledger.extensions.analyzers[0].snapshot.get().unwrap();
+    assert_eq!(snapshot.status, SnapshotStatus::Ok, "{:?}", ledger.errors);
+    let last = query(&ledger, "SELECT date, seq FROM #transactions ORDER BY date DESC, seq DESC LIMIT 1");
+    assert_eq!(last[0][0], "2024-03-02");
+    assert_eq!(
+        query(&ledger, "SELECT name, funded, last, last_seq, meta('note') FROM #short_funds"),
+        texts(&[
+            &["Food", "100.00 CNY", "2024-03-02", &last[0][1], "groceries"],
+            &["Travel", "1000 CNY", "2024-03-02", &last[0][1], "NULL"],
+            &["Pets", "50 CNY", "2024-03-02", &last[0][1], "NULL"],
+        ])
+    );
+    assert_eq!(
+        query(&ledger, "SELECT name, date, note, spent, meta('note') FROM #short_months"),
+        texts(&[
+            &["Food", "2024-01-01", "first", "25.50 CNY", "january"],
+            &["Food", "2024-02-01", "first", "71.00 CNY", "january"],
+            &["Food", "2024-03-01", "third", "5.00 CNY", "march"],
+        ])
+    );
+}

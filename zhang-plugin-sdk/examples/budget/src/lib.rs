@@ -490,10 +490,11 @@ fn analyze(input: Input) -> Result<Output, Error> {
                     continue;
                 };
                 budget.saw(on, record.seq);
-                // a budget closes with its first budget-close
+                // a budget closes with its first budget-close, at its time as written: a time the ledger's timezone skips
+                // (a daylight-saving change) is `written_time`, where `time` is the instant zhang reads it as
                 budget.close.get_or_insert(Close {
                     date: on,
-                    time: record.has_time.then(|| record.time.clone()),
+                    time: record.has_time.then(|| record.written_time.clone().unwrap_or_else(|| record.time.clone())),
                 });
                 events.push(Event {
                     name,
@@ -607,12 +608,12 @@ fn analyze(input: Input) -> Result<Output, Error> {
     let mut labels = vec![];
     for (name, budget) in &budgets {
         let close_time = budget.close.as_ref().and_then(|close| close.time.clone());
-        definitions.push(object(json!({
+        definitions.push(Value::Object(object(json!({
             "name": name, "date": budget.record.date, "currency": budget.commodity, "alias": budget.meta("alias"),
             "category": budget.meta("category"), "accounts": accounts_of(name),
             "close": budget.close.as_ref().map(|close| close.date.format("%Y-%m-%d").to_string()), "close_time": close_time,
             "$meta": meta(budget.record),
-        })));
+        }))));
         labels.push(LabelOutput {
             label: name.clone(),
             params: object(json!({
@@ -629,10 +630,10 @@ fn analyze(input: Input) -> Result<Output, Error> {
     let rows = events
         .iter()
         .map(|event| {
-            object(json!({
+            json!({
                 "name": event.name, "date": event.record.date, "time": event.record.time, "timestamp": event.record.timestamp,
                 "type": event.kind, "amount": event.amount.as_ref().map(Amount::json), "$meta": meta(event.record),
-            }))
+            })
         })
         .collect();
     output.tables.insert("budget_events".to_owned(), rows);

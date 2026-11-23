@@ -836,6 +836,57 @@ async fn budget_contract_as_an_analyzer() {
     budget_contract_schema_with(Budgets::Analyzer).await;
 }
 
+/// A budget closed at a time the ledger's timezone skips (02:45 on 2024-03-10 in New York, whose clocks go from 02:00
+/// to 03:00) closes at that time as written: its `close_time` is `02:45:00`, the posting at 03:30 is after the close
+/// (`BudgetClosed`, no activity), its event's time is the instant zhang reads, 03:45. The analyzers answer as the native
+/// budgets do. #835 has no such case; RFC #698's differential fuzzer found it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_close_at_a_time_the_timezone_skips_closes_as_written() {
+    const LEDGER: &str = "option \"operating_currency\" \"CNY\"\noption \"timezone\" \"America/New_York\"\n\
+                          1970-01-01 commodity CNY\n2024-01-01 open Assets:Bank\n2024-01-01 open Expenses:Food\n  budget: Food\n\
+                          2024-01-01 budget Food CNY\n2024-03-01 budget-add Food 100 CNY\n\
+                          2024-03-10 01:30:00 * \"A\" \"before the close\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n\
+                          2024-03-10 02:45:00 budget-close Food\n\
+                          2024-03-10 03:30:00 * \"B\" \"after the close\"\n  Expenses:Food 2 CNY\n  Assets:Bank\n";
+    let requests = [
+        json!({"bql": "SELECT name, close, close_time FROM #budget_definitions"}),
+        json!({"bql": "SELECT name, date, time, timestamp, type FROM #budget_events"}),
+        json!({"bql": "SELECT name, date, assigned, activity, available, closed FROM #budgets WHERE date <= 2024-03-01"}),
+        json!({"bql": "SELECT narration, budgets FROM #postings WHERE account = 'Expenses:Food'"}),
+    ];
+    let scratch = Scratch::zhang(LEDGER);
+    let now = Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2024-03-20T12:00:00Z").unwrap().to_utc());
+    let mut runs = vec![Budgets::Native];
+    if budget_analyzer().is_some() {
+        runs.push(Budgets::Analyzer);
+    }
+    let mut seen = vec![];
+    for budgets in runs {
+        let (router, ledger) = server(scratch.dir(), "main.zhang", now, budgets).await.expect("the ledger loads");
+        let errors = error_list(&*ledger.read().await, scratch.dir());
+        seen.push((answers(&router, &requests).await.responses, errors));
+    }
+    let (responses, errors) = &seen[0];
+    assert_eq!(
+        rows_by_column(&responses[0].1["data"])[0]["close_time"],
+        json!("02:45:00"),
+        "{:?}",
+        responses[0]
+    );
+    assert_eq!(rows_by_column(&responses[1].1["data"])[1]["time"], json!("03:45:00"), "{:?}", responses[1]);
+    assert_eq!(
+        rows_by_column(&responses[2].1["data"])[2]["activity"]["number"],
+        json!("1"),
+        "{:?}",
+        responses[2]
+    );
+    let kinds = errors.iter().map(|it| it["kind"].as_str().unwrap_or_default()).collect::<Vec<_>>();
+    assert_eq!(kinds, ["BudgetClosed"], "{errors:?}");
+    for other in &seen[1..] {
+        assert_eq!(other, &seen[0]);
+    }
+}
+
 /// A `zhang:budget` that declares the budget errors and whose analysis traps: the WAT text of a module whose `manifest`
 /// answers so and whose `analyze` export traps.
 fn failing_budget_analyzer() -> String {
