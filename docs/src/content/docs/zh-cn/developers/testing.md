@@ -69,6 +69,7 @@ sidebar:
 - `budget_contract_as_the_budget_script` 用脚本运行契约的每个用例，对照同样的黄金文件（包括错误的 id 和位置），并列出每个差异以及允许它的上述规则；其他任何差异都会让它失败。加上原生的用例，它就是 `both` 模式下的契约，每次运行测试都会运行。
 - `the_budget_script_answers_the_reference_figures_on_every_ledger` 在仓库的每个账本上，用 `budget_reference` 的独立计算检查脚本给出的预算页面，就像 `the_handlers_answer_the_reference_figures_on_every_ledger` 检查原生实现那样。设置 `ZHANG_BUDGET_IMPL=plugin`（或 `both`）时，`budget_commodity` 的每个测试（包括手算的小账本）都用脚本加载：`ZHANG_BUDGET_IMPL=plugin cargo nextest run -p zhang-server --test golden -E 'test(/budget_commodity/)'`。
 - `zhang_testkit::budget_parity` 就是 `both`：它用原生实现和脚本各加载一次账本，按服务器提供账本的方式提供，比较按 id 精确的错误、三张预算表、`#postings` 的 `budgets`、错误页以及预算页面的命名查询。`budget_parity::the_bench_ledgers_answer_alike_both_ways` 按需在预算基线的两个账本上运行它：`cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(the_bench_ledgers)'`。
+- `the_budget_script_runs_as_many_queries_on_400_closed_budgets_as_on_200` 在每次测试中都会运行：用脚本加载生成的、含已关闭预算的账本，脚本须发布结果，400 个预算与 200 个预算所跑的查询数相同（每种预算商品几条，与预算个数无关；一次分析最多跑 10,000 条），且回答与原生预算一致。`the_budget_script_reads_thousands_of_closed_budgets_in_a_few_queries` 按需在 3,600 个预算上做同样的检查。`the_budget_script_reads_budgets_of_every_month_on_one_account_by_ranges_of_months` 加载 4 个账户上的 440 个按月预算，每个预算覆盖全部 110 个月，按预算和月份分组的组数超过脚本一次读取的数量：脚本按月份区间分批读取，区间大小由一次过账普查决定。`the_budget_script_costs` 按需测量脚本在这些账本和预算基线两个账本上的查询数与耗时：`cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(the_budget_script_costs)' --no-capture`。
 
 #### 差分模糊测试
 
