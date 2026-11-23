@@ -1,0 +1,36 @@
+{
+  "about": "the gap, in ms, between the median differences of a known heavier candidate measured with pairs at the same time and with pairs one after the other; budget_compare confirms a PASS within twice it of the allowance",
+  "candidate": {
+    "burden_mib": 64,
+    "commit": "362a602f",
+    "measured": "2026-11-23"
+  },
+  "gaps_ms": {
+    "100000tx-30b-60m": {
+      "reload_then_budgets": 5.8,
+      "reload_then_errors": 16.2,
+      "start_then_budgets": 10.6,
+      "start_then_errors": 1.9,
+      "write_then_budgets": 10.5,
+      "write_then_errors": 7.5
+    },
+    "10000tx-30b-60m": {
+      "reload_then_budgets": 0.8,
+      "reload_then_errors": 0.1,
+      "start_then_budgets": 0.5,
+      "start_then_errors": 1.9,
+      "write_then_budgets": 0.8,
+      "write_then_errors": 3.1
+    }
+  },
+  "pairs": {
+    "100000tx-30b-60m": {
+      "concurrent": 13,
+      "sequential": 6
+    },
+    "10000tx-30b-60m": {
+      "concurrent": 10,
+      "sequential": 10
+    }
+  }
+}
