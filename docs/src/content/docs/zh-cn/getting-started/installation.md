@@ -118,7 +118,7 @@ zhang serve [OPTIONS] <PATH>
 | `ZHANG_PLUGIN_MAX_MEMORY` | 一个[插件](/zh-cn/guides/plugins/)实例最多能使用的内存，例如 `512MiB`。默认为 `256MiB`。 |
 | `ZHANG_PLUGIN_CACHE_DIR` | [插件](/zh-cn/guides/plugins/#编译后的代码)在两次启动之间保存编译后代码的目录，代码放在其中的子目录 `zhang-wasmtime-cache` 里，最多约 128 MiB。默认为 `$XDG_CACHE_HOME/zhang`，否则为 `~/.cache/zhang`。设为空值会关闭缓存。它保存服务器会运行的代码：它必须属于运行张记账的用户、只有该用户能写入，并且位于账本文件夹之外，否则张记账不使用缓存。 |
 | `ZHANG_PLUGIN_MAX_BODY`、`ZHANG_PLUGIN_MAX_CONCURRENCY` | [Router 插件](/zh-cn/guides/router-plugins/#限制)能收到的最大请求体（默认为 `4MiB`），以及一个 Router 插件能同时处理的请求数（默认为 `4`）。 |
-| `ZHANG_LOG` | 日志过滤器，例如 `info`、`debug` 或 `zhang_core=trace`（[env_logger 语法](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)）。不设置时使用 `RUST_LOG`；两者都不设置时级别为 `info`。Docker 镜像设置了 `RUST_LOG=info`。 |
+| `ZHANG_LOG` | 日志过滤器，例如 `info`、`debug` 或 `zhang_core=trace`（[env_logger 语法](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)）。不设置时使用 `RUST_LOG`；两者都不设置时级别为 `info`。Docker 镜像设置了 `RUST_LOG=info`。部分依赖的内部日志（`wasmtime_wasi`、`gotcha`、`tracing::span`）只显示警告和错误，除非过滤器写明了它们，例如 `info,wasmtime_wasi=trace`。只有输出是终端时日志才带颜色；`RUST_LOG_STYLE=always` 或 `never` 可以覆盖这一行为。 |
 
 如果启动时账本无法加载（例如存在语法错误），或者端口已被占用，`zhang serve` 会在标准错误输出中打印原因并以退出码 1 退出，这样 systemd、Docker 和托管平台都能识别出启动失败。账目本身的问题，例如不平衡的交易，不会让服务器停止：它们会列在网页界面中。
 

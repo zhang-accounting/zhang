@@ -85,6 +85,15 @@ impl GotchaApp for ServerApp {
 
     type Config = ();
 
+    /// Sets up no logger: the binary has one (env_logger, `zhang-cli`), with its filter (`ZHANG_LOG`, the targets it
+    /// quiets) and colours only on a terminal. Gotcha's default installs a second one, a tracing subscriber that reads
+    /// `RUST_LOG` only and colours its lines in a container's log too, and that took the tracing events of the
+    /// dependencies (gotcha, wasmtime) from the binary's once the server started. Without it, those events reach the
+    /// binary's logger through the `log` facade (tracing's `log` feature), before and after the start alike.
+    fn logger(&self) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(())
+    }
+
     async fn config(&self) -> Result<ConfigWrapper<Self::Config>, Box<dyn std::error::Error>> {
         Ok(ConfigWrapper {
             basic: BasicConfig {
