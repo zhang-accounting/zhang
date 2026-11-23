@@ -41,6 +41,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use extism::{Cache, CompiledPlugin, CurrentPlugin, Function, Manifest, Plugin, PluginBuilder, UserData, Val, ValType, Wasm, EXTISM_USER_MODULE};
+use log::warn;
 use uuid::Uuid;
 
 use crate::plugin::disk_cache;
@@ -192,23 +193,20 @@ impl PluginRuntime {
             None => builder.with_cache_disabled(),
         };
         let cache = self.disk_cache.clone();
-        std::thread::scope(|scope| {
-            let compiling = std::thread::Builder::new().name(COMPILE_THREAD.to_owned()).spawn_scoped(scope, move || {
-                let misses = cache.as_ref().map(Cache::cache_misses);
-                let compiled = builder.compile();
-                // compiled rather than read back from the disk cache (a count another compilation may move too, which
-                // only gives back once more): what it took and freed goes back to the system before the thread ends.
-                // Reading the code back takes a few MiB, which the end of the thread hands to the allocator to reuse
-                let compiled_anew = match (&cache, misses) {
-                    (Some(cache), Some(misses)) => cache.cache_misses() > misses,
-                    _ => true,
-                };
-                if compiled_anew {
-                    crate::memory::return_freed();
-                }
-                compiled
-            })?;
-            compiling.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        on_a_thread_of_its_own(std::thread::Builder::new().name(COMPILE_THREAD.to_owned()), move || {
+            let misses = cache.as_ref().map(Cache::cache_misses);
+            let compiled = builder.compile();
+            // compiled rather than read back from the disk cache (a count another compilation may move too, which
+            // only gives back once more): what it took and freed goes back to the system before the thread ends.
+            // Reading the code back takes a few MiB, which the end of the thread hands to the allocator to reuse
+            let compiled_anew = match (&cache, misses) {
+                (Some(cache), Some(misses)) => cache.cache_misses() > misses,
+                _ => true,
+            };
+            if compiled_anew {
+                crate::memory::return_freed();
+            }
+            compiled
         })
     }
 
@@ -264,6 +262,24 @@ impl PluginRuntime {
             },
         })
     }
+}
+
+/// Run `job` on the thread `thread` starts, and answer what it answers; on the calling thread when no thread can be
+/// started (the process is at its limit of threads or of memory), which is logged: a compilation then takes the memory
+/// of the thread that asked, rather than fail the plugin's load
+fn on_a_thread_of_its_own<T: Send>(thread: std::thread::Builder, job: impl FnOnce() -> T + Send) -> T {
+    let mut job = Some(job);
+    let pending = &mut job;
+    let started = std::thread::scope(|scope| {
+        thread
+            .spawn_scoped(scope, move || (pending.take().expect("the job runs once"))())
+            .map(|running| running.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic)))
+    });
+    started.unwrap_or_else(|error| {
+        warn!("cannot start a thread to compile a plugin on ({error}): compiling it on this thread");
+        // a thread that did not start dropped its closure, which never ran
+        (job.take().expect("the job did not run"))()
+    })
 }
 
 fn lock(pool: &Mutex<Pool>) -> MutexGuard<'_, Pool> {
@@ -426,6 +442,17 @@ mod tests {
         assert!(!returned_on.is_empty(), "the compilation gave up what it freed");
         // the tests compiling at the same time call the hook too, as every compilation does: on its own thread
         assert!(returned_on.iter().all(|name| name.as_deref() == Some(COMPILE_THREAD)), "{returned_on:?}");
+    }
+
+    /// a compilation that cannot have a thread of its own runs on the thread that asked, rather than fail the load
+    #[test]
+    fn a_compilation_runs_on_the_calling_thread_when_no_thread_can_be_started() {
+        let here = std::thread::current().id();
+        // a stack larger than the address space: the thread cannot be started
+        let impossible = std::thread::Builder::new().name(COMPILE_THREAD.to_owned()).stack_size(1 << 50);
+        assert_eq!(on_a_thread_of_its_own(impossible, || std::thread::current().id()), here);
+        let possible = std::thread::Builder::new().name(COMPILE_THREAD.to_owned());
+        assert_ne!(on_a_thread_of_its_own(possible, || std::thread::current().id()), here);
     }
 
     /// wasmtime compiles a plugin's functions on the thread compiling it, rather than in parallel on a thread per CPU,
