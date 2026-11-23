@@ -6,7 +6,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::extract::{Path as UrlPath, State};
 use axum::http::{Method, StatusCode};
@@ -548,6 +548,50 @@ async fn a_write_whose_reload_fails_is_answered_and_the_next_write_reloads_first
     assert_eq!(served.payees().await, vec!["Bakery", "Cafe"]);
     assert!(served.reload_sender.last_failure().is_none(), "a reload that succeeds clears the failure");
     assert!(!served.ledger.read().await.stale);
+}
+
+/// A ledger's own plugin whose start function never ends, added by an edit outside: the reload a write runs fails at the
+/// plugin's timeout, saying so, and the write is answered, while the reads are answered from the ledger served all
+/// along; the next write, which reloads first, is refused as promptly. The start function ran with no timer: the first
+/// write's reload hung for good, and every write after it waited for it
+#[test]
+fn a_plugin_whose_start_function_never_ends_fails_the_reload_at_its_timeout() {
+    // a write never answered leaves its reload running on a blocking thread, which a runtime waits for when it is
+    // dropped: the runtime is let go in the background instead, so that the test fails rather than hangs
+    let runtime = tokio::runtime::Builder::new_multi_thread().worker_threads(4).enable_all().build().unwrap();
+    let answered = runtime.block_on(async { tokio::time::timeout(ANSWERED_WITHIN * 3, writes_to_a_ledger_whose_plugin_never_starts()).await });
+    runtime.shutdown_background();
+    answered.expect("the writes are answered");
+}
+
+async fn writes_to_a_ledger_whose_plugin_never_starts() {
+    const FAILURE: &str = "start_loop.wat cannot be loaded: its start function or initialisation (`_initialize`) ran longer than its timeout of 1s";
+    let served = Served::with_main(OPENS);
+    let start_loop = include_str!("../../../zhang-core/tests/plugins/start_loop.wat");
+    std::fs::write(served.scratch.dir().join("start_loop.wat"), start_loop).unwrap();
+    served.scratch.write(
+        "main.zhang",
+        &format!("option \"features.plugin\" \"true\"\nplugin \"start_loop.wat\"\n  timeout: \"1\"\n{OPENS}"),
+    );
+    let started = Instant::now();
+    let create = {
+        let served = served.clone();
+        tokio::spawn(async move { served.create(None, coffee("Cafe", "5")).await })
+    };
+    assert!(served.read_now().await.is_empty(), "the ledger served is the one before the plugin");
+    let created = create.await.unwrap();
+    assert!(started.elapsed() < ANSWERED_WITHIN, "{:?}", started.elapsed());
+    assert_eq!(created.status, StatusCode::OK, "{}", created.body);
+    assert!(created.data()["id"].is_null(), "no id without the ledger with the write: {}", created.body);
+    let failure = served.reload_sender.last_failure().expect("the failure is kept for /api/info");
+    assert!(failure.message.contains(FAILURE), "{failure:?}");
+    assert!(served.read_now().await.is_empty());
+
+    let started = Instant::now();
+    let refused = served.create(None, coffee("Bakery", "3")).await;
+    assert!(started.elapsed() < ANSWERED_WITHIN, "{:?}", started.elapsed());
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.body);
+    assert!(refused.body.to_string().contains(FAILURE), "{}", refused.body);
 }
 
 /// An edit outside to the file a write newly includes, made while the write's reload loads: the file watcher looks at

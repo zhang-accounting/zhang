@@ -301,6 +301,8 @@ There are two ways for a plugin to say something is wrong:
 - **Report it** with `zhang_emit_error` (`errors::emit_error` / `emit_error_at`). The problem becomes a [`PluginError`](/reference/error-codes/#pluginerror) in the ledger's error list, on the directive whose span you pass (or the plugin's directive), with the metas `plugin`, `message` and your own. The ledger still loads. This is how validators work.
 - **Fail** the call: return an error from the handler (or trap, or panic). A failing processor or mapper aborts the whole load, and a call running past its `timeout` does too. Use it for problems the user must fix before the ledger means anything, such as invalid plugin config.
 
+The `timeout` also bounds the module's initialisation, which runs whenever an instance is built: its start function, a reactor's `_initialize` and a WASI module's constructors. A module whose initialisation runs past it fails the load, with an error saying so (``plugin ... cannot be loaded: its start function or initialisation (`_initialize`) ran longer than its timeout of 10s``), rather than holding up every load and every write after it.
+
 ## Router plugins
 
 A router plugin serves `/api/plugins/{name}` and every path below it, for any HTTP method:

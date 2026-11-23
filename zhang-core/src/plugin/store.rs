@@ -112,7 +112,7 @@ impl PluginStore {
                 let host = PluginHost::registering(_plugin.module.as_str(), span.clone(), clock.clone(), timezone);
                 let mut plugin = runtime
                     .instantiate(manifest, host.clone())
-                    .map_err(|e| ZhangError::CustomError(format!("Failed to create WasmPlugin: {}", e)))?;
+                    .map_err(|e| ZhangError::CustomError(format!("plugin {} cannot be loaded: {}", log_safe(&plugin_name), log_safe(&format!("{e:#}")))))?;
                 // a script's identity exports run its chunk, so this is where a script that does not parse, or
                 // returns no module table, fails to load
                 let failed = |export: &str, error: extism::Error| match script.is_some() {

@@ -229,6 +229,32 @@ fn looping_plugin_fails_the_load_at_its_timeout() {
     assert!(elapsed < Duration::from_secs(20), "the load took {elapsed:?}, not about a second");
 }
 
+/// A module whose start function never ends fails the load at the plugin's timeout, saying so: it runs while the
+/// instance is built, which ran with no timer, and the load hung for good
+#[test]
+fn a_start_function_that_never_ends_fails_the_load_at_its_timeout() {
+    let dir = ledger_dir(&["start_loop.wat"]);
+    let module = dir.path().join("start_loop.wat").display().to_string();
+    let content = with_plugins(&format!("{}  timeout: \"1\"\n", plugin(&dir, "start_loop.wat")));
+
+    // on a thread of its own, so that a load that never ends fails the test instead of hanging it
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        let result = try_load(&dir, &content).map(drop).map_err(|error| error.to_string());
+        let _ = sender.send((result, started.elapsed()));
+    });
+    let (result, elapsed) = receiver.recv_timeout(Duration::from_secs(20)).expect("the load ends at the plugin's timeout");
+
+    assert_eq!(
+        result,
+        Err(format!(
+            "custom error: plugin {module} cannot be loaded: its start function or initialisation (`_initialize`) ran longer than its timeout of 1s"
+        ))
+    );
+    assert!(elapsed >= Duration::from_secs(1), "{elapsed:?}");
+}
+
 #[test]
 fn invalid_timeout_is_reported_and_the_plugin_runs_with_the_default() {
     let dir = ledger_dir(&["echo.wat"]);

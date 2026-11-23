@@ -13,6 +13,10 @@
 # - src/plugin.rs: `Plugin::new_from_compiled_with_manifest` builds an instance from a compiled plugin with the
 #   settings of another manifest (config, allowed hosts, timeout, memory limits), which only the instance's state reads,
 #   so that a host compiles a module once for every config it runs with
+# - src/plugin.rs: the wasm that runs while an instance is built (a module's start function, a reactor's `_initialize`, a
+#   guest runtime's initialisation, run when the modules are linked and when a call instantiates the main module) runs
+#   within the manifest's timeout, as a call does, and fails with "timeout" when it runs out of it: upstream ran it with
+#   no timer, so a start function that never ended hung `Plugin::new` and the first call
 # - src/plugin_builder.rs, src/plugin.rs, src/lib.rs: `PluginBuilder::with_cache` compiles with a wasmtime `Cache` the
 #   host configured once (re-exported with `CacheConfig`), in place of the one extism sets up from a configuration file
 #   at every compilation, which fails the compilation when wasmtime's default directory cannot be created
