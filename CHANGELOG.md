@@ -10,15 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!--
 Release prep. Before tagging:
 - refresh: `git-cliff --unreleased --tag v0.3.0` lists the raw commits since v0.2.0; fold the new ones in below
-  (the budget migration, #698, goes to "Budget as an official plugin");
+  (the budget migration, #698, goes to "Budget as an official plugin"). Folded in up to #884 (362a602f);
+- replace each entry marked "TODO(...)" below with what was merged, or remove it;
 - replace "Unreleased" above with the release date, and `main` in the [0.3.0] link at the end with `v0.3.0`;
 - the workspace version in Cargo.toml must equal the tag.
 -->
 
 The first release since 0.2.0 gathers more than 350 changes. Zhang now checks a ledger the way beancount does, has its
 own BQL query engine, serves Lua and WebAssembly router plugins that may write within limits the server sets, bundles
-an MCP server, and lets the mobile app sign in. **Ledgers that loaded cleanly on 0.2 can report new errors, plugins
-lose network access by default, and several API endpoints are gone: read [Breaking changes](#breaking-changes) and
+an MCP server, and lets the mobile app sign in; budgets become the official plugin `zhang:budget`. **Ledgers that
+loaded cleanly on 0.2 can report new errors, plugins lose network access by default, budgets stop when plugins are
+turned off, and several API endpoints are gone: read [Breaking changes](#breaking-changes) and
 [Upgrading from 0.2](#upgrading-from-02) before you upgrade.** The documentation has the same guide:
 <https://zhang-accounting.kilerd.me/deployment/upgrading-to-0-3/>.
 
@@ -58,6 +60,13 @@ lose network access by default, and several API endpoints are gone: read [Breaki
   no network and for at most 30 seconds a call: a plugin whose directive grants `allowed_hosts` has no network until
   `ZHANG_PLUGIN_ALLOWED_HOSTS` allows its hosts, and a longer `timeout` is lowered. Each such directive gets a
   `PluginCapabilityReduced` error naming the setting; with plugins off, each gets `PluginsDisabled`. (#830)
+- Plugins off turns budgets off too: budgets are interpreted by the official plugin `zhang:budget`, which every ledger
+  has, and `--plugins off` / `ZHANG_PLUGINS=off` stops it with the others. The budget pages and queries then answer
+  that the budget tables are unavailable, the ledger shows one `ExtensionUnavailable` error, and `zhang serve` logs it
+  when it starts. Budgets need `ZHANG_PLUGINS` `read`, the default, or `write`. (#863, #867)
+- Compiled plugin code is cached in Zhang's own directory, `zhang-wasmtime-cache` under `ZHANG_PLUGIN_CACHE_DIR`
+  (default `$XDG_CACHE_HOME/zhang`, else `~/.cache/zhang`), instead of wasmtime's `~/.cache/wasmtime`.
+  **`EXTISM_CACHE_CONFIG` and wasmtime's configuration file are no longer read.** (#868)
 - A plugin's HTTP requests no longer follow redirects, no longer use the environment's HTTP proxy, and never go to a
   loopback, private, link-local, CGNAT or other non-public address, whatever `allowed_hosts` allows. (#830)
 - Processors and mappers see booked postings (interpolated amounts filled in, costs resolved per lot); a `plugin`
@@ -110,8 +119,10 @@ lose network access by default, and several API endpoints are gone: read [Breaki
    seconds a call, raise `ZHANG_PLUGIN_MAX_TIMEOUT`; to let plugins write, start the server with `--plugins write`
    (`ZHANG_PLUGINS=write`). Move plugin modules into the ledger's folder and give them a `.wasm` or `.wat` name. Add
    `stage: "raw"` to a processor or mapper that expects transactions as written, and check the order of the `plugin`
-   directives.
-3. Docker: switch `kilerd/zhang:snapshot` to `latest` or `0.3.0`.
+   directives. Keep `ZHANG_PLUGINS` at `read` or `write` if the ledger has budgets. If you set `EXTISM_CACHE_CONFIG`,
+   set `ZHANG_PLUGIN_CACHE_DIR` instead; `~/.cache/wasmtime` can go unless another program uses it.
+3. Docker: switch `kilerd/zhang:snapshot` to `latest` or `0.3.0`. To keep compiled plugins across re-created
+   containers, mount a volume of its own (not the ledger's) at `/root/.cache/zhang`.
 4. Start 0.3.0 and open the error list on the Overview page: work through the new errors listed above
    ([error codes](https://zhang-accounting.kilerd.me/reference/error-codes/) explains each). In `.zhang` files,
    rewrite comment lines that start with `*` with `;`.
@@ -123,29 +134,56 @@ lose network access by default, and several API endpoints are gone: read [Breaki
 
 ### Budget as an official plugin
 
-<!-- RFC #698: the budget moves out of the core into a plugin on the analyzer and extension-table API. Append the
-remaining parts (P1.5, P1.6, the G1 gate, P3.1–P3.3, P4, P5) here when they land, and move whatever they make
-user-visible (a bundled `zhang:budget`, budget API changes) into the sections above. -->
+<!-- RFC #698: the budget moves out of the core into a plugin on the analyzer and extension-table API. Merged up to
+#884: P0, P1.1–P1.6, the G1 gate (passed with conditions on 2026-11-23). Replace the TODO(...) entries with P3.1–P3.3,
+P4 and P5 when they land, and move whatever they make user-visible (the bundled `budget.lua`, `ExtensionUnavailable`
+in the playground, budget API changes) into the sections above. -->
 
-The groundwork has landed; the budget tables, pages and queries still come from the core:
+Budgets are the official plugin `zhang:budget`. It is still served by the core's native budget code, which the bundled
+Lua script replaces in P3:
 
-- The budget behaviour is frozen as a contract suite and benchmarked (#835, #836, #851), and the contract's known
-  issues are fixed: a timed budget directive round-trips through a `.bean` file, budget names are exported quoted, a
-  second `budget` of a name reports `DefineDuplicatedBudget`, and the budget queries' `month` must be the first day of
-  a month (#842)
+- `zhang:budget` is a default plugin: every ledger has it, without a `plugin` directive and whatever its
+  `features.plugin` option says, and only the server's `ZHANG_PLUGINS=off` stops it (see
+  [Breaking changes](#breaking-changes)). The query function `account_budgets()` still answers with plugins off, as
+  it reads only the accounts' `budget` metadata (#863, #867)
+- A `plugin "zhang:budget"` directive is allowed and loads no second copy. `zhang:budget` has no options yet: an
+  argument or a meta on that directive, or a second such directive, reports a `PluginError` saying it configures
+  nothing (#863, #869)
+- The five `budgets.*` built-in queries are named queries of `zhang:budget`, listed where they always were and with
+  the same text (#859)
+- The budget behaviour is frozen as a contract suite and benchmarked (#835, #836, #851, #856), and the contract's
+  known issues are fixed: a timed budget directive round-trips through a `.bean` file, budget names are exported
+  quoted, a second `budget` of a name reports `DefineDuplicatedBudget`, and the budget queries' `month` must be the
+  first day of a month (#842)
 - The budget tables are served as extension tables of a native provider, and the query schema names their provider
   (`provided_by: "zhang:budget"`) (#843, #844, #845)
-- The `Analyzer` plugin type and its SDK support; the SDK's `examples/budget` computes zhang's budgets as an analyzer
-  and passes the contract (#848, #849, #850)
+- The `Analyzer` plugin type, in the SDK and in Lua; the SDK's `examples/budget` computes zhang's budgets as an
+  analyzer and passes the contract (#848, #849, #850, #864)
+- TODO(P3.1, not merged): the bundled `budget.lua` publishes `#budget_definitions`, `#budget_events` and the budget
+  directive errors
+- TODO(P3.2, not merged): `budget.lua` computes the activity, `#budgets` and `postings.budgets`, and the posting
+  errors
+- TODO(P3.3, not merged, breaking): `budget.lua` is the only implementation of budgets; a build without the plugin
+  runtime (the `zhang-wasm` playground) reports `ExtensionUnavailable` on a ledger with budgets. Move to Breaking
+  changes
+- TODO(P4, not merged): the measured cost of budgets as a plugin against the native code, at 10,000 and 100,000
+  transactions; the bar is at most max(5%, 50 ms) more for a load or a write and the next budget or errors page, and
+  at most max(+10%, +40 MiB) of memory (#856, #880, #882)
+- TODO(P5, not merged): the native budget code is removed; the budgets guide, query reference, plugin development and
+  upgrading pages describe the plugin
 
 ### Plugins
 
 - Router plugins: a plugin is served at `/api/plugins/{name}` and every path below it, for any method, behind
   sign-in. It gets the request as JSON and answers `{status, headers, body, body_encoding}`; the Settings page links
   to each router (#468)
-- Lua router plugins: `plugin "report.lua"` runs the script in an embedded Lua 5.4, with a `zhang` table (queries,
-  built-in queries, schema, ledger info, clock, config, errors, writes) and a `json` codec. Scripts have no `io`, `os`,
-  `require` nor network, and can only be routers (#802, #838)
+- Lua plugins: `plugin "report.lua"` runs the script in an embedded Lua 5.4, with a `zhang` table (queries, built-in
+  queries, schema, ledger info, clock, config, errors, writes, conversions) and a `json` codec. Scripts have no `io`,
+  `os`, `require` nor network, and are routers or analyzers (#802, #838, #864)
+- `zhang.decimal` gives Lua scripts exact decimals: add, subtract and compare values, strings and integers (a sum
+  keeps the larger scale of the two); `*`, `/`, floats and texts of more than 1000 digits raise an error. A decimal
+  goes into JSON as its text, so into a cell, an amount, a query parameter or a write (#864)
+- `zhang.convert` (Lua) converts a batch of amounts with the ledger's prices, as `zhang_convert` does (#864)
 - Plugin writes: a router plugin may append `transaction` and `open` entries through `zhang_write_preview` and
   `zhang_write_commit` when the plugin declares `writes`, its directive grants `allowed_writes`, and the server runs
   with `--plugins write`; at most 50 directives and 64 KiB a commit, through a preview token that a change of the
@@ -168,6 +206,10 @@ The groundwork has landed; the budget tables, pages and queries still come from 
   #682, #833)
 - `GET /api/plugins` adds the effective `capabilities.allowed_hosts`, the `route`, `writes_requested` and
   `writes_granted` (#468, #803, #830)
+- Compiled code is kept in a cache of Zhang's own, `zhang-wasmtime-cache` under `ZHANG_PLUGIN_CACHE_DIR` (default
+  `$XDG_CACHE_HOME/zhang`, else `~/.cache/zhang`; set it to nothing to turn the cache off), about 128 MiB at most, so
+  a start reads plugins back instead of compiling them. `zhang serve` logs where the cache is, or why there is none
+  (#868)
 
 #### Security and limits
 
@@ -184,12 +226,20 @@ The groundwork has landed; the budget tables, pages and queries still come from 
 - Limit the memory of every plugin instance to 256 MiB (`ZHANG_PLUGIN_MAX_MEMORY`). An invalid `ZHANG_PLUGIN_*` value
   stops `zhang serve` with an error naming it. (#827)
 - Escape control characters in the plugin text Zhang logs, so a plugin cannot forge log lines. (#827)
-- Vendor extism 1.30.0 with a bounds check on every read of plugin memory: a plugin could forge the length of a
+- Patch the vendored extism with a bounds check on every read of plugin memory: a plugin could forge the length of a
   memory block and crash the server (SIGSEGV/SIGBUS) through extism's own host functions or the output and error of
   any call. The patched extism also counts the memory a plugin starts with toward `ZHANG_PLUGIN_MAX_MEMORY`, which it
   left out, so a plugin could use about twice the limit. (#830)
 - Resolve a plugin's HTTP request once, refuse non-public addresses and connect to the checked address, so DNS
   rebinding and redirects cannot reach the machine, the private network or the cloud metadata service. (#830)
+- Update wasmtime from 43 to 49.0.7 by vendoring extism 1.41.0, with zhang's patches carried over: on aarch64 a plugin
+  with a `br_table` of more than ~256k targets could make Cranelift branch to the wrong code and escape the sandbox
+  (GHSA-mghf-wjfp-p5xm). Plugins now get WASI from `wasmtime-wasi` instead of the removed `wasi-common`. (#852)
+- Trust the compiled-code cache only where no one else can change it: on Linux and macOS its directory and
+  `zhang-wasmtime-cache` must belong to the user running Zhang and be writable by that user only, the subdirectory
+  must not be a symbolic link, and a directory in or around the served ledger's folder is refused. Wasmtime's clean-up
+  only ever sees `zhang-wasmtime-cache`. A refused directory, or one that cannot be created or written to, turns the
+  cache off with one warning, and plugins still load. (#868)
 - Editing a transaction a plugin generated, or uploading a document to it, is a 400 instead of a panic or a write
   into the main file (#664)
 
@@ -218,18 +268,36 @@ The groundwork has landed; the budget tables, pages and queries still come from 
 
 ### Analyzers and extension tables (experimental)
 
-The analyzer ABI (the manifest, the records, the output, `zhang_convert`, the SDK's `analysis` module) may change in
-any release until the budget migration of RFC #698 is complete (#855).
+The analyzer ABI (the manifest, the records, the output, `zhang_convert`, the SDK's `analysis` module, Lua analyzers)
+may change in any release until the budget migration of RFC #698 is complete (#855, #864).
 
-- New `Analyzer` plugin type (WebAssembly, exports `manifest` and `analyze`): it runs on every load after booking and
-  the checks, publishes diagnostics (`PluginError` with a `kind`) and tables that queries read as `#<ns>_<table>` and
-  `postings.<ns>_<column>`. An analyzer reads no files, has no network, runs at most 10,000 queries, and a failing one
-  leaves the ledger loaded with one `PluginAnalysisFailed` error. The analyses of a load share
-  `ZHANG_PLUGIN_MAX_TIMEOUT`: each runs at most its own timeout and what the analyses before it left (#848, #849,
-  #855)
+- New `Analyzer` plugin type (a WebAssembly module that exports `manifest` and `analyze`, or a Lua script): it runs on
+  every load after booking and the checks, publishes diagnostics (`PluginError` with a `kind`) and tables that queries
+  read as `#<ns>_<table>` and `postings.<ns>_<column>`. An analyzer reads no files, has no network, runs at most
+  10,000 queries, and a failing one leaves the ledger loaded with one `PluginAnalysisFailed` error. The analyses of a
+  load share `ZHANG_PLUGIN_MAX_TIMEOUT`: each runs at most its own timeout and what the analyses before it left (#848,
+  #849, #855, #866)
 - The SDK writes analyzers (`plugin!` with `analyzer:` and `manifest:`, `analysis::convert`) (#850)
+- Lua analyzers: a script with `types = { "Analyzer" }` (alone or with `"Router"`) declares its manifest as fields of
+  its module table and returns its output from `analyze`; while it analyses it may run `zhang.query`,
+  `zhang.query_params`, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now` and `zhang.convert`. A raised error
+  fails that analysis only, with the script's line in its `PluginAnalysisFailed` (#864)
+- Named queries: an analyzer's manifest may declare `queries`, BQL with typed parameters, named after its namespace
+  (`shop.item`). They are checked when the ledger's catalog is built, then listed and run like the built-in queries
+  (`GET /api/query/builtins`, `POST /api/query/builtins/{name}`, a router's `zhang_query_builtin`). The namespaces of
+  zhang's own built-in queries are reserved: an analyzer that declares a query in one is reported on its directive
+  (#859, #869)
+- An analyzer's output is at most 32 MiB of JSON and 1,000,000 values, and a decimal in it (an amount's number too)
+  has at most 1000 digits written out in full, before and after its point together, the bound of `zhang_convert`:
+  `1e1000` is refused (#849, #876)
 - Every ledger has its own query catalog, and `GET /api/query/schema` describes the served ledger's tables, with
   `provided_by` on the tables an extension provides (#839, #845, #848)
+- TODO(#885, not merged): an analyzer's output may list a record table's rows as their cells in column order, write
+  an amount as `["12.50", "CNY"]`, and leave out of a series fact the cells it carries over; **a series fact without
+  `$meta` now takes the previous fact's metadata** (`"$meta": {}` for none). Its input names the ledger's last
+  transaction (`last_transaction`), and a record at a time a daylight-saving change skips has its `written_time`. The
+  SDK's `Output::tables` rows are `serde_json::Value`s (breaking for SDK analyzers). The shorter forms need zhang
+  0.3.0 or later
 
 ### Query language
 
@@ -241,8 +309,12 @@ any release until the budget migration of RFC #698 is complete (#855).
   #748)
 - Functions: beanquery's date functions, `open_meta`, `commodity_meta`, `open_date`, `close_date`, `meta_values`;
   zhang's `icontains`, `any_icontains`, `intersects`, `under`, `set()`, `CASE WHEN … END`, `least`/`greatest`,
-  `account_status`, `now()` and `open_meta_values(account, key, date[, time])` (`account_budgets()` is a deprecated
-  alias) (#484, #490, #503, #504, #689, #759, #837)
+  `account_status`, `now()`, `open_meta_values(account, key, date[, time])` (`account_budgets()` is a deprecated
+  alias) and `open_meta_has(account, key, value, date[, time])`, a cheap `value IN open_meta_values(…)` (#484, #490,
+  #503, #504, #689, #759, #837, #862)
+- `unnest(set)` groups by each element of a set, such as `SELECT unnest(tags) AS tag, count(*) GROUP BY tag`: a row
+  counts in the group of each element, and in none when the set is empty or NULL. It is allowed once per query, as a
+  whole target or `GROUP BY` item (#873)
 - The Query page runs on Run or Ctrl/Cmd+Enter, with examples, a schema and function reference, saved queries (the
   `query` directive), CSV export and charts of the results; "Open query" buttons across the app open the query
   behind a figure; the editor highlights the keywords the server's parser reads, and charts format numbers in the
@@ -379,6 +451,22 @@ any release until the budget migration of RFC #698 is complete (#855).
   (#838)
 - Loading no longer slows down quadratically with the number of postings and metadata entries (#565, #629, #639,
   #641, #650)
+- `zhang` allocates with mimalloc (the default feature `mimalloc`; `--no-default-features` keeps the system
+  allocator). In the budget benchmark at 100,000 transactions, against the system allocator: the first request after
+  a reload is as fast as in a fresh process (median 156 ms instead of 389 ms), loads and writes take about 25% less
+  time, and the memory freed after a reload goes back to the system: the peak is 1.4 GiB instead of 4.4–5.4 GiB, and
+  the server holds about 510 MiB instead of 4.1–5.0 GiB after a minute idle. A small ledger holds a little more right
+  after loading (125 MiB instead of 100 MiB at 10,000 transactions) (#858)
+- The first query of a loaded ledger builds the cache of its booked postings with far fewer allocations, and on up to
+  4 threads for a ledger of 32,768 transactions or more: 22–25 ms instead of 82 ms at 100,000 transactions (#871,
+  #874). Aggregations no longer allocate per row (30 per-budget aggregations: 62–64 ms instead of 79–85 ms), `IN`
+  hashes its items with a randomly keyed foldhash, and plain decimals are read without the general parser (#872,
+  #875, #879)
+- A default plugin is compiled once, and what it declares when it registers is read once, for as long as its module
+  and settings stay the same, so a reload or a write does neither again: about 7 ms less for every reload or write of
+  a ledger with a Lua default plugin, as the bundled `zhang:budget` becomes with P3.3 (#863, #884). An analyzer's
+  output is read straight into the cells of its tables, without a JSON tree, its input records are freed before the
+  call, and the memory a compile freed is given back (#876, #877, #878)
 
 ### Deployment and packaging
 
@@ -388,11 +476,14 @@ any release until the budget migration of RFC #698 is complete (#855).
 - The documentation is reorganized (getting started, guides, deployment, reference, developers) and translated to
   Chinese, with redirects from the old pages (#489)
 - The server and CLI crates share the workspace version, so a source build reports 0.3.0
+- `cargo build --locked`, as the release workflow runs it, works on every commit of `main`: CI fails a pull request
+  whose `Cargo.lock` is out of date (#860, #881)
 
 ### Dependencies
 
-- extism 1.30.0 (wasmtime 43) and patched transitive crates and web packages clear the reported advisories (#561,
-  #562, #573, #578, #597, #853); reqwest 0.13 (#625); self_update 1.3 (#609)
+- extism 1.41.0 (wasmtime 49.0.7) and patched transitive crates and web packages clear the reported advisories
+  (#561, #562, #573, #578, #597, #852, #853, #854); openapi-typescript 7 for the frontend's generated API client
+  (#865); reqwest 0.13 (#625); self_update 1.3 (#609)
 - Building the web UI from source needs Node 22.22 or newer (Vite 8, TypeScript 6, ESLint 10, i18next 26, React Router
   8) (#568, #576, #579, #583, #588)
 
