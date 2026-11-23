@@ -56,6 +56,16 @@ Start 0.3, open the web UI and look at the error list on the **Overview** page. 
 - **New entries in Beancount ledgers** go to `.bean` files: the default `directive_output_path` is `data/{{year}}/{{month_str}}.{{ext}}`.
 - **Read-only files.** Zhang saves a local file by writing a temporary file next to it and renaming it over the file. A file Zhang may not write is refused with HTTP 403 instead of being half-written; a hard-linked file is still written in place.
 
+## Budget figures
+
+The **Budget** page of 0.3 can show other figures than 0.2 for the same ledger. The ledger is not at fault: 0.2 computed them wrongly, and 0.3 computes them as the [budgets guide](/guides/budgets/) describes.
+
+- **Activity in another commodity is converted.** 0.2 added up the numbers of a budget's postings whatever their commodity, so 300 USD spent from a CNY budget counted as 300 CNY. 0.3 converts each posting to the budget's commodity at the price in effect on its date. With `2025-03-31 price USD 7.0 CNY`, a CNY budget that spent 3,190 CNY and 300 USD in April showed 3,490 CNY of activity on 0.2 and shows 5,290 CNY on 0.3: the 300 USD count as 2,100 CNY. Its available amount, and what it carries over into May, are 1,800 CNY lower. A `budget-add` or `budget-transfer` in another commodity is converted the same way. An amount that no price converts is left out and reported as [`BudgetCommodityMismatch`](/reference/error-codes/#budgetcommoditymismatch): add a `price` to count it.
+- **`closed` is per month.** 0.2 showed a budget as closed in every month as soon as the ledger had a `budget-close` for it, whatever its date. 0.3 shows it closed from the month of its first `budget-close` on: a budget closed on 2025-05-02 is open in April (`budgets.month` for `2025-04-01` answers `closed` `false`) and closed from May. Postings after the close no longer count, see **Pads and budgets** above.
+- **A posting counts toward the budgets of its account's `open` in effect at its date.** An account closed and opened again with other `budget` metadata no longer counts its whole history toward both budgets.
+
+The ledger needs no change. If you compare with figures noted under 0.2, expect budgets that spend in more than one commodity, and the months before a budget's close, to differ.
+
 ## Scripts and API clients
 
 - **Removed endpoints.** The typed read endpoints of the old web UI are gone: `GET /api/store`, `/api/budgets…`, `/api/documents`, `/api/accounts/{account}/documents`, `/api/accounts/{account}/balances`, `/api/errors`, `/api/statistic/…` and `/api/for-new-transaction`. Run the built-in queries instead: [Retired endpoints](/reference/builtin-queries/#retired-endpoints) gives the query for each. `POST /api/sql` is gone with the SQL Explore page; write the query in [BQL](/reference/query-language/) and send it to `POST /api/query`.

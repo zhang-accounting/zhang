@@ -126,10 +126,13 @@ turned off, and several API endpoints are gone: read [Breaking changes](#breakin
 4. Start 0.3.0 and open the error list on the Overview page: work through the new errors listed above
    ([error codes](https://zhang-accounting.kilerd.me/reference/error-codes/) explains each). In `.zhang` files,
    rewrite comment lines that start with `*` with `;`.
-5. Scripts and API clients: read `data.id` and `data.version` from a create or an update; move the removed endpoints
+5. Budgets: expect other figures than on 0.2, with no change to the ledger. A budget that spends in another
+   commodity shows more activity and less available, as 0.2 added 300 USD as 300 CNY; a budget closed later in the
+   ledger is no longer `closed` in the months before its close (see [Budgets](#budgets)).
+6. Scripts and API clients: read `data.id` and `data.version` from a create or an update; move the removed endpoints
    to the built-in queries and SQL to BQL; send `page` ≥ 1; send credentials with every request; link an error to
    its transaction through `metas.txn_id`; don't expect `metas` sorted by key.
-6. Set `ZHANG_SESSION_SECRET` to keep sign-ins across restarts, and `ZHANG_APP_RETURN_SCHEMES` if the app signs in
+7. Set `ZHANG_SESSION_SECRET` to keep sign-ins across restarts, and `ZHANG_APP_RETURN_SCHEMES` if the app signs in
    with a scheme other than `zhang-app`.
 
 ### Budget as an official plugin
@@ -411,6 +414,11 @@ may change in any release until the budget migration of RFC #698 is complete (#8
 
 ### Budgets
 
+- Budget figures change on the same ledger (#503): activity in another commodity is converted to the budget's
+  commodity at its date, where 0.2 added the numbers whatever their commodity (300 USD spent from a CNY budget counted
+  as 300 CNY, now as 2,100 CNY at 7.0); `closed` is per month, from the month of the first `budget-close` on, where
+  0.2 showed a budget with a `budget-close` as closed in every month; and a posting counts toward the budgets of its
+  account's `open` in effect at its date, so a reopened account no longer counts its whole history in both budgets
 - Postings after a budget's `budget-close` no longer count (`BudgetClosed`), and an amount no price converts reports
   `BudgetCommodityMismatch` (#684)
 - `postings.budgets` lists the budgets a posting counts toward (#714); see also "Budget as an official plugin"

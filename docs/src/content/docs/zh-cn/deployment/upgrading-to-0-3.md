@@ -56,6 +56,16 @@ description: 把张记账从 0.2 升级到 0.3 时，账本、插件和调用 AP
 - **Beancount 账本中的新条目**写入 `.bean` 文件：`directive_output_path` 的默认值是 `data/{{year}}/{{month_str}}.{{ext}}`。
 - **只读文件。** 张记账保存本地文件时，先在旁边写一个临时文件，再把它重命名为原文件。张记账无权写入的文件会以 HTTP 403 拒绝，而不会只写了一半；有硬链接的文件仍然原地写入。
 
+## 预算数字
+
+对同一个账本，0.3 的**预算**页面可能显示与 0.2 不同的数字。这不是账本的问题：0.2 算错了，0.3 按[预算指南](/zh-cn/guides/budgets/)所述计算。
+
+- **其他货币的已支出会被换算。** 0.2 不管记账行是什么货币，都直接把数字相加，所以从 CNY 预算中花掉的 300 USD 被当作 300 CNY。0.3 按记账行日期当时有效的价格，把每条记账行换算为预算的货币。有 `2025-03-31 price USD 7.0 CNY` 时，一个 4 月花了 3,190 CNY 和 300 USD 的 CNY 预算，在 0.2 中显示已支出 3,490 CNY，在 0.3 中显示 5,290 CNY：300 USD 按 2,100 CNY 计入。它的可用金额以及结转到 5 月的金额都少了 1,800 CNY。其他货币的 `budget-add` 和 `budget-transfer` 也同样换算。没有价格可以换算的金额不计入，并报告为 [`BudgetCommodityMismatch`](/zh-cn/reference/error-codes/#budgetcommoditymismatch)：添加 `price` 即可计入。
+- **`closed` 按月计算。** 只要账本中有某个预算的 `budget-close`，无论它的日期是哪天，0.2 都在每个月把该预算显示为已关闭。0.3 从第一条 `budget-close` 所在的月份起才把它显示为已关闭：2025-05-02 关闭的预算在 4 月仍是开放的（`budgets.month` 对 `2025-04-01` 返回的 `closed` 为 `false`），从 5 月起才是已关闭。关闭之后的记账行不再计入，见上文的**补齐与预算**。
+- **记账行计入其日期当时账户 `open` 所指的预算。** 关闭后又用其他 `budget` 元数据重新开启的账户，不再把全部历史同时计入两个预算。
+
+账本无需修改。如果拿 0.2 中记下的数字来比较，在多种货币中支出的预算，以及预算关闭之前的月份，数字会有所不同。
+
 ## 脚本与 API 客户端
 
 - **已移除的接口。** 旧网页界面使用的那些类型化读取接口已经移除：`GET /api/store`、`/api/budgets…`、`/api/documents`、`/api/accounts/{account}/documents`、`/api/accounts/{account}/balances`、`/api/errors`、`/api/statistic/…` 和 `/api/for-new-transaction`。请改为执行内置查询：[已移除的接口](/zh-cn/reference/builtin-queries/#已移除的接口)给出了每个接口对应的查询。`POST /api/sql` 随 SQL 探索页面一起移除；请用 [BQL](/zh-cn/reference/query-language/) 写查询，并发送到 `POST /api/query`。
