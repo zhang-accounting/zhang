@@ -190,18 +190,30 @@ fn diff_rows(path: &str, native: &Value, plugin: &Value, types: &[Typed], found:
     }
 }
 
+/// The environment variable naming a budget script to compare the bundled one with in place of the native budgets
+/// (such as an earlier `budget.lua`): every comparison of this module and the fuzzer then compare the two scripts.
+pub const BASELINE_SCRIPT_ENV: &str = "ZHANG_BUDGET_PARITY_BASELINE";
+
 /// A ledger served as the server serves it, its budgets computed by `budgets`, and the ledger. With the plugin, the
 /// script must have published its snapshot ([`published`]): a plugin run that fell back to the native checks compares
-/// nothing.
+/// nothing. The native side is the script [`BASELINE_SCRIPT_ENV`] names when it is set.
 pub async fn serve(dir: &Path, entry: &str, clock: Clock, budgets: BudgetImpl) -> Result<(Router, Arc<RwLock<Ledger>>), String> {
     let source = data_source_for(entry);
-    let options = load_options_for(Arc::new(PluginPolicy::default()), budgets);
+    // the native side as another script, to compare two scripts
+    let baseline = std::env::var_os(BASELINE_SCRIPT_ENV).filter(|_| budgets == BudgetImpl::Native);
+    let mut options = load_options_for(Arc::new(PluginPolicy::default()), if baseline.is_some() { BudgetImpl::Plugin } else { budgets });
+    if let Some(path) = &baseline {
+        let content = Arc::<[u8]>::from(std::fs::read(path).map_err(|error| format!("{}: {error}", path.to_string_lossy()))?);
+        for plugin in &mut options.default_plugins {
+            plugin.content = content.clone();
+        }
+    }
     let (root, main, data_source) = (dir.to_path_buf(), entry.to_owned(), source.clone());
     let ledger = tokio::task::spawn_blocking(move || Ledger::load_with_options(root, main, data_source, clock, options))
         .await
         .expect("the load runs")
         .map_err(|error| error.to_string())?;
-    if budgets != BudgetImpl::Native {
+    if budgets != BudgetImpl::Native || baseline.is_some() {
         published(&ledger)?;
     }
     let ledger = Arc::new(RwLock::new(ledger));
