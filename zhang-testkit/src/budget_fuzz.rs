@@ -26,6 +26,9 @@
 //!   on the very day a budget is defined or closed;
 //! - a month whose postings to a budget net to zero, on a budget with a posting no price converts (summed as an
 //!   inventory);
+//! - an account whose `open` names a budget per month, each defined in its month and most closed at its end (every
+//!   posting of the account is in all of them), maybe another account in some of them, and the account opened again
+//!   in a month with the later ones only;
 //! - a date typo: a transaction or a budget directive decades ahead, maybe two directives of the budget that day, or
 //!   a transaction in 9999 with a dozen budgets more, so that the unbounded queries of `#budgets` have too many months;
 //! - a second file, and a `plugin "zhang:budget"` directive with options it does not have.
@@ -75,6 +78,10 @@ const EXPENSES: &[&str] = &[
 ];
 /// the accounts of the other types a budget may be linked to: their postings count with possign's sign
 const OTHERS: &[&str] = &["Assets:Cash", "Liabilities:Card", "Income:Refund", "Equity:Opening"];
+/// the account whose `open` names a budget per month, on a seed of many budgets on one account
+/// ([`Generator::monthly_budgets`]), and the account in some of them
+const MONTHLY: &str = "Expenses:Monthly";
+const MONTHLY_TOO: &str = "Expenses:Monthly:Extra";
 /// the commodities: CNY, USD, EUR and JPY have prices, GOLD is held at cost in USD, GBP and XAU never have a price
 const COMMODITIES: &[&str] = &["CNY", "USD", "EUR", "JPY", "GBP", "GOLD", "XAU"];
 const TIMEZONES: &[&str] = &["Asia/Shanghai", "UTC", "America/New_York", "Europe/Berlin", "Pacific/Auckland"];
@@ -118,6 +125,9 @@ pub const FEATURES: &[&str] = &[
     "a zero posting",
     "a zero price",
     "an account closed and opened again the same day",
+    "an account in some of the budgets of an account of many budgets",
+    "an account named on many budgets' opens",
+    "an account of many budgets opened again with fewer",
     "an account opened later",
     "an amount in another commodity",
     "an amount of 9 to 28 decimals",
@@ -836,6 +846,99 @@ impl Generator {
         self.push(date, format!("{date} budget-close {name}\n"));
         true
     }
+
+    /// On some seeds, an account whose `open` names a budget per month of the ledger (`M-00`, `M-01`, ...), as a ledger
+    /// that closes a budget per category every month: each is defined in its month (a few never are) and most are
+    /// closed at its end, so every posting of the account is in all of them, before the definition of the later ones
+    /// and after the close of the earlier ones. Maybe the `open` names a budget of the other accounts too, another
+    /// account is in some of the monthly budgets, and the account is closed and opened again in a month with the
+    /// budgets of the later months only. Its budgets, which the seed's draws come last for: the rest of the ledger is
+    /// the same with them or without them.
+    fn monthly_budgets(&mut self) -> Vec<String> {
+        if !self.random.chance(25) {
+            return vec![];
+        }
+        self.note("an account named on many budgets' opens");
+        let before = self.first.pred_opt().expect("a date");
+        let names = (0..self.months).map(|month| format!("M-{month:02}")).collect::<Vec<_>>();
+        let metas = |names: &[String]| names.iter().map(|name| format!("  budget: \"{name}\"\n")).collect::<String>();
+        let mut text = format!("{before} open {MONTHLY}\n{}", metas(&names));
+        if self.random.chance(50) {
+            let other = self.name();
+            writeln!(text, "  budget: \"{other}\"").expect("a string");
+        }
+        self.push(before, text);
+        let mut accounts = vec![MONTHLY];
+        if self.random.chance(50) {
+            self.note("an account in some of the budgets of an account of many budgets");
+            let some = names.iter().filter(|_| self.random.chance(50)).cloned().collect::<Vec<_>>();
+            self.push(before, format!("{before} open {MONTHLY_TOO}\n{}", metas(&some)));
+            accounts.push(MONTHLY_TOO);
+        }
+        for (month, name) in (0..self.months).zip(&names) {
+            let first = self.first + Months::new(month);
+            let last = first + Months::new(1) - chrono::Days::new(1);
+            if self.random.chance(90) {
+                let commodity = *self.random.pick(&["CNY", "CNY", "CNY", "USD", "GBP"]);
+                let day = if self.random.chance(75) { first } else { self.day_of(month) };
+                let time = self.time(20);
+                let (date, time) = self.when(day, time, 10, first);
+                let text = format!("{} budget {name} {commodity}\n", self.stamp(date, time));
+                self.push(date, text);
+                if self.random.chance(60) {
+                    let amount = self.amount(commodity);
+                    self.push(last, format!("{last} budget-add {name} {amount}\n"));
+                }
+                match self.random.below(10) {
+                    0..=4 => self.push(last, format!("{last} budget-close {name}\n")),
+                    5..=7 => {
+                        // at a time of its last day, between postings of that day
+                        let (date, time) = self.when(last, NaiveTime::from_hms_opt(12, 0, 0), 20, last);
+                        let text = format!("{} budget-close {name}\n", self.stamp(date, time));
+                        self.push(date, text);
+                        for at in [9, 18] {
+                            let account = *self.random.pick(&accounts);
+                            let hundredths = 125 + self.random.below(1000) as i64;
+                            let posting = self.posting(account, hundredths, None);
+                            let text = format!("{date} {at:02}:00:00 * \"Shop\" \"around {name}\"\n{posting}\n  Assets:Bank\n");
+                            self.push(date, text);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            for _ in 0..1 + self.random.below(3) {
+                let account = *self.random.pick(&accounts);
+                let (day, time) = (self.day_of(month), self.time(30));
+                let (date, time) = self.when(day, time, 10, first);
+                let hundredths = 100 + self.random.below(30_000) as i64;
+                let posting = self.posting(account, hundredths, None);
+                let text = format!("{} * \"Shop\" \"monthly\"\n{posting}\n  Assets:Bank\n", self.stamp(date, time));
+                self.push(date, text);
+            }
+        }
+        if self.months > 2 && self.random.chance(40) {
+            // closed in a month and opened again, that day or the next, with the budgets of the later months
+            self.note("an account of many budgets opened again with fewer");
+            let month = 1 + self.random.below(self.months as usize - 2) as u32;
+            let day = self.day_of(month);
+            let time = self.time(40);
+            let text = format!("{} close {MONTHLY}\n", self.stamp(day, time));
+            self.push(day, text);
+            let again = if self.random.chance(50) { day } else { day.succ_opt().expect("a date") };
+            let reopen_time = if again == day { time.or(self.time(30)) } else { None };
+            let file = self.blocks.last().map_or(0, |(_, _, block)| block.file);
+            let text = format!("{} open {MONTHLY}\n{}", self.stamp(again, reopen_time), metas(&names[month as usize..]));
+            self.blocks.push((again, u64::MAX, Block { file, text }));
+            let posting = self.posting(MONTHLY, 250, None);
+            let text = format!(
+                "{} * \"Shop\" \"reopened\"\n{posting}\n  Assets:Bank\n",
+                self.stamp(again, Some(NaiveTime::from_hms_opt(23, 0, 0).expect("a time")))
+            );
+            self.push(again, text);
+        }
+        names
+    }
 }
 
 impl FuzzLedger {
@@ -872,6 +975,7 @@ impl FuzzLedger {
         generator.definitions();
         generator.budget_directives();
         generator.transactions();
+        let monthly = generator.monthly_budgets();
         let Generator {
             seed,
             mut blocks,
@@ -885,6 +989,7 @@ impl FuzzLedger {
         if !rooted.is_empty() {
             budgets.push(ROOTED.to_owned());
         }
+        budgets.extend(monthly);
         budgets.push("Nobody".to_owned());
         let last = (first + Months::new(months)).max(now.date_naive().with_day(1).expect("a first day"));
         let months = (0..)
