@@ -278,15 +278,6 @@ impl<T> Parts<T> {
         let part = self.starts.partition_point(|start| *start <= idx).saturating_sub(1);
         (part, idx - self.starts.get(part).copied().unwrap_or_default())
     }
-
-    /// [`Parts::locate`], looking in the part `hint` first: that of the item read before, in a walk of ascending
-    /// indexes, which holds most of the next ones.
-    fn locate_from(&self, idx: usize, hint: usize) -> (usize, usize) {
-        match (self.starts.get(hint), self.parts.get(hint)) {
-            (Some(start), Some(part)) if *start <= idx && idx - start < part.len() => (hint, idx - start),
-            _ => self.locate(idx),
-        }
-    }
 }
 
 impl<T> Index<usize> for Parts<T> {
@@ -295,6 +286,47 @@ impl<T> Index<usize> for Parts<T> {
     fn index(&self, idx: usize) -> &T {
         let (part, at) = self.locate(idx);
         &self.parts[part][at]
+    }
+}
+
+/// A walk of the booked rows ([`Postings::walk`]) in one part at a time, with the transactions and the postings as written
+/// of that part, which holds those of its rows: an index that ascends, as those of a scope or of an account do, is most
+/// often in the part of the one before, which the walk reads it in with one comparison, and so the row's transaction.
+pub(crate) struct RowWalk<'p> {
+    postings: &'p Postings,
+    /// the part the walk is in: the index of its first row, its rows, the index of its first transaction, its
+    /// transactions and their postings as written
+    start: usize,
+    rows: &'p [CachedRow],
+    first_entry: usize,
+    entries: &'p [CachedEntry],
+    heads: &'p [Head],
+}
+
+impl<'p> RowWalk<'p> {
+    fn enter(&mut self, part: usize) {
+        let postings = self.postings;
+        (self.start, self.rows) = (postings.rows.starts[part], &postings.rows.parts[part]);
+        (self.first_entry, self.entries) = (postings.entries.starts[part], &postings.entries.parts[part]);
+        self.heads = &postings.heads.parts[part];
+    }
+
+    /// The row `idx` of [`Postings::rows`], the walk then in its part.
+    #[inline]
+    pub fn at(&mut self, idx: usize) -> &'p CachedRow {
+        if let Some(row) = self.rows.get(idx.wrapping_sub(self.start)) {
+            return row;
+        }
+        let (part, at) = self.postings.rows.locate(idx);
+        self.enter(part);
+        &self.rows[at]
+    }
+
+    /// The transaction of `row`, a row of the part the walk is in, and its postings as written, by `posting_index`.
+    #[inline]
+    pub fn entry(&self, row: &CachedRow) -> (&'p CachedEntry, &'p [Head]) {
+        let entry = &self.entries[row.entry as usize - self.first_entry];
+        (entry, &self.heads[entry.heads.start as usize..entry.heads.end as usize])
     }
 }
 
@@ -549,18 +581,20 @@ impl Postings {
         }
     }
 
-    /// The rows at `indexes` (into [`Postings::rows`]), each with its transaction and the transaction's postings as
-    /// written, by `posting_index`. Indexes that ascend, as those of a scope or an account do, are read part after part.
-    pub fn at(&self, indexes: impl Iterator<Item = usize>) -> impl Iterator<Item = (&CachedRow, &CachedEntry, &[Head])> {
-        let mut part = 0;
-        indexes.map(move |idx| {
-            let at;
-            (part, at) = self.rows.locate_from(idx, part);
-            let row = &self.rows.parts[part][at];
-            // a row's transaction is in the part built with it
-            let entry = &self.entries.parts[part][row.entry as usize - self.entries.starts[part]];
-            (row, entry, &self.heads.parts[part][entry.heads.start as usize..entry.heads.end as usize])
-        })
+    /// A walk of the rows, which starts in the first part.
+    pub fn walk(&self) -> RowWalk<'_> {
+        let mut walk = RowWalk {
+            postings: self,
+            start: 0,
+            rows: &[],
+            first_entry: 0,
+            entries: &[],
+            heads: &[],
+        };
+        if !self.rows.parts.is_empty() {
+            walk.enter(0);
+        }
+        walk
     }
 
     /// The name of the account with this number.
@@ -641,7 +675,19 @@ mod tests {
         let whole = described(&Postings::build_in(&ledger, entries, 1));
         assert!(whole.len() > 1000, "{}", whole.len());
         for parts in [2, 3, 7] {
-            assert_eq!(described(&Postings::build_in(&ledger, entries, parts)), whole, "{parts} parts");
+            let postings = Postings::build_in(&ledger, entries, parts);
+            assert_eq!(described(&postings), whole, "{parts} parts");
+            // a walk reads every row, and its transaction, whatever the order of the indexes
+            let ascending = (0..postings.rows.len()).collect::<Vec<_>>();
+            let mut walk = postings.walk();
+            for idx in ascending.iter().chain(ascending.iter().rev()).chain(ascending.iter().step_by(7)) {
+                let row = walk.at(*idx);
+                assert!(std::ptr::eq(row, &postings.rows[*idx]), "{parts} parts: row {idx}");
+                assert!(
+                    std::ptr::eq(walk.entry(row).0, &postings.entries[row.entry as usize]),
+                    "{parts} parts: row {idx}"
+                );
+            }
         }
         // more parts than transactions
         let empty = Entries {

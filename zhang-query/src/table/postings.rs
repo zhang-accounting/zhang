@@ -179,10 +179,13 @@ impl<'a> Dataset<'a> {
         let mut rows = Vec::with_capacity(count);
         // the cached entry of the last row
         let mut current: Option<u32> = None;
+        // the rows read part after part, and the transaction of a row when it changes, in the row's part
+        let mut walk = postings.walk();
         let selection = (0..count).map(|idx| selected.as_ref().map_or(idx, |rows| rows[idx] as usize));
-        for (cached, cached_entry, heads) in postings.at(selection) {
-            let cached: &'a CachedRow = cached;
+        for idx in selection {
+            let cached: &'a CachedRow = walk.at(idx);
             if current != Some(cached.entry) {
+                let (cached_entry, heads) = walk.entry(cached);
                 // the cache keeps transaction directives only
                 let Directive::Transaction(parsed) = &ledger.directives[cached_entry.parsed as usize].data else {
                     continue;
