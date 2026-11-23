@@ -440,6 +440,40 @@ fn relink(
     Ok((instance_pre, linker, host_context))
 }
 
+/// zhang patch: run `f`, which runs wasm of the instance `id` on `engine` while the instance is built (a module's start
+/// function, a reactor's `_initialize`, a guest runtime's initialisation), within `timeout` as a call runs: the timer
+/// bumps the engine's epoch at the deadline, which interrupts it, and an interrupted `f` fails with "timeout", as an
+/// interrupted call does. The store `f` runs in must trap at its epoch deadline, one tick ahead. Upstream ran this code
+/// with no timer at all, so a start function that never ends hung its host
+fn within_timeout<T>(
+    timer_tx: &std::sync::mpsc::Sender<TimerAction>,
+    id: uuid::Uuid,
+    engine: &Engine,
+    timeout: Option<std::time::Duration>,
+    f: impl FnOnce() -> Result<T, Error>,
+) -> Result<T, Error> {
+    timer_tx
+        .send(TimerAction::Start {
+            id,
+            engine: engine.clone(),
+            duration: timeout,
+        })
+        .expect("Timer should start");
+    let result = f();
+    let _ = timer_tx.send(TimerAction::Stop { id });
+    result.map_err(|e| match interrupted(&e) {
+        true => Error::msg("timeout"),
+        false => e,
+    })
+}
+
+/// zhang patch: whether `error` is wasm interrupted at its epoch deadline, which is how the timer stops it
+fn interrupted(error: &Error) -> bool {
+    error
+        .chain()
+        .any(|cause| matches!(cause.downcast_ref::<wasmtime::Trap>(), Some(wasmtime::Trap::Interrupt)))
+}
+
 impl Plugin {
     /// Create a new plugin from a Manifest or WebAssembly module, and host functions. The `with_wasi`
     /// parameter determines whether or not the module should be executed with WASI enabled.
@@ -471,6 +505,7 @@ impl Plugin {
     ) -> Result<Plugin, Error> {
         let available_pages = manifest.memory.max_pages;
         debug!("Available pages: {available_pages:?}");
+        let timeout = manifest.timeout_ms.map(std::time::Duration::from_millis);
 
         let id = uuid::Uuid::new_v4();
         let mut store = Store::new(
@@ -490,14 +525,21 @@ impl Plugin {
         Self::apply_fuel_limit(&mut store, compiled.options.effective_initialization_fuel())?;
 
         let imports: Vec<Function> = compiled.options.functions.to_vec();
-        let (instance_pre, linker, host_context) = relink(
-            &compiled.engine,
-            &mut store,
-            &imports,
-            &compiled.modules,
-            compiled.options.wasi,
-        )?;
+        // zhang patch: linking instantiates the modules, which runs a module's start function and a reactor's
+        // `_initialize`: within the manifest's timeout, as a call runs
         let timer_tx = Timer::tx();
+        let linked = within_timeout(&timer_tx, id, &compiled.engine, timeout, || {
+            relink(
+                &compiled.engine,
+                &mut store,
+                &imports,
+                &compiled.modules,
+                compiled.options.wasi,
+            )
+        });
+        // a bump of the timer coming late interrupts nothing until the next call sets its own deadline
+        store.epoch_deadline_callback(|_| Ok(UpdateDeadline::Continue(1)));
+        let (instance_pre, linker, host_context) = linked?;
         let mut plugin = Plugin {
             modules: compiled.modules.clone(),
             linker,
@@ -907,9 +949,27 @@ impl Plugin {
         // instantiation, or guest initialization can execute WebAssembly.
         Self::apply_fuel_limit(&mut self.store, self.initialization_fuel).map_err(|x| (x, -1))?;
 
-        self.reset_store(lock).map_err(|x| (x, -1))?;
-
-        self.instantiate(lock).map_err(|e| (e, -1))?;
+        // zhang patch: building the instance runs the module's start function and its guest runtime's initialisation
+        // (`_initialize`, `__wasm_call_ctors`, `hs_init`), and relinking a reset store a reactor's start function and
+        // `_initialize`: within the call's timeout, as the call runs (upstream started the timer for the export only)
+        if self.store_needs_reset || lock.is_none() {
+            self.store.epoch_deadline_trap();
+            self.store.set_epoch_deadline(1);
+            let (timer_tx, id, engine) = (self.timer_tx.clone(), self.id, self.store.engine().clone());
+            let timeout = self
+                .current_plugin()
+                .manifest
+                .timeout_ms
+                .map(std::time::Duration::from_millis);
+            let built = within_timeout(&timer_tx, id, &engine, timeout, || {
+                self.reset_store(lock)?;
+                self.instantiate(lock)
+            });
+            // a bump of the timer coming late interrupts nothing until the call sets its own deadline
+            self.store
+                .epoch_deadline_callback(|_| Ok(UpdateDeadline::Continue(1)));
+            built.map_err(|e| (e, -1))?;
+        }
 
         // Initialization has finished. Refill the normal call budget before
         // input marshalling so Extism kernel operations retain their upstream

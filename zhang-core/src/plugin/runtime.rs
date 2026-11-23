@@ -125,11 +125,12 @@ pub(crate) static SPARES: Spares = Spares::new(SPARE_LIMIT);
 /// pool; see [`near_timeout`]
 const NEAR_TIMEOUT_FLOOR: Duration = Duration::from_millis(100);
 
-/// how close to `timeout` a call may end and still return its compiled plugin to the pool: a tenth
-/// of the timeout, and at least [`NEAR_TIMEOUT_FLOOR`]. extism's timer bumps the engine's epoch at
-/// the deadline from its own thread, so a call ending within a moment of its deadline can be
-/// followed by a late bump that would stop the next instance on that engine. Such a call's compiled
-/// plugin is dropped instead; the next call compiles afresh
+/// how close to `timeout` a call may end, or an instance be built, and still return its compiled
+/// plugin to the pool: a tenth of the timeout, and at least [`NEAR_TIMEOUT_FLOOR`]. extism's timer
+/// bumps the engine's epoch at the deadline from its own thread, so a call ending within a moment of
+/// its deadline can be followed by a late bump that would stop the next instance on that engine.
+/// Such a call's compiled plugin is dropped instead; the next call compiles afresh. Building an
+/// instance runs the module's start function and initialisation under the same timer
 fn near_timeout(timeout: Duration) -> Duration {
     (timeout / 10).max(NEAR_TIMEOUT_FLOOR)
 }
@@ -402,8 +403,19 @@ impl PluginRuntime {
                 self.code.compile()?
             }
         };
-        // this runs the module's start function, if it has one, before the context below exists
-        let plugin = Plugin::new_from_compiled_with_manifest(&compiled, manifest)?;
+        // this runs the module's start function and a reactor's `_initialize`, if it has them, before the context below
+        // exists, within the timeout of `manifest`: an instance whose initialisation runs out of it fails, saying so
+        let started = Instant::now();
+        let plugin = Plugin::new_from_compiled_with_manifest(&compiled, manifest).map_err(|error| match error.to_string().as_str() {
+            // extism reports wasm it interrupted at the timeout as exactly "timeout"
+            "timeout" => extism::Error::msg(format!(
+                "its start function or initialisation (`_initialize`) ran longer than its timeout of {:?}",
+                timeout.unwrap_or_default()
+            )),
+            _ => error,
+        })?;
+        // built near its timeout: the timer's bump may still come, as after a call ending near it
+        let spent = timeout.is_some_and(|timeout| started.elapsed() + near_timeout(timeout) >= timeout);
         let context = Arc::new(InstanceContext { host });
         self.code.bindings.lock().insert(plugin.id, Arc::downgrade(&context));
         Ok(PluginInstance {
@@ -412,7 +424,7 @@ impl PluginRuntime {
             lease: Lease {
                 compiled: Some(compiled),
                 in_call: false,
-                spent: false,
+                spent,
                 timeout,
                 code: self.code.clone(),
             },
@@ -437,7 +449,7 @@ struct Lease {
     compiled: Option<CompiledPlugin>,
     /// set while a call runs and cleared once it returned, so a call that unwinds leaves it set
     in_call: bool,
-    /// set once a call of this instance ended near its timeout; it stays set
+    /// set once the instance was built, or a call of it ended, near its timeout; it stays set
     spent: bool,
     timeout: Option<Duration>,
     code: Arc<ModuleCode>,
@@ -546,7 +558,8 @@ mod tests {
 
         for settings in [
             changed.clone().with_allowed_host("example.com"),
-            changed.with_timeout(Duration::from_millis(100)),
+            // not within 100 ms of it: an instance built that near its timeout does not return its compiled plugin
+            changed.with_timeout(Duration::from_secs(5)),
         ] {
             drop(runtime.instantiate(settings, host("2026-10-06T00:00:00Z")).unwrap());
             assert_eq!(idle(&runtime), 2, "capabilities are settings of the instance");
@@ -888,6 +901,73 @@ mod tests {
         let mut second = runtime.instantiate(Manifest::default(), host("2026-10-05T00:00:00Z")).unwrap();
         second.call::<_, ()>("once", ()).unwrap();
         assert!(second.call::<_, ()>("once", ()).is_err(), "the fixture detects reuse of one instance");
+    }
+
+    /// an instance of `runtime` with the timeout `timeout`, built on a thread of its own and its `name` called: what
+    /// that came to and how long it took, or `None` when it had not ended after 10 s
+    fn built_and_called(runtime: Arc<PluginRuntime>, timeout: Duration) -> Option<(Result<String, String>, Duration)> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let started = Instant::now();
+            let outcome = runtime
+                .instantiate(Manifest::default().with_timeout(timeout), host("2026-10-05T00:00:00Z"))
+                .map_err(|error| format!("instantiate: {error:#}"))
+                .and_then(|mut plugin| plugin.call::<&str, String>("name", "").map_err(|error| format!("call: {error:#}")));
+            let _ = sender.send((outcome, started.elapsed()));
+        });
+        receiver.recv_timeout(Duration::from_secs(10)).ok()
+    }
+
+    /// A start function or a reactor's `_initialize` runs while the instance is built, before any call: one that never
+    /// ends is stopped at the instance's timeout, and fails it saying so (it ran with no timer, and hung its host)
+    #[test]
+    fn an_initialisation_that_never_ends_fails_the_instance_at_its_timeout() {
+        let fixtures = [
+            ("start_loop.wat", include_bytes!("../../tests/plugins/start_loop.wat").as_slice()),
+            ("initialize_loop.wat", include_bytes!("../../tests/plugins/initialize_loop.wat").as_slice()),
+        ];
+        for (fixture, bytes) in fixtures {
+            let runtime = Arc::new(PluginRuntime::new(bytes.to_vec()));
+            let (outcome, took) = built_and_called(runtime.clone(), Duration::from_millis(200)).unwrap_or_else(|| panic!("{fixture} still runs after 10 s"));
+            assert_eq!(
+                outcome,
+                Err("instantiate: its start function or initialisation (`_initialize`) ran longer than its timeout of 200ms".to_owned()),
+                "{fixture}"
+            );
+            assert!(took >= Duration::from_millis(200) && took < Duration::from_secs(5), "{fixture}: {took:?}");
+            assert_eq!(runtime.idle(), 0, "{fixture}: compiled code whose epoch was bumped is not reused");
+        }
+    }
+
+    /// extism runs a WASI module's constructors (`__wasm_call_ctors`) when the first call instantiates the module,
+    /// before the export: within the call's timeout
+    #[test]
+    fn constructors_that_never_end_fail_the_first_call_at_its_timeout() {
+        let runtime = Arc::new(PluginRuntime::new(include_bytes!("../../tests/plugins/ctors_loop.wat").to_vec()));
+        let (outcome, took) = built_and_called(runtime.clone(), Duration::from_millis(200)).expect("the call still runs after 10 s");
+        assert_eq!(outcome, Err("call: timeout".to_owned()));
+        assert!(took >= Duration::from_millis(200) && took < Duration::from_secs(5), "{took:?}");
+        assert_eq!(runtime.idle(), 0);
+    }
+
+    /// an instance built near its timeout does not return its compiled plugin, as a call ending near it does not: the
+    /// timer's bump may still come
+    #[test]
+    fn an_instance_built_near_its_timeout_does_not_return_its_compiled_plugin() {
+        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/router_now.wat").to_vec());
+        // the least margin is 100 ms: an instance with 50 ms is always built near its timeout
+        drop(
+            runtime
+                .instantiate(Manifest::default().with_timeout(Duration::from_millis(50)), host("2026-10-05T00:00:00Z"))
+                .unwrap(),
+        );
+        assert_eq!(runtime.idle(), 0);
+        drop(
+            runtime
+                .instantiate(Manifest::default().with_timeout(Duration::from_secs(30)), host("2026-10-05T00:00:00Z"))
+                .unwrap(),
+        );
+        assert_eq!(runtime.idle(), 1);
     }
 
     #[test]
