@@ -4,8 +4,9 @@
 //! `budgets` of `#postings`, and the budget pages' named queries.
 //!
 //! A difference is classified by the rules of the testing guide ("The budget contract", allowed differences): the scale
-//! of a decimal (`500.00` against `500`, the same value) is allowed, and so is the order of the load's errors across
-//! places; anything else is not.
+//! of a decimal (`500.00` against `500`, the same value) is allowed where the answer types the value as a decimal (a
+//! `decimal` cell, or the number of an `amount`, a `position` or an `inventory` cell), and so is the order of the load's
+//! errors across places; anything else is not, a text that reads as a number included.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -64,33 +65,98 @@ fn decimal(value: &Value) -> Option<BigDecimal> {
     plain.then(|| BigDecimal::from_str(text).ok()).flatten()
 }
 
+/// What an answer says a value is, as far as the scale of a decimal goes: the cells of a table
+/// (`{"columns": [{"name", "type"}], "rows": [[..]]}`) are typed by their column, and the scale may differ only in a
+/// decimal. A text cell, an error's meta, or anything outside a table is compared as it is, even if it reads as a number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Typed {
+    Other,
+    /// a `decimal` cell, or the number of an amount
+    Decimal,
+    /// an `amount` cell, or a position's units or cost: `{"number", "currency", ..}`
+    Amount,
+    /// a `position` cell: `{"units", "cost"}`
+    Position,
+    /// an `inventory` cell, `{"positions": [..]}`, and its positions
+    Inventory,
+    Positions,
+}
+
+impl Typed {
+    /// the cells of a column of the type `name`
+    fn of_column(name: Option<&str>) -> Typed {
+        match name {
+            Some("decimal") => Typed::Decimal,
+            Some("amount") => Typed::Amount,
+            Some("position") => Typed::Position,
+            Some("inventory") => Typed::Inventory,
+            _ => Typed::Other,
+        }
+    }
+
+    /// the field `key` of an object of this type
+    fn field(self, key: &str) -> Typed {
+        match (self, key) {
+            (Typed::Amount, "number") => Typed::Decimal,
+            (Typed::Position, "units" | "cost") => Typed::Amount,
+            (Typed::Inventory, "positions") => Typed::Positions,
+            _ => Typed::Other,
+        }
+    }
+
+    /// an element of an array of this type
+    fn element(self) -> Typed {
+        match self {
+            Typed::Positions => Typed::Position,
+            _ => Typed::Other,
+        }
+    }
+}
+
+/// The types of the columns of `object`, when it is a table: `{"columns": [{"name", "type"}], "rows": [..]}`.
+fn column_types(object: &serde_json::Map<String, Value>) -> Option<Vec<Typed>> {
+    object.get("rows")?.as_array()?;
+    let columns = object.get("columns")?.as_array()?;
+    Some(
+        columns
+            .iter()
+            .map(|column| Typed::of_column(column.get("type").and_then(Value::as_str)))
+            .collect(),
+    )
+}
+
 /// Every difference between `native` and `plugin`, by JSON path under `path`: objects by key, whatever the order of
-/// their fields, arrays by position.
+/// their fields, arrays by position, the cells of a table typed by the native answer's columns.
 pub fn differences(path: &str, native: &Value, plugin: &Value) -> Vec<Difference> {
     let mut found = vec![];
-    diff(path, native, plugin, &mut found);
+    diff(path, native, plugin, Typed::Other, &mut found);
     found
 }
 
-fn diff(path: &str, native: &Value, plugin: &Value, found: &mut Vec<Difference>) {
+fn diff(path: &str, native: &Value, plugin: &Value, typed: Typed, found: &mut Vec<Difference>) {
     match (native, plugin) {
         (Value::Object(a), Value::Object(b)) => {
+            let columns = column_types(a);
             for (key, value) in a {
-                diff(&format!("{path}.{key}"), value, b.get(key).unwrap_or(&Value::Null), found);
+                let other = b.get(key).unwrap_or(&Value::Null);
+                match &columns {
+                    Some(types) if key == "rows" => diff_rows(&format!("{path}.rows"), value, other, types, found),
+                    _ => diff(&format!("{path}.{key}"), value, other, typed.field(key), found),
+                }
             }
             for (key, value) in b.iter().filter(|(key, _)| !a.contains_key(*key)) {
-                diff(&format!("{path}.{key}"), &Value::Null, value, found);
+                diff(&format!("{path}.{key}"), &Value::Null, value, typed.field(key), found);
             }
         }
         (Value::Array(a), Value::Array(b)) if a.len() == b.len() => {
             for (index, (a, b)) in a.iter().zip(b).enumerate() {
-                diff(&format!("{path}[{index}]"), a, b, found);
+                diff(&format!("{path}[{index}]"), a, b, typed.element(), found);
             }
         }
         (a, b) if a == b => {}
         (a, b) => {
-            let allowed = match (decimal(a), decimal(b)) {
-                (Some(a), Some(b)) if a == b => Some("the scale of a decimal"),
+            let allowed = match (typed, decimal(a), decimal(b)) {
+                (Typed::Decimal, Some(a), Some(b)) if a == b => Some("the scale of a decimal"),
                 _ => None,
             };
             found.push(Difference {
@@ -99,6 +165,27 @@ fn diff(path: &str, native: &Value, plugin: &Value, found: &mut Vec<Difference>)
                 plugin: b.clone(),
                 allowed,
             });
+        }
+    }
+}
+
+/// The rows of a table, each cell typed by its column in `types`.
+fn diff_rows(path: &str, native: &Value, plugin: &Value, types: &[Typed], found: &mut Vec<Difference>) {
+    let (Value::Array(a), Value::Array(b)) = (native, plugin) else {
+        return diff(path, native, plugin, Typed::Other, found);
+    };
+    if a.len() != b.len() {
+        return diff(path, native, plugin, Typed::Other, found);
+    }
+    for (index, (a, b)) in a.iter().zip(b).enumerate() {
+        match (a, b) {
+            (Value::Array(x), Value::Array(y)) if x.len() == y.len() => {
+                for (column, (x, y)) in x.iter().zip(y).enumerate() {
+                    let typed = types.get(column).copied().unwrap_or(Typed::Other);
+                    diff(&format!("{path}[{index}][{column}]"), x, y, typed, found);
+                }
+            }
+            _ => diff(&format!("{path}[{index}]"), a, b, Typed::Other, found),
         }
     }
 }

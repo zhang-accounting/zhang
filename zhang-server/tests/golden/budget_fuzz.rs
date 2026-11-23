@@ -12,7 +12,7 @@
 //! ZHANG_BUDGET_FUZZ_SEEDS=17 cargo nextest run -p zhang-server --test golden -E 'test(budget_fuzz)'   # one seed
 //! ```
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
@@ -63,6 +63,7 @@ async fn budget_fuzz_finds_no_difference() {
     }
     let (mut findings, mut errors, mut requests) = (vec![], 0, 0);
     let mut kinds = BTreeSet::new();
+    let mut allowed = BTreeMap::<&str, usize>::new();
     let mut exercised = BTreeSet::new();
     for (seed, outcome) in outcomes {
         let ledger = FuzzLedger::generate(seed);
@@ -76,17 +77,21 @@ async fn budget_fuzz_finds_no_difference() {
                 errors += report.errors;
                 requests += report.requests;
                 kinds.extend(report.kinds);
+                for why in report.differences.iter().filter_map(|it| it.allowed) {
+                    *allowed.entry(why).or_default() += 1;
+                }
             }
             Err(finding) => findings.push(finding),
         }
     }
     eprintln!(
-        "budget fuzz: seeds {}..={} in {:.1?}: {errors} errors and {requests} requests compared, {} seeds differ; error kinds: {}",
+        "budget fuzz: seeds {}..={} in {:.1?}: {errors} errors and {requests} requests compared, {} seeds differ; error kinds: {}; allowed differences: {}",
         range.start(),
         range.end(),
         started.elapsed(),
         findings.len(),
-        kinds.iter().cloned().collect::<Vec<_>>().join(", ")
+        kinds.iter().cloned().collect::<Vec<_>>().join(", "),
+        allowed.iter().map(|(why, count)| format!("{count} ({why})")).collect::<Vec<_>>().join(", ")
     );
     findings.sort_by_key(|finding| finding.seed);
     if let Some(first) = findings.first() {

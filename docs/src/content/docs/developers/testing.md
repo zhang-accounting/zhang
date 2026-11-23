@@ -43,7 +43,7 @@ When the migration changes a golden file, each difference is one of the allowed 
 - The order in which the load reports errors at different places. Clients see the errors by file and position (`#errors`, `journals.errors`); the cases do not pin the load's own order across places.
 - The text of messages: of the BQL limit errors (and the figures they quote, such as `1148412 months`), of parameter validation and of 404s, and the parser's text in a round trip's `load_error`. The status stays.
 - Which filters make `#budgets` fail as generating too many rows: a 400 may become a correct 200, never a truncated or partial answer.
-- The scale of a decimal, trailing zeros included (`10355.00` or `10355`): compare `number` by value. The digits of a value stay contract, such as the 28 significant digits of a conversion through an inverse rate.
+- The scale of a decimal, trailing zeros included (`10355.00` or `10355`): compare `number` by value. The digits of a value stay contract, such as the 28 significant digits of a conversion through an inverse rate. Only a value the answer types as a decimal has a scale: a `decimal` cell, or the number of an `amount`, a `position` or an `inventory` cell. A text cell or an error's meta that reads as a number stays exact.
 - The order of the columns of a built-in query's result and of `SELECT *`, each column keeping its name and type.
 - The order of the fields of a JSON object.
 
@@ -77,6 +77,7 @@ Until the bundled script `zhang:budget` (`plugins/budget/budget.lua`) is the onl
 - Every test run checks the seeds 1 to 40 (about 5 seconds on 16 cores in a debug build, more on CI's 4), and asserts that together they exercise everything the generator can (the daylight-saving and long-decimal features included) and report every budget error.
 - A difference fails the test with the seed, what it exercises, the first difference, and the smallest ledger found that still shows one (blocks of the ledger removed while a difference remains, for at most three minutes), written to `target/tmp/budget-fuzz/seed-<seed>/` too.
 - Other seeds run on demand, in release for speed: `ZHANG_BUDGET_FUZZ_SEEDS=1..=2000 cargo nextest run --release -p zhang-server --test golden -E 'test(budget_fuzz)'`, or one seed (`ZHANG_BUDGET_FUZZ_SEEDS=17`). `ZHANG_BUDGET_FUZZ_KEEP=1` writes every seed's ledger to `target/tmp/budget-fuzz/ledgers/`.
+- The summary line counts the differences the rules above allow, by rule; the scale of a decimal is allowed only in a value the answer types as a decimal.
 
 ## Conventions
 
