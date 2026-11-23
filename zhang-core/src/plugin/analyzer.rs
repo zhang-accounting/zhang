@@ -78,7 +78,16 @@ impl RegisteredPlugin {
                             Size(self.policy().max_memory)
                         ),
                     ),
-                    _ => AnalysisFailure::new("trap", log_safe(&format!("{error:#}")).into_owned()),
+                    // a Lua script's error comes with its stack trace: the ledger's error says what failed, where the
+                    // script raised it, and the trace goes to the log
+                    _ => {
+                        let text = format!("{error:#}");
+                        let cause = text.split_once("\nstack traceback:").map_or(text.as_str(), |(cause, _)| cause.trim_end());
+                        if cause.len() < text.len() {
+                            warn!("analyzer {} failed: {}", log_safe(&self.name), log_safe(&text));
+                        }
+                        AnalysisFailure::new("trap", log_safe(cause).into_owned())
+                    }
                 })
         })();
         // an analysis has no error list of its own: what the plugin reports is in its output
