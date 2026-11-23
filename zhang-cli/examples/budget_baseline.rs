@@ -27,11 +27,14 @@
 //! waited for a CPU for 2% of its time or more: run it again. `budget_compare` compares two sets of runs
 //! (`examples/budget_compare.rs`). `ZHANG_BUDGET_BASELINE_COMMIT` names the commit measured in the report. A run prints its figures on stderr and a `BASELINE {...}` JSON line on stdout; with
 //! `ZHANG_BUDGET_BASELINE_OUT=<dir>` the JSON is also written to `<dir>/<ledger>.json`, and with
-//! `ZHANG_BUDGET_BASELINE_KEEP=<dir>` the ledger, as generated, to `<dir>/<ledger>/`. `ZHANG_BUDGET_BASELINE_ONLY=writes`
-//! measures the load and the writes only, and `ZHANG_BUDGET_BASELINE_ONLY=e2e` the load and the end-to-end timers only,
-//! to repeat them cheaply; `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle
-//! at the end, to see how much the allocator gives back to the system. The bench uses the allocator of the binary
-//! (`src/allocator.rs`): mimalloc, or the system's with `--no-default-features`. A debug build refuses to run.
+//! `ZHANG_BUDGET_BASELINE_KEEP=<dir>` the ledger, as generated, to `<dir>/<ledger>/`. `ZHANG_BUDGET_BASELINE_ONLY` ([`Mode`])
+//! measures one thing only, to repeat it cheaply: `writes` the load and the writes, `e2e` the load and the end-to-end
+//! timers (and the memory P4 judges on those runs), `requests` the load and the warm requests (the named-query p95 of
+//! P4), [`rounds`] rounds of them, 30 or `ZHANG_BUDGET_BASELINE_ROUNDS`. `budget_pairs` runs such runs in pairs, the two
+//! sides of a pair at the same time (`examples/budget_pairs.rs`). `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the
+//! resident memory again after that long idle at the end, to see how much the allocator gives back to the system. The
+//! bench uses the allocator of the binary (`src/allocator.rs`): mimalloc, or the system's with `--no-default-features`.
+//! A debug build refuses to run.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
@@ -91,7 +94,8 @@ const RELOAD_PAUSE: Duration = Duration::from_secs(1);
 const COLD: usize = 5;
 /// the requests of each kind before the timed rounds
 const WARM_UP: usize = 3;
-/// the timed rounds: each times one request of every kind, in an order that rotates from round to round
+/// the timed rounds of the warm requests, unless `ZHANG_BUDGET_BASELINE_ROUNDS` says otherwise ([`rounds`]): each times
+/// one request of every kind, in an order that rotates from round to round
 const ROUNDS: usize = 30;
 /// the transactions written before the timed ones; the first also adds the file it goes to and its `include`
 const WRITE_WARM_UP: usize = 2;
@@ -134,6 +138,11 @@ fn main() -> ExitCode {
     }
     // what `zhang` sets up at startup: how zhang-core gives the allocator's free memory back
     allocator::install();
+    // a mistyped mode or number of rounds would measure something else, silently
+    if let Err(error) = Mode::from_env().and_then(|_| rounds()) {
+        eprintln!("{error}");
+        return ExitCode::FAILURE;
+    }
     let args = std::env::args().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
         [] => run_all(),
@@ -155,6 +164,53 @@ fn main() -> ExitCode {
             None => usage(),
         },
         _ => usage(),
+    }
+}
+
+/// What a run measures, `ZHANG_BUDGET_BASELINE_ONLY`: every step of the method, or the load and one of them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// every step (unset or empty)
+    Full,
+    /// the load and the writes: `writes`
+    Writes,
+    /// the load and the end-to-end timers, the comparison point of G1 and P4, whose memory figures P4 judges too: `e2e`
+    EndToEnd,
+    /// the load and the warm requests, [`rounds`] rounds of every kind, for the named-query p95 of P4: `requests`
+    Requests,
+}
+
+impl Mode {
+    fn from_env() -> Result<Mode, String> {
+        match std::env::var("ZHANG_BUDGET_BASELINE_ONLY").unwrap_or_default().as_str() {
+            "" => Ok(Mode::Full),
+            "writes" => Ok(Mode::Writes),
+            "e2e" => Ok(Mode::EndToEnd),
+            "requests" => Ok(Mode::Requests),
+            other => Err(format!(
+                "ZHANG_BUDGET_BASELINE_ONLY={other}: expect writes, e2e or requests, or nothing for every step"
+            )),
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Mode::Full => "full",
+            Mode::Writes => "writes",
+            Mode::EndToEnd => "e2e",
+            Mode::Requests => "requests",
+        }
+    }
+}
+
+/// the timed rounds of the warm requests: `ZHANG_BUDGET_BASELINE_ROUNDS`, [`ROUNDS`] by default
+fn rounds() -> Result<usize, String> {
+    match std::env::var("ZHANG_BUDGET_BASELINE_ROUNDS") {
+        Err(_) => Ok(ROUNDS),
+        Ok(text) => match text.parse::<usize>() {
+            Ok(rounds) if rounds > 0 => Ok(rounds),
+            _ => Err(format!("ZHANG_BUDGET_BASELINE_ROUNDS={text}: expect a number of rounds, at least 1")),
+        },
     }
 }
 
@@ -656,6 +712,9 @@ const MAX_CPU_PRESSURE: f64 = 0.02;
 /// (`cpu.stat`, `throttled_usec`) and the time some of its tasks waited for a CPU (`cpu.pressure`, `some` total).
 struct Conditions {
     at: Instant,
+    /// the wall clock, in milliseconds since the Unix epoch: when the two sides of a pair started, which `budget_pairs`
+    /// starts at the same time
+    unix_ms: u64,
     builds: Vec<String>,
     throttled_usec: Option<u64>,
     pressure_usec: Option<u64>,
@@ -673,8 +732,13 @@ impl Conditions {
                 .parse()
                 .ok()
         };
+        let unix_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|it| it.as_millis() as u64)
+            .unwrap_or_default();
         Conditions {
             at: Instant::now(),
+            unix_ms,
             builds: builds_running(),
             throttled_usec: cgroup("cpu.stat", "throttled_usec ", "throttled_usec="),
             pressure_usec: cgroup("cpu.pressure", "some ", "total="),
@@ -728,6 +792,8 @@ impl Conditions {
             "valid": reasons.is_empty(),
             "reasons": reasons,
             "wall_ms": ms(wall),
+            "started_unix_ms": start.unix_ms,
+            "ended_unix_ms": self.unix_ms,
             "builds_at_start": start.builds,
             "builds_at_end": self.builds,
             "throttled_usec": throttled,
@@ -855,19 +921,19 @@ fn baseline(spec: Spec) -> Value {
                 .await
                 .unwrap_or_else(|failure| panic!("{}: {}", name, failure.message));
         };
-        let only = std::env::var("ZHANG_BUDGET_BASELINE_ONLY").unwrap_or_default();
-        let (only_writes, only_e2e) = (only == "writes", only == "e2e");
-        let only_writes = only_writes || only_e2e;
+        let mode = Mode::from_env().expect("checked at the start");
+        // the timed reloads are a step of the full mode only
+        let reloads = if mode == Mode::Full { RELOADS } else { 0 };
         reload().await;
         let (mut back_to_back, since) = (vec![], Instant::now());
-        for _ in 0..if only_writes { 0 } else { RELOADS } {
+        for _ in 0..reloads {
             let started = Instant::now();
             reload().await;
             back_to_back.push(started.elapsed());
         }
         let logged = reload_durations(&reloads_since(since));
         let mut spaced = vec![];
-        for _ in 0..if only_writes { 0 } else { RELOADS } {
+        for _ in 0..reloads {
             tokio::time::sleep(RELOAD_PAUSE).await;
             let started = Instant::now();
             reload().await;
@@ -886,9 +952,10 @@ fn baseline(spec: Spec) -> Value {
             "identity": identity(),
             "generate_ms": ms(generate),
             "load_ms": ms(first_load),
-            "reload": if only_writes { Value::Null } else { summary(&back_to_back) },
-            "reload_as_logged": if only_writes { Value::Null } else { summary(&logged) },
-            "reload_spaced": if only_writes { Value::Null } else { summary(&spaced) },
+            "mode": mode.name(),
+            "reload": if reloads == 0 { Value::Null } else { summary(&back_to_back) },
+            "reload_as_logged": if reloads == 0 { Value::Null } else { summary(&logged) },
+            "reload_spaced": if reloads == 0 { Value::Null } else { summary(&spaced) },
             "errors": errors.len(),
             "input": input,
         });
@@ -899,10 +966,16 @@ fn baseline(spec: Spec) -> Value {
             "rss_after_load": rss_loaded,
             "peak_after_reloads": peak_reloads,
         });
-        if spec.with_budgets && only_e2e {
+        if spec.with_budgets && mode == Mode::EndToEnd {
             report["end_to_end"] = end_to_end(&router, &spec, &reload_sender, &dir, &source).await;
-        } else if spec.with_budgets && only_writes {
+        } else if spec.with_budgets && mode == Mode::Writes {
             report["writes"] = writes(&router, &spec).await;
+        } else if spec.with_budgets && mode == Mode::Requests {
+            // the warm requests on the ledger as loaded and reloaded once: nothing else ran before them
+            let (requests, sizes) = requests(&router, &spec).await;
+            report["requests"] = requests;
+            report["response_bytes"] = sizes;
+            memory["peak_after_requests"] = json!(status_mib("VmHWM"));
         } else if spec.with_budgets {
             // the first request of each kind after a reload, the kinds in turn
             let mut cold = SCENARIOS.map(|_| vec![]);
@@ -985,7 +1058,7 @@ fn reload_durations(events: &[(Instant, Reload)]) -> Vec<Duration> {
     starts.zip(ends).map(|(start, end)| end - start).collect()
 }
 
-/// The timed requests: warmed up, then [`ROUNDS`] rounds of one request of each kind, the order rotating by one
+/// The timed requests: warmed up, then [`rounds`] rounds of one request of each kind, the order rotating by one
 /// from round to round; and the bytes of each kind's response.
 async fn requests(router: &Router, spec: &Spec) -> (Value, Value) {
     let mut sizes = serde_json::Map::new();
@@ -996,7 +1069,7 @@ async fn requests(router: &Router, spec: &Spec) -> (Value, Value) {
         }
     }
     let mut samples = SCENARIOS.map(|_| vec![]);
-    for round in 0..ROUNDS {
+    for round in 0..rounds().expect("checked at the start") {
         for offset in 0..SCENARIOS.len() {
             let index = (round + offset) % SCENARIOS.len();
             samples[index].push(send(router, spec, SCENARIOS[index]).await.elapsed);
@@ -1476,7 +1549,11 @@ fn print(report: &Value) {
             name, stats["n"], stats["min_ms"], stats["p50_ms"], stats["p95_ms"], stats["max_ms"], extra
         );
     };
-    eprintln!("== budget baseline: {} ==", report["ledger"].as_str().unwrap_or_default());
+    eprintln!(
+        "== budget baseline: {} ({}) ==",
+        report["ledger"].as_str().unwrap_or_default(),
+        report["mode"].as_str().unwrap_or_default()
+    );
     eprintln!(
         "ledger  {} files, {} bytes, sha256 {}, read with {}",
         report["files"],
@@ -1492,11 +1569,11 @@ fn print(report: &Value) {
     if let Some(requests) = report["requests"].as_object() {
         for (name, stats) in requests {
             let cold = &report["cold"][name];
-            line(
-                name,
-                stats,
-                format!("bytes {}, cold {} – {}", report["response_bytes"][name], cold["min_ms"], cold["max_ms"]),
-            );
+            let cold = match cold.is_object() {
+                true => format!(", cold {} – {}", cold["min_ms"], cold["max_ms"]),
+                false => String::new(),
+            };
+            line(name, stats, format!("bytes {}{cold}", report["response_bytes"][name]));
         }
     }
     let writes = &report["writes"];
