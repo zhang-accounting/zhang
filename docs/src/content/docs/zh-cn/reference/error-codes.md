@@ -547,9 +547,9 @@ plugin "plugins/fx-rates.wasm"
 
 **修正方法**：在指令上写 `timeout` 元数据可以给较慢的分析更多时间，但不超过服务器的上限；调大 `ZHANG_PLUGIN_MAX_MEMORY` 可以给它更多内存。其他情况按消息修正插件，或者联系插件作者。
 
-**`zhang:budget`。**[预算](/zh-cn/guides/budgets/)由官方插件 `zhang:budget` 解释，它是张记账内置的分析器，和其他插件一样在服务器设定的限制内运行。它的分析失败时，错误报告在第一条 `plugin "zhang:budget"` 指令上；账本通常没有这条指令，此时报告在第一个预算指令或带 `budget` 元数据的 `open` 上。预算错误仍然会报告，但预算页面、预算表、`#postings` 的 `budgets` 列以及 `budgets.*` [内置查询](/zh-cn/reference/builtin-queries/)都会返回不可用的错误并说明原因。它可能因以下原因失败：
+**`zhang:budget`。**[预算](/zh-cn/guides/budgets/)由官方插件 `zhang:budget` 解释，它是张记账内置的分析器，和其他插件一样在服务器设定的限制内运行。它的分析失败时，错误报告在第一条 `plugin "zhang:budget"` 指令上；账本通常没有这条指令，此时报告在第一个预算指令或带 `budget` 元数据的 `open` 上。它是预算唯一的实现，所以此时账本没有任何预算错误，预算页面、预算表、`#postings` 的 `budgets` 列以及 `budgets.*` [内置查询](/zh-cn/reference/builtin-queries/)都会返回不可用的错误。它可能因以下原因失败：
 
-- `memory`：账本的预算需要的内存超过服务器允许插件使用的大小 `ZHANG_PLUGIN_MAX_MEMORY`（默认 256 MiB）。预算数以千计的账本（例如多年来每个类别每月一个预算）需要的最多。用更大的 `ZHANG_PLUGIN_MAX_MEMORY`（例如 `512MiB`）启动服务器；
+- `memory`：账本的预算需要的内存超过服务器允许插件使用的大小 `ZHANG_PLUGIN_MAX_MEMORY`。在这个限制中，脚本的 Lua 内存是除去宿主保留的 32 MiB（限制低于 128 MiB 时为四分之一）之外的全部：默认 256 MiB 中的 224 MiB。消息会说明它有多少内存，例如 ``plugin `zhang:budget` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)``。预算数以千计的账本需要的最多：45 个类别十年间每个类别每月一个预算（5,400 个预算）约需 100 MiB 的 Lua 内存。用更大的 `ZHANG_PLUGIN_MAX_MEMORY`（例如 `512MiB`）启动服务器；
 - `timeout`：分析运行的时间超过服务器允许的 `ZHANG_PLUGIN_MAX_TIMEOUT`（默认 30 秒）。`zhang:budget` 没有任何选项，在它的指令上写 `timeout` 元数据不起作用：请调大 `ZHANG_PLUGIN_MAX_TIMEOUT`，最多 60 秒；
 - `trap` 或 `output`：`zhang:budget` 的缺陷。请附上消息[报告它](https://github.com/zhang-accounting/zhang/issues)。
 

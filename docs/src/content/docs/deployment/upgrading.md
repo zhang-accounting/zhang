@@ -86,8 +86,10 @@ Open the web UI, check the version on the **Settings** page, and look at the err
     `analyzer zhang:budget has nothing to read in the ledger: its tables are empty`.
   - **Settings.** The **Settings** page and `GET /api/plugins` list `zhang:budget`, of the type `Analyzer`.
   - **Limits.** It runs within what the server allows every plugin: a ledger whose budgets need more time than
-    `ZHANG_PLUGIN_MAX_TIMEOUT` or more memory than `ZHANG_PLUGIN_MAX_MEMORY` loads without its budget pages, with a
-    [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error saying which to raise.
+    `ZHANG_PLUGIN_MAX_TIMEOUT` or more memory than `ZHANG_PLUGIN_MAX_MEMORY` loads without its budget pages and without
+    budget errors, with a [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error saying which to
+    raise. Of the default 256 MiB, the script's Lua memory is 224 MiB; a budget per category and month, 45 categories
+    over ten years, needs about 100 MiB.
 - **Plugins keep their compiled code in a cache of Zhang's own**, in the subdirectory `zhang-wasmtime-cache` of
   `~/.cache/zhang`, or of the directory [`ZHANG_PLUGIN_CACHE_DIR`](/guides/plugins/#compiled-code) sets, about
   128 MiB at most. The cache in wasmtime's default directory (`~/.cache/wasmtime` on Linux) is no longer used, and you

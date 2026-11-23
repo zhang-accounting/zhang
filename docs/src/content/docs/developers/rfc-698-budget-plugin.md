@@ -837,15 +837,21 @@ the optional item #805 deferred.
   `zhang serve` uses, registers the bundled script as the default plugin `zhang:budget` in every build. The native
   provider and checks no longer run for a load that does not ask for them.
 - **The test switch.** `LoadOptions::native_budgets` has the native code interpret the budgets of a load that does not
-  run the script; only RFC #698's switch sets it (`BudgetImpl::Native`, `ZHANG_BUDGET_IMPL=native` in a build with the
-  `budget-switch` feature, and the test kit's loaders for the tests of zhang-core and zhang-query), so that the
-  contract, `budget_parity` and the fuzzer still compare the two until P5.
+  run the script, the fold's budget checks included; only RFC #698's switch sets it (`BudgetImpl::Native`,
+  `ZHANG_BUDGET_IMPL=native` in a build with the `budget-switch` feature, and the test kit's loaders in a build without
+  its `server` feature, where zhang-core's and zhang-query's tests have no analysis host), so that the contract,
+  `budget_parity` and the fuzzer still compare the two until P5. With its `server` feature, the test kit loads as
+  `zhang serve` does.
 - **`ExtensionUnavailable` for every load that cannot run the script**, once, on the first use of budgets, with the
   `reason` `this build has no plugin runtime` (the playground, `bindings/wasm`, whose test pins it) or
   `this zhang does not run the bundled zhang:budget script` (an embedder of `zhang-core` without the script or an
   `AnalysisHost`), as for `ZHANG_PLUGINS=off`: the tables and named queries answer that they are unavailable.
-- **A failed analysis.** The native checks still stand in for the script's diagnostics when its analysis fails
-  (§2.5's tables are unavailable, the budget errors are the native ones); P5 removes them with the native code.
+- **A failed analysis** (decided in review, 2026-11-24): the load has the one `PluginAnalysisFailed` and no budget
+  error, and §2.5's tables are unavailable, as after P5. The native checks run only with the test switch. Before, they
+  stood in wherever the script did not publish: a failed analysis, and a ledger without budgets, which it skips.
+  Removing them changed no reload time measurably (medians of 11 reloads of `zhang serve`, two rounds: 10,000
+  transactions with budgets 153/156 → 143/166 ms, without budgets 135/105 → 134/102 ms, 100,000 with budgets
+  1,109/1,096 → 1,084/1,106 ms), as a published analysis never ran them.
 - **Options.** `zhang:budget` keeps no options (#869): each argument and meta of its directive is a `PluginError`,
   and the script runs as without them.
 - **Listing.** `GET /api/plugins` and the Settings page list `zhang:budget`, an `Analyzer`, as they list every

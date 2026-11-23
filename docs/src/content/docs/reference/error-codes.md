@@ -701,13 +701,17 @@ The error is on the plugin's directive. The next load analyses the ledger again.
 **`zhang:budget`.** [Budgets](/guides/budgets/) are interpreted by the official plugin `zhang:budget`, an analyzer
 bundled with Zhang, which runs within the limits the server sets for every plugin. When its analysis fails, the error is
 on the first `plugin "zhang:budget"` directive, or, as a ledger usually has none, on the first budget directive or `open`
-with `budget` metadata. The budget errors are still reported, but the budget pages, the budget tables, the `budgets`
-column of `#postings` and the `budgets.*` [built-in queries](/reference/builtin-queries/) answer that they are
-unavailable, saying why. The reasons it can fail with:
+with `budget` metadata. It is the only implementation of budgets, so the ledger then has no budget error, and the
+budget pages, the budget tables, the `budgets` column of `#postings` and the `budgets.*`
+[built-in queries](/reference/builtin-queries/) answer that they are unavailable. The reasons it can fail with:
 
-- `memory`: the ledger's budgets need more memory than the server allows a plugin, `ZHANG_PLUGIN_MAX_MEMORY` (256 MiB
-  by default). Ledgers of thousands of budgets, such as one budget per category and month over years, need the most.
-  Start the server with a larger `ZHANG_PLUGIN_MAX_MEMORY`, such as `512MiB`;
+- `memory`: the ledger's budgets need more memory than the server allows a plugin, `ZHANG_PLUGIN_MAX_MEMORY`. Of that
+  limit, the script's Lua memory is all but 32 MiB, which the host keeps (a quarter under 128 MiB): 224 MiB of the
+  default 256 MiB. The message says how much it had, such as
+  ``plugin `zhang:budget` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the
+  host)``. Ledgers of thousands of budgets need the most: a budget per category and month, 45 categories over ten
+  years (5,400 budgets), needs about 100 MiB of Lua memory. Start the server with a larger
+  `ZHANG_PLUGIN_MAX_MEMORY`, such as `512MiB`;
 - `timeout`: the analysis ran longer than the server allows, `ZHANG_PLUGIN_MAX_TIMEOUT` (30 seconds by default).
   `zhang:budget` has no options, so a `timeout` meta on its directive changes nothing: raise `ZHANG_PLUGIN_MAX_TIMEOUT`
   instead, up to 60 seconds;
