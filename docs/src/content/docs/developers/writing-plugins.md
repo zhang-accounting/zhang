@@ -469,8 +469,9 @@ It answers the diagnostics and the rows of its tables, by their names in the man
   maybe its metadata under `$meta`, which `meta()` reads. A row of a record table may instead be the list of its cells
   in the order of the columns, maybe followed by its metadata: `["apple", ["1.50", "CNY"], {"origin": ["Fuji"]}]`. A
   series fact after a partition's first may leave out the cells of the columns filled with `carry`, and its `$meta`: it
-  then has those of the fact before it, as a generated period does. The shorter forms make the output smaller, which
-  every load reads.
+  then has those of the fact before it, as a generated period does (`"$meta": {}` gives it no metadata). The shorter
+  forms make the output smaller, which every load reads; they need zhang 0.3.0 or later, the first release with
+  analyzers, whose `analysis_abi` 1 includes them.
 - **A diagnostic** names a kind of its manifest and a target: `{"seq": n}`, an entry; `{"txn": "<id>"}`, a
   transaction; or `{"plugin": true}`, the plugin's directive. Zhang reports it as a
   [`PluginError`](/reference/error-codes/#pluginerror) with the metas `plugin`, `kind` (its kind), `message` and its own,
