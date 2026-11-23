@@ -197,6 +197,24 @@ fn a_lua_analysis_that_fails_loads_the_ledger_with_one_error() {
             "trap",
             "zhang.decimal has no multiplication".to_owned(),
         ),
+        // more memory than the server allows: the Lua memory, its instance's limit less a reserve for the host
+        (
+            ENVELOPES.replace(
+                "local currency = zhang.ledger_info().operating_currency",
+                "local hoard = {} while true do hoard[#hoard + 1] = string.rep(\"x\", 1048576) end",
+            ),
+            "memory",
+            "envelopes.lua` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)".to_owned(),
+        ),
+        // the same words from the script itself: the interpreter tells the memory by its exit code, not by the message
+        (
+            ENVELOPES.replace(
+                "local currency = zhang.ledger_info().operating_currency",
+                "error(\"plugin `envelopes.lua` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)\", 0)",
+            ),
+            "trap",
+            "envelopes.lua` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)".to_owned(),
+        ),
     ];
     for (script, reason, message) in cases {
         let ledger = load(&scratch("envelopes.lua", &script));

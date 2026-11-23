@@ -189,7 +189,7 @@ return M
 - **`analyze` 收到什么**：它消费的种类的记录，按张记账处理账本的顺序排列，以及账本的设置：`input.records[i]` 带有 `kind`、`seq`、`date`、`time`、`has_time`、`timestamp`（以及 `written_time`：夏令时切换跳过的时间按书写的时间给出，而 `time` 和 `timestamp` 把它读作一小时之后）、`fields`（`custom` 指令为 `fields.values`）、`meta`、`file` 和 `line`；`input.ledger` 带有 `title`、`operating_currency` 和 `timezone`；`input.last_transaction` 是账本的最后一笔交易（`seq` 和 `date`；没有交易时为 `nil`）。
 - **它读取什么**：通过 `zhang.query`、`zhang.query_params` 和 `zhang.query_schema` 读取账本，每条查询的限制与 `POST /api/query` 相同，最多 10,000 条；`zhang.ledger_info`；`zhang.convert`；以及 `zhang.now`，即加载的时间，读取它会让账本依赖于日期。分析期间 `#errors` 以及 `errors` 和 `balanced` 列被拒绝，它自己的表也一样。它不读文件、不访问网络、不写入任何内容：`zhang.query_builtin`、`zhang.read_file`、`zhang.list_dir` 和 `zhang.write` 会抛出错误，它用 `zhang.emit_error` 报告的内容只会记录到日志。
 - **它返回什么**：一个形状与输出相同的表，包含 `diagnostics`、`tables`、`series` 和 `labels`。单元格是字符串、整数、布尔值、表示集合的字符串列表、表示小数的小数值或字符串、表示金额的 `{ number = …, currency = … }`（或 `{ "12.50", "CNY" }`），或 `json.null`；小数或金额中的浮点数会被拒绝，完整写出时小数点前后合计超过 1000 位的小数也会被拒绝。记录表的一行可以写成按列顺序排列的单元格列表，后面可以再跟它的元数据，写起来和读起来都更短；分区中第一个事实行之后的事实行可以省略它沿用的单元格和它的 `$meta`，这时它沿用前一个事实行的值（`["$meta"] = {}` 表示它没有元数据）。这些更短的写法需要张记账 0.3.0 或更高版本，这是第一个带有分析器的版本。输出中是映射的地方，Lua 的空 `{}` 会写成对象，不需要 `json.object()`：输出本身、`tables`、`series`、`labels`、一行及其 `$meta`、分区的 `key`、标签的 `params`、诊断的 `target` 和 `metas`。序列分区的 `until` 是 Lua 关键字：写成 `["until"] = "2024-11-01"`。
-- **失败时**：它抛出的错误（未捕获，带脚本行号）、没有 `analyze` 函数、输出不成立、超过 `timeout` 或超过 64 MiB 的 Lua 值。账本仍会加载，插件的指令上有一个 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误，其 `reason` 为 `trap`、`output`、`timeout` 或 `memory`，`message` 说明发生了什么；查询它的表会回答它们不可用。清单不成立时，每次分析都以 `manifest` 为原因失败。
+- **失败时**：它抛出的错误（未捕获，带脚本行号）、没有 `analyze` 函数、输出不成立、超过 `timeout` 或用尽它的 [Lua 内存](#限制)（原因为 `memory`）。账本仍会加载，插件的指令上有一个 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误，其 `reason` 为 `trap`、`output`、`timeout` 或 `memory`，`message` 说明发生了什么；查询它的表会回答它们不可用。清单不成立时，每次分析都以 `manifest` 为原因失败。
 - **它的开销**：每次加载、每次写入都会重新分析账本，所以脚本运行在每个 `POST /api/transactions` 的路径上。少提问题，每个问题都在张记账中聚合（`GROUP BY`、`sum`、`convert`），而不是逐条读取记账，脚本只累加查询给出的结果。
 
 ## JSON
@@ -217,7 +217,7 @@ return M
 | 限制 | 值 | 达到时 |
 |---|---|---|
 | 脚本大小 | 1 MiB，UTF-8 文本 | 账本无法加载。 |
-| 内存 | 每个请求 64 MiB 的 Lua 值 | 请求以状态 500 失败，日志记录 `plugin \`plugins/food.lua\` exceeded 64 MiB`。 |
+| Lua 内存 | 插件实例的内存限制 `ZHANG_PLUGIN_MAX_MEMORY`（默认 256 MiB），减去张记账为请求的输入、响应和宿主的回答保留的部分：32 MiB，限制低于 128 MiB 时为它的四分之一。默认 224 MiB，脚本的值、解释器 8 MiB 的栈和分配器在它们之外花费的内存合计在内 | 分配会抛出 Lua 的内存错误 `not enough memory`，`pcall` 可以捕获。未捕获时请求以状态 500 失败，日志记录 `plugin \`plugins/food.lua\` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)`。 |
 | JSON 嵌套 | 数组和对象共 1000 层 | `json.encode` 或 `json.decode` 抛出错误。 |
 | 时间 | 指令的 `timeout`（默认 60 秒），但不超过运维者为请求设定的上限 `ZHANG_PLUGIN_MAX_TIMEOUT`（默认 30 秒） | 状态 504。 |
 | 查询 | `POST /api/query` 的限制；一次分析最多 10,000 条 | `zhang.query` 抛出错误。 |
@@ -231,8 +231,8 @@ return M
 | `router` 抛出错误（`error()`，或没有捕获的失败宿主调用） | 状态 500。消息连同脚本行号和调用栈进入张记账的日志，不会发给客户端。失败的宿主调用抛出 `kind: message`，例如 `denied: …` 或 `conflict: …`；用 `pcall` 捕获后可以自己答复调用方。 |
 | `router` 返回的不是表 | 状态 502。 |
 | 请求超过 `timeout` | 状态 504。 |
-| 请求分配超过 64 MiB | 状态 500，日志中有上面的消息。 |
-| `analyze` 抛出错误、返回的不是输出、超过 `timeout` 或分配超过 64 MiB | 账本仍会加载，插件的指令上有一个 `PluginAnalysisFailed` 错误说明原因，包括脚本行号；在下一次成功分析之前，它的表不可用。 |
+| 请求用尽它的 Lua 内存 | 状态 500，日志中有上面的消息。调高 `ZHANG_PLUGIN_MAX_MEMORY` 可以给脚本更多内存。 |
+| `analyze` 抛出错误、返回的不是输出、超过 `timeout` 或用尽它的 Lua 内存 | 账本仍会加载，插件的指令上有一个 `PluginAnalysisFailed` 错误说明原因，包括脚本行号；在下一次成功分析之前，它的表不可用。 |
 
 ## 暂不支持 processor 和 mapper
 

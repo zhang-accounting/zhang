@@ -196,7 +196,7 @@ file is. Messages and `zhang.script_name` name it `zhang:mcp`. A copy declared b
 
 Repeated keys are read from `zhang.plugin` (the directive as JSON), so `allowed_origins` may be repeated; the flat
 config is the fallback. The write grant is the host's `zhang.allowed_writes`, as above. Bounds: the plugin `timeout`;
-10 s per BQL and the host's value cap; the 64 MiB Lua budget per call; `limit`/`max_rows`; request bodies ≤ 1 MiB; one
+10 s per BQL and the host's value cap; the Lua memory per call (`ZHANG_PLUGIN_MAX_MEMORY` less 32 MiB); `limit`/`max_rows`; request bodies ≤ 1 MiB; one
 transaction or one `open` per write call; the host's ≤ 50 directives / ≤ 64 KiB per batch; token TTL 10 min; one
 commit per reload cycle.
 

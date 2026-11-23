@@ -2568,6 +2568,113 @@ mod lua {
         assert!(call(&ledger, "router-trap", &get("/")).is_err());
     }
 
+    /// the Lua memory of a script under the default limit, as its error says it
+    const DEFAULT_LUA_MEMORY: &str = "224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)";
+
+    #[test]
+    fn a_script_gets_the_memory_limit_of_its_instance_less_a_reserve_for_the_host() {
+        // the instance may use ZHANG_PLUGIN_MAX_MEMORY, Extism's memory included: the interpreter leaves 32 MiB of it to
+        // Extism, or a quarter of a limit under 128 MiB, and the script gets the rest, where it once had 64 MiB
+        let dir = ledger_dir(&["memory_grow.lua"]);
+        let content = with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "memory_grow.lua")));
+        let grow = |mib: u32| PluginRequest::new("GET", "/", vec![("mib".to_owned(), mib.to_string())], vec![], vec![]);
+        let held = |ledger: &Ledger, mib: u32| call(ledger, "memory-grow", &grow(mib)).map(|response| json_body(&response)["held"].clone());
+        let exceeded = |ledger: &Ledger, mib: u32, expected: &str| {
+            let failed = held(ledger, mib).unwrap_err();
+            assert!(
+                matches!(&failed, RouterError::Failed(message) if message.contains(&format!("memory_grow.lua` exceeded {expected}"))),
+                "{mib} MiB: {failed}"
+            );
+        };
+
+        // 256 MiB by default: 224 MiB of Lua memory, which holds 192 MiB of strings beside the interpreter's own
+        let ledger = load(&dir, &content);
+        assert_eq!(held(&ledger, 192).unwrap(), 192);
+        exceeded(&ledger, 224, DEFAULT_LUA_MEMORY);
+
+        // the operator's one setting moves it: 64 MiB less a quarter, 48 MiB
+        let small = PluginPolicy {
+            max_memory: 64 * MIB,
+            ..PluginPolicy::default()
+        };
+        let ledger = load_with_policy(&dir, &content, small).unwrap();
+        assert_eq!(held(&ledger, 32).unwrap(), 32);
+        let small = "48 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 64 MiB, less 16 MiB for the host)";
+        exceeded(&ledger, 48, small);
+        // small objects, whose allocator overhead Lua does not count, meet the same edge: a Lua error, never a trap of
+        // the instance growing past its limit
+        let failed = call(
+            &ledger,
+            "memory-grow",
+            &PluginRequest::new("GET", "/", vec![("tables".to_owned(), "1".to_owned())], vec![], vec![]),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&failed, RouterError::Failed(message) if message.contains(&format!("memory_grow.lua` exceeded {small}"))),
+            "{failed}"
+        );
+
+        // and 384 MiB less 32 MiB, 352 MiB
+        let large = PluginPolicy {
+            max_memory: 384 * MIB,
+            ..PluginPolicy::default()
+        };
+        let ledger = load_with_policy(&dir, &content, large).unwrap();
+        assert_eq!(held(&ledger, 320).unwrap(), 320);
+        exceeded(
+            &ledger,
+            352,
+            "352 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 384 MiB, less 32 MiB for the host)",
+        );
+    }
+
+    #[test]
+    fn errors_caught_in_a_loop_never_creep_past_the_lua_memory() {
+        // every Lua error is thrown with an exception object: were it to stay allocated, or to grow the memory past the
+        // Lua memory's edge, a script catching errors in a loop would hold more every round, then grow the instance past
+        // its limit, a trap. With the memory full: 300 rounds of a plain error and a memory error, whose pages past the
+        // edge (64 KiB a round) would be more than the reserve of a 32 MiB limit (8 MiB), then 100,000 plain errors
+        let dir = ledger_dir(&["error_loop.lua"]);
+        let content = with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "error_loop.lua")));
+        let small = PluginPolicy {
+            max_memory: 32 * MIB,
+            ..PluginPolicy::default()
+        };
+        let ledger = load_with_policy(&dir, &content, small).unwrap();
+        let request = PluginRequest::new(
+            "GET",
+            "/",
+            vec![("rounds".to_owned(), "300".to_owned()), ("errors".to_owned(), "100000".to_owned())],
+            vec![],
+            vec![],
+        );
+
+        let body = json_body(&call(&ledger, "error-loop", &request).unwrap());
+
+        assert!(body["first"].as_u64().unwrap() > 0, "{body}");
+        assert!(body["gained"].as_u64().unwrap() < 100, "the rounds held more than the first fill: {body}");
+    }
+
+    #[test]
+    fn a_memory_error_caught_and_raised_again_is_still_the_lua_memory() {
+        // a script (or the prelude, for an output that does not fit) may catch the memory error and fail with Lua's
+        // message in other words: the call ran out of its Lua memory all the same. Another error stays what it is
+        let dir = ledger_dir(&["memory_grow.lua"]);
+        let ledger = load(&dir, &with_plugins(&format!("{}  timeout: \"60s\"\n", plugin(&dir, "memory_grow.lua"))));
+        let caught = |how: &str| PluginRequest::new("GET", "/", vec![("caught".to_owned(), how.to_owned())], vec![], vec![]);
+
+        let failed = call(&ledger, "memory-grow", &caught("again")).unwrap_err();
+        assert!(
+            matches!(&failed, RouterError::Failed(message) if message.contains(&format!("memory_grow.lua` exceeded {DEFAULT_LUA_MEMORY}"))),
+            "{failed}"
+        );
+        let failed = call(&ledger, "memory-grow", &caught("other")).unwrap_err();
+        assert!(
+            matches!(&failed, RouterError::Failed(message) if message.contains("something else went wrong") && !message.contains("Lua memory")),
+            "{failed}"
+        );
+    }
+
     #[test]
     fn a_memory_hog_is_stopped_at_the_budget_with_a_clear_error() {
         let dir = ledger_dir(&["memory_hog.lua"]);
@@ -2576,7 +2683,7 @@ mod lua {
         let failed = call(&ledger, "memory-hog", &get("/")).unwrap_err();
 
         assert!(
-            matches!(&failed, RouterError::Failed(message) if message.contains("memory_hog.lua` exceeded 64 MiB")),
+            matches!(&failed, RouterError::Failed(message) if message.contains(&format!("memory_hog.lua` exceeded {DEFAULT_LUA_MEMORY}"))),
             "{failed}"
         );
     }
@@ -2590,7 +2697,7 @@ mod lua {
         let failed = call(&ledger, "memory-hog-deep", &get("/")).unwrap_err();
 
         assert!(
-            matches!(&failed, RouterError::Failed(message) if message.contains("memory_hog_deep.lua` exceeded 64 MiB")),
+            matches!(&failed, RouterError::Failed(message) if message.contains(&format!("memory_hog_deep.lua` exceeded {DEFAULT_LUA_MEMORY}"))),
             "{failed}"
         );
     }
@@ -2598,10 +2705,10 @@ mod lua {
     #[test]
     fn a_host_answer_the_budget_refuses_is_freed_in_the_host() {
         // the script's own source is the host's answer to `zhang.config("zhang.script")`: padded to almost 1 MiB,
-        // it no longer fits once the script filled its budget, so each round is a refused copy the script catches.
-        // Each answer is a block in the host's memory, outside the budget; were the block of a refused copy not
-        // freed, 4,500 rounds would hold 4.5 GiB there, past what a wasm32 memory can grow to, and the call would
-        // fail instead of answering
+        // it no longer fits once the script filled its Lua memory, so each round is a refused copy the script catches.
+        // Each answer is a block in Extism's memory, outside the Lua memory; were the block of a refused copy not
+        // freed, 4,500 rounds would hold 4.5 GiB there, far past the instance's limit, and the call would fail
+        // instead of answering
         let mut source = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/plugins/host_answer_refused.lua")).unwrap();
         source.extend_from_slice(b"\n-- ");
         source.resize(1_040_000, b'.');
@@ -2828,7 +2935,7 @@ mod lua {
         for name in ["encode", "decode"] {
             let failed = call(&ledger, "json-hog", &op(name)).unwrap_err();
             assert!(
-                matches!(&failed, RouterError::Failed(message) if message.contains("json_hog.lua` exceeded 64 MiB")),
+                matches!(&failed, RouterError::Failed(message) if message.contains(&format!("json_hog.lua` exceeded {DEFAULT_LUA_MEMORY}"))),
                 "{name}: {failed}"
             );
         }

@@ -15,7 +15,7 @@ This directory is everything needed to rebuild it, byte for byte:
 | `PINS.toml` | the one download, wasi-sdk 34.0 (clang 23) for `arm64-macos` and `x86_64-linux`, with its URL and sha256; and the upstream URL, version and sha256 of each vendored source |
 | `prepare.py` | fetches and verifies the wasi-sdk into a directory outside the repo (`--tools`), picking this host's (`--host` overrides) |
 | `build.py` | the one-command build: checks `vendor/` against `vendor/SHA256SUMS`, compiles `runtime.cpp`, `json.cpp`, the vendored `onelua.c` and `pdk.c` into the module, writes `<out>.sha256` |
-| `runtime.cpp` | the dispatcher: the host-function bridges, the memory budget, the `zhang`/`json` Lua API, the sandbox and the dispatch of each export (sections: imports, memory budget, bridges, prelude, the `zhang.decimal` library, the analyzer's exports, exports) |
+| `runtime.cpp` | the dispatcher: the C++ exception entry points, the host-function bridges, the memory budget (the Lua memory and its `sbrk`), the `zhang`/`json` Lua API, the sandbox and the dispatch of each export (sections: exceptions, imports, memory budget, bridges, prelude, the `zhang.decimal` library, the analyzer's exports, exports) |
 | `json.cpp` | the JSON codec of the `json` table, over the Lua C API (see [The JSON codec](#the-json-codec)) |
 | `pdk.c` | the translation unit defining the Extism C PDK |
 | `seed.h` | the random string-hash seed of every Lua state, included ahead of the C++ sources |
@@ -42,10 +42,15 @@ cd zhang-core/src/plugin/lua && shasum -a 256 -c lua-runtime.wasm.sha256
 
 - **Lua as C++ with wasm exception handling.** lua.wasm's embedding contract (`doc/embedding.md` in its repository):
   `onelua.c` compiled as C++ (`-x c++`) so `LUAI_THROW`/`LUAI_TRY` become `throw`/`catch`, `-fwasm-exceptions` in the
-  standardized encoding (`-mllvm -wasm-use-legacy-eh=false`, LLVM 20+), `-nostdlib++` because `onelua.c` carries its own
-  `catch(...)`-only EH shim (no distribution ships a wasm-EH libc++abi), `-DMAKE_LIB`, `-fno-strict-aliasing` and WASI's
-  emulated signal and process clocks. This is why the host needs Extism's `wasmtime-exceptions` feature, which only
-  sets `wasm_exceptions(true)` on the engine.
+  standardized encoding (`-mllvm -wasm-use-legacy-eh=false`, LLVM 20+), `-nostdlib++` because no distribution ships a
+  wasm-EH libc++abi and Lua needs only `catch(...)`, `-DMAKE_LIB`, `-fno-strict-aliasing` and WASI's emulated signal and
+  process clocks. This is why the host needs Extism's `wasmtime-exceptions` feature, which only sets
+  `wasm_exceptions(true)` on the engine.
+- **Exceptions without allocation.** `onelua.c` carries a `catch(...)`-only EH shim, the five `__cxa` entry points,
+  which mallocs every exception object and never frees it. `-DLUAW_EXTERNAL_EH` leaves it out, and `runtime.cpp`
+  ("exceptions") defines the same entry points over a few static slots, taken by a throw and given back at the end of
+  its catch. A Lua error allocates nothing, so a script catching errors in a loop neither leaks nor, its memory full,
+  grows the memory past its Lua memory for an exception object (whose page Lua would then fill).
 - **An Extism reactor.** `-mexec-model=reactor`: the host calls the exports, nothing runs at start. The 8 MiB stack is
   lua.wasm's default, which its test suite is witnessed against.
 - **No debug sections.** `-Wl,--strip-debug` drops the DWARF the sysroot's prebuilt libc objects carry (each
@@ -55,6 +60,21 @@ cd zhang-core/src/plugin/lua && shasum -a 256 -c lua-runtime.wasm.sha256
   default would mix the clock with addresses that are the same on every wasm run, so keys cannot be crafted to
   collide. `pairs` order therefore changes from run to run; `json.cpp` writes an object's keys sorted, so
   identical values still encode to identical JSON.
+- **The Lua memory, at the allocator.** A plugin instance may use `ZHANG_PLUGIN_MAX_MEMORY` (256 MiB by default) in
+  all, this module's memory and Extism's, and growing past it traps the call (`oom`). The host hands the limit over in
+  the config key `zhang.max_memory`; the module keeps 32 MiB of it (a quarter of a limit under 128 MiB) for Extism's
+  memory, which holds the call's input and output and the host's answers, and the rest is the Lua memory. wasi-libc's
+  malloc (dlmalloc) gets its memory from `sbrk`, and `runtime.cpp` defines `sbrk` itself, which the linker takes in
+  place of libc's `sbrk.o`: the same, but it never grows the memory past the Lua memory. Lua's allocator is the only
+  user of the C heap (an exception object is a static slot, the script's name for a message is read onto the stack),
+  so the edge needs no flag saying whose allocation it is. An allocation that would cross the edge is refused, Lua
+  raises its memory error, and a call failing with it reports
+  ``plugin `x` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)`` and
+  returns 2 where any other failure returns 1; the host tells the two apart by that code, which no script chooses. The
+  edge is the module's real memory, its 8 MiB stack and the allocator's overhead included, so no allocation of Lua's
+  reaches the instance's limit first; what Extism's memory needs past the reserve (a response of tens of MiB on top of
+  a full Lua memory) still fails the call as `oom`. Lua's own count of its objects falls short of the edge, the more so
+  the smaller the objects, as each block of the allocator carries a header and padding that Lua does not count.
 - **The JSON codec in C.** `json.cpp` is compiled with the rest; the prelude in `runtime.cpp` exposes it as the `json`
   library (shared object/array markers, a fixed `null`). User scripts are never built into the module.
 - **Three chunks of Lua, two of them read only when needed.** Every call parses the prelude again, in a fresh state,
@@ -86,7 +106,7 @@ It replaced dkjson 2.11 (pure Lua, about 3 MB/s, patched here to sort keys) and 
   line and a column, UTF-8 checks (it passes bytes through both ways) and round-trip float digits; and it allocates
   with `malloc`, outside the memory budget.
 - **yyjson** and **cJSON** (MIT) parse into a tree of their own, which a Lua table would copy: 2–4 times the text in
-  memory on top of the result, under a 64 MiB budget. cJSON keeps numbers as doubles, so 64-bit integers lose digits.
+  memory on top of the result, inside the Lua memory. cJSON keeps numbers as doubles, so 64-bit integers lose digits.
 
 A `zhang.decimal` value (a table whose metatable's `__jsontype` is `"decimal"`, read raw) is written as the string
 of its `value` field, so a script puts decimal values into JSON as it would strings. The codec reads and writes in

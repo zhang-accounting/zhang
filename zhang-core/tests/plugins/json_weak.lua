@@ -1,4 +1,4 @@
--- A router plugin encoding a weak table of 15,000 entries with the memory budget nearly reached, its free room swept
+-- A router plugin encoding a weak table of 15,000 entries with the Lua memory nearly exhausted, its free room swept
 -- from 128 KiB to 8 MiB, so a test sees the encoder survive the emergency collection a refused growth runs: that
 -- collection clears the entries of a weak table whose values are garbage and frees their key strings, which the
 -- encoder must not read afterwards. Each run either raises Lua's memory error or writes entries that are whole:
@@ -7,10 +7,30 @@
 -- failures.
 local M = { name = "json-weak", version = "0.1.0" }
 
-local BUDGET, ENTRIES = 64 * 1024 * 1024, 15000
+local ENTRIES = 15000
 local PATTERN = "^weak%-key%-%d%d%d%d%d%d%-" .. string.rep("z", 48) .. "$"
 
+-- How much Lua memory there is, as collectgarbage("count") counts it: what the count reaches once blocks of 1 MiB,
+-- then 64 KiB, then 4000 bytes no longer fit. The Lua memory is the instance's memory limit less a reserve for the
+-- host, and its edge is where the interpreter's memory stops growing, which takes in the module's stack and what the
+-- allocator spends beside Lua's objects: a count reached the way the runs below fill it is the edge they meet
+local function budget()
+  collectgarbage()
+  collectgarbage()
+  local hog = {}
+  for _, size in ipairs({ 1048576, 65536, 4000 }) do
+    local base = string.rep("h", size)
+    while pcall(function() hog[#hog + 1] = base .. #hog end) do end
+  end
+  local full = collectgarbage("count") * 1024
+  hog = nil
+  collectgarbage()
+  collectgarbage()
+  return full
+end
+
 function M.router(request)
+  local BUDGET = budget()
   local runs, encoded, failures = 0, 0, {}
   for _, kept in ipairs({ false, true }) do
     for _, room in ipairs({ 128, 256, 512, 768, 1024, 1536, 2048, 3072, 4096, 6144, 8192 }) do

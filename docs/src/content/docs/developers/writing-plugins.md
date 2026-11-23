@@ -561,7 +561,7 @@ end
 return M
 ```
 
-The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_builtin`, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.convert`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. `zhang.decimal` adds, subtracts and compares decimals exactly, in the interpreter. Lua scripts are routers and analyzers in this release: a script declaring `Processor` or `Mapper` does not load, because `zhang.decimal` does not multiply or divide and the host takes back an amount turned into a JSON number ([why](/guides/lua-plugins/#no-processors-or-mappers-yet)). The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, under a 64 MiB memory budget per request and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
+The host functions of this page are the `zhang` table (`zhang.query`, `zhang.query_params` with typed parameters, `zhang.query_builtin`, `zhang.query_schema`, `zhang.ledger_info`, `zhang.now`, `zhang.convert`, `zhang.config`, `zhang.emit_error`), and `{"Ok": …}`/`{"Err": …}` becomes a value or a raised Lua error. `zhang.decimal` adds, subtracts and compares decimals exactly, in the interpreter. Lua scripts are routers and analyzers in this release: a script declaring `Processor` or `Mapper` does not load, because `zhang.decimal` does not multiply or divide and the host takes back an amount turned into a JSON number ([why](/guides/lua-plugins/#no-processors-or-mappers-yet)). The script runs with `string`, `table`, `math`, `utf8` and `coroutine`, no `io`, `os` or `require`, with the memory limit of its instance (`ZHANG_PLUGIN_MAX_MEMORY`) less 32 MiB as its Lua memory, 224 MiB by default, and a 1 MiB script size. [Lua Plugins](/guides/lua-plugins/) has the whole API, the JSON rules and the errors.
 
 ## Writes
 
@@ -697,6 +697,7 @@ Zhang hands every plugin instance a string-to-string Extism config:
 | `zhang.allowed_hosts` | the hosts the plugin may reach, a JSON array: its `allowed_hosts` within what the server allows. `zhang.plugin` keeps what the directive asked for |
 | `zhang.timeout_ms` | how long one call may run, in milliseconds: its `timeout` (or the default) within what the server allows. The flat `timeout` key keeps what the directive asked for |
 | `zhang.allowed_writes` | the kinds of directives the plugin may write, a JSON array such as `["transaction"]`: its `allowed_writes` within what the server allows, so `[]` unless the server runs with `--plugins write`. Read this, not `zhang.plugin`, to tell whether a write can succeed |
+| `zhang.max_memory` | the most memory one instance of the plugin may use, in bytes, a decimal `u64`: `ZHANG_PLUGIN_MAX_MEMORY` in whole pages of 64 KiB (`268435456` by default). It counts every linear memory of the instance, Extism's included, which holds the input, the output and the host functions' answers; growing past it fails the call |
 
 A Zhang that sets no `zhang.abi` predates ABI v1: it sets none of the `zhang.*` keys and links none of the host functions below.
 
@@ -761,4 +762,4 @@ Where they work:
 | `processor` and `mapper` exports, flat config (options and meta), `allowed_hosts` | 0.2.0 |
 | `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, `zhang.allowed_hosts`, `zhang.timeout_ms`, every host function above but the write functions, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |
 | `zhang_write_preview`, `zhang_write_commit`, the `capabilities` export, `allowed_writes`, `zhang.allowed_writes` | the release after 0.2.0 with the write capability |
-| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, analyzers in Lua, experimental until RFC #698 is complete | the release with analyzers (RFC #698) |
+| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, analyzers in Lua, `zhang.max_memory`, experimental until RFC #698 is complete | the release with analyzers (RFC #698) |

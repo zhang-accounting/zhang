@@ -4,13 +4,14 @@
 // (lua.wasm's onelua.c, compiled as C++ so its error handling rides wasm exception handling) and the JSON codec of
 // json.cpp are linked in; this file is the glue.
 //
-// Sections: imports, memory budget, bridges, prelude (the `zhang`/`json` API, `zhang.decimal`, the sandbox,
-// dispatch), exports.
+// Sections: exceptions, imports, memory budget, bridges, prelude (the `zhang`/`json` API, `zhang.decimal`, the
+// sandbox, dispatch), exports.
 //
 // Every call gets a fresh Lua state: no Lua value survives between requests or between plugins. The host
 // functions are C closures the prelude receives as arguments and keeps as upvalues of the `zhang` table; they
 // are never globals, so a script cannot reach them by name.
 
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,9 +27,77 @@ extern "C" {
 // json.cpp: push the `json` table of scripts: `null`, `encode`, `decode`, `object` and `array`
 int json_open(lua_State *L);
 
-// LLVM 23 requires a definition of the exception tag lua.wasm's EH shim throws (onelua.c: tag 0,
-// `__cpp_exception`). Same tag layout as LLVM's libunwind, without a second runtime.
+// ---- exceptions: the C++ ABI entry points of Lua's throw and catch(...) ------------------------------------------
+// Lua raises an error by throwing a pointer and catches it with catch(...) (ldo.c, LUAI_THROW and LUAI_TRY). onelua.c
+// carries a micro-runtime for that, which build.py leaves out (-DLUAW_EXTERNAL_EH) for this one: the vendored one
+// mallocs every exception object and never frees it, so each Lua error left a block outside the Lua memory, and a block
+// that grew the memory gave Lua the rest of a page past its edge (see "memory budget"); a script catching errors in a
+// loop crept past the edge until the instance trapped at its limit. Here an exception object is one of a few static
+// slots, taken by the throw and given back by the end of the catch: an error allocates nothing. Lua throws one object
+// at a time and its handler throws nothing and inspects nothing, so neither the type nor the destructor is kept.
+
+// LLVM 23 requires a definition of the exception tag the throw uses (tag 0, `__cpp_exception`). Same tag layout as
+// LLVM's libunwind, without a second runtime.
 __asm__(".globl __cpp_exception\n.tagtype __cpp_exception i32\n__cpp_exception:\n");
+
+extern "C" {
+
+// the largest exception object a slot holds: Lua throws a pointer
+static const size_t EXCEPTION_SIZE = 16;
+// more than Lua ever has at once: one thrown, and the handlers of LUAI_TRY throw nothing
+static const size_t EXCEPTION_SLOTS = 8;
+
+struct alignas(16) ExceptionSlot {
+  unsigned char object[EXCEPTION_SIZE];
+  bool used;
+};
+
+static ExceptionSlot exception_slots[EXCEPTION_SLOTS];
+// the objects of the catches entered and not yet left, the innermost last
+static void *caught[EXCEPTION_SLOTS];
+static size_t caught_count = 0;
+
+// give back the slot holding `object`, if a slot holds it
+static void release_exception(void *object) {
+  for (ExceptionSlot &slot : exception_slots) {
+    if (slot.object == object) slot.used = false;
+  }
+}
+
+void *__cxa_allocate_exception(size_t size) {
+  for (ExceptionSlot &slot : exception_slots) {
+    if (!slot.used && size <= EXCEPTION_SIZE) {
+      slot.used = true;
+      return slot.object;
+    }
+  }
+  abort();
+}
+
+void __cxa_free_exception(void *object) { release_exception(object); }
+
+void __cxa_throw(void *object, void *, void (*)(void *)) { __builtin_wasm_throw(0, object); }
+
+void *__cxa_begin_catch(void *object) {
+  if (caught_count == EXCEPTION_SLOTS) abort();
+  caught[caught_count++] = object;
+  return object;
+}
+
+void __cxa_end_catch(void) {
+  if (caught_count > 0) release_exception(caught[--caught_count]);
+}
+
+void __gxx_wasm_personality_v0(void) {}
+
+// catch(...) never inspects a type_info; these exist only as symbols for the throw site's weak typeinfo objects
+char exception_pointer_type_info_vtable[32] __asm__("_ZTVN10__cxxabiv119__pointer_type_infoE");
+char exception_class_type_info_vtable[32] __asm__("_ZTVN10__cxxabiv117__class_type_infoE");
+
+void exception_terminate(void) __asm__("_ZSt9terminatev");
+void exception_terminate(void) { abort(); }
+
+}  // extern "C"
 
 // ---- imports: the host functions of plugin ABI v1 (zhang-shared/src/plugin_abi.rs, `import`) ------------------
 // Importing one makes the host link it into this instance; zhang links every one of these into every plugin
@@ -51,39 +120,122 @@ EXTISM_IMPORT_USER("zhang_write_preview") extern uint64_t host_write_preview(uin
 EXTISM_IMPORT_USER("zhang_write_commit") extern uint64_t host_write_commit(uint64_t);
 
 // ---- memory budget --------------------------------------------------------------------------------------------
-// Lua allocates through this function only. A call may hold at most MEMORY_BUDGET bytes of Lua objects; an
-// allocation taking it over fails, which Lua reports as a memory error ("not enough memory"), and the dispatcher
-// turns that into "plugin `x` exceeded 64 MiB" instead of letting the plugin grow until the host runs out.
+// The host limits all the memory of a plugin instance to ZHANG_PLUGIN_MAX_MEMORY (256 MiB by default), which it hands
+// over in the config key `zhang.max_memory`, in bytes: this module's linear memory and extism's, which holds the
+// call's input and output and each answer of the host until a bridge copies it. A wasm memory never shrinks, and
+// growing one past the limit traps the call (extism's "oom"), which no Lua code can catch.
+//
+// So this module's memory stops short of the limit by a reserve for extism's memory, MEMORY_RESERVE, or a quarter of
+// a limit under 128 MiB, and the rest is the Lua memory of the instance: Lua's heap, and the module's 8 MiB stack and
+// its data, which it starts with. dlmalloc gets its memory from `sbrk`, which this module defines in place of
+// wasi-libc's, and which never grows the memory past the Lua memory. The allocation fails; Lua runs a full collection,
+// tries again, then raises its memory error ("not enough memory"), which a script may catch, and the dispatcher turns
+// a call failing with it into "plugin `x` exceeded 224 MiB of Lua memory (...)", a Lua error rather than a trap, and
+// returns OUT_OF_LUA_MEMORY. Nothing else allocates from the C heap: an exception object is a static slot (see
+// "exceptions") and the script's name for the message is read onto the stack, so raising and catching errors, the
+// memory error included, needs no memory and gains none past the edge.
 
-static const size_t MEMORY_BUDGET = 64u << 20;
+// the size of a wasm page, the unit a memory grows by
+static const uint64_t PAGE = 64u << 10;
+// what the host allows an instance when the operator sets nothing, for a config without `zhang.max_memory`
+static const uint64_t DEFAULT_MAX_MEMORY = 256u << 20;
+// what is kept for extism's memory under a limit of 128 MiB or more
+static const uint64_t MEMORY_RESERVE = 32u << 20;
+// the most a wasm32 memory grows to
+static const uint64_t WASM32_MEMORY = 1ull << 32;
 
-struct Budget {
-  size_t used;
-  bool exceeded;
+// the instance's limit, and the parts of it: the reserve and the Lua memory
+struct MemoryLimit {
+  uint64_t instance;
+  uint64_t reserve;
+  uint64_t lua;
 };
 
+// the instance's limit, read from the config by its first call
+static MemoryLimit memory_limit = {0, 0, 0};
+
+// the limit of `instance` bytes, split: the reserve is MEMORY_RESERVE, or a quarter of the limit in whole pages when
+// that is less, so the Lua memory is never less than three quarters of the limit (nor more than a wasm32 memory holds)
+static MemoryLimit split_limit(uint64_t instance) {
+  uint64_t quarter = instance / 4 / PAGE * PAGE;
+  uint64_t reserve = quarter < MEMORY_RESERVE ? quarter : MEMORY_RESERVE;
+  uint64_t lua = instance - reserve;
+  return {instance, reserve, lua < WASM32_MEMORY ? lua : WASM32_MEMORY};
+}
+
+// the limit of the instance in bytes, the decimal `zhang.max_memory`, which the host sets for every plugin; the host's
+// default without it
+static uint64_t configured_max_memory(void) {
+  ExtismHandle value = extism_config_get_buf_from_sz("zhang.max_memory");
+  if (!value) return DEFAULT_MAX_MEMORY;
+  char text[24];
+  uint64_t length = extism_length(value);
+  bool read = length > 0 && length < sizeof text && extism_load_sz(value, 0, text, (size_t)length + 1);
+  extism_free(value);
+  uint64_t bytes = 0;
+  for (uint64_t i = 0; read && i < length; i++) {
+    if (text[i] < '0' || text[i] > '9' || bytes > (UINT64_MAX - 9) / 10) read = false;
+    else bytes = bytes * 10 + (uint64_t)(text[i] - '0');
+  }
+  return read && bytes > 0 ? bytes : DEFAULT_MAX_MEMORY;
+}
+
+// dlmalloc's source of memory: wasi-libc's `sbrk` (whole pages, never shrinking), which this definition replaces at
+// link time, except that it does not grow the memory past the Lua memory
+extern "C" void *sbrk(intptr_t increment) {
+  uint64_t size = (uint64_t)__builtin_wasm_memory_size(0) * PAGE;
+  if (increment == 0) return (void *)(uintptr_t)size;
+  if (increment < 0 || (uint64_t)increment % PAGE != 0) abort();
+  if (size + (uint64_t)increment > memory_limit.lua) {
+    errno = ENOMEM;
+    return (void *)-1;
+  }
+  size_t old = __builtin_wasm_memory_grow(0, (size_t)increment / PAGE);
+  if (old == SIZE_MAX) {
+    errno = ENOMEM;
+    return (void *)-1;
+  }
+  return (void *)(uintptr_t)(old * PAGE);
+}
+
+// what the allocator tells the dispatcher: whether Lua's last growth failed, and whether one failed during the call
+struct Budget {
+  bool exceeded;
+  bool refused;
+};
+
+// Lua allocates through this function only
 static void *budget_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
   Budget *budget = (Budget *)ud;
-  // Lua's contract: without `ptr`, `osize` is the kind of object being created, not a size
-  size_t old = ptr ? osize : 0;
   if (nsize == 0) {
     free(ptr);
-    budget->used -= old;
     return NULL;
   }
-  if (nsize > old && budget->used + (nsize - old) > MEMORY_BUDGET) {
-    budget->exceeded = true;
-    return NULL;
-  }
+  // Lua's contract: without `ptr`, `osize` is the kind of object being created, not a size
+  bool grows = nsize > (ptr ? osize : 0);
   void *next = realloc(ptr, nsize);
-  if (!next) return NULL;
-  budget->used = budget->used - old + nsize;
-  // Lua retries a failed allocation after a full collection: a growth that succeeds after that means the
-  // budget was not exceeded after all, so a later unrelated error is not reported as the budget. Only a
-  // growth clears the flag: unwinding from the memory error shrinks the Lua stack (a realloc to a smaller
-  // size), and that must not hide the budget message
-  if (nsize > old) budget->exceeded = false;
+  // Lua retries a failed allocation after a full collection: a growth that succeeds after that means the Lua memory
+  // was not exhausted after all, so a later unrelated error is not reported as the memory. Only a growth sets or
+  // clears the flag: unwinding from the memory error shrinks the Lua stack (a realloc to a smaller size, which never
+  // fails), and that must not hide the memory message
+  if (grows) budget->exceeded = !next;
+  if (grows && !next) budget->refused = true;
   return next;
+}
+
+// `bytes` as the host writes a size: in the largest binary unit it is a whole number of (`256 MiB`, `1536 KiB`)
+static void format_size(char *out, size_t size, uint64_t bytes) {
+  static const struct {
+    uint64_t unit;
+    const char *name;
+  } units[] = {{1ull << 30, "GiB"}, {1ull << 20, "MiB"}, {1ull << 10, "KiB"}};
+  for (const auto &unit : units) {
+    if (bytes > 0 && bytes % unit.unit == 0) {
+      snprintf(out, size, "%llu %s", (unsigned long long)(bytes / unit.unit), unit.name);
+      return;
+    }
+  }
+  snprintf(out, size, "%llu B", (unsigned long long)bytes);
 }
 
 // ---- bridges: the raw host functions as Lua C functions, length-aware both ways ------------------------------
@@ -1119,33 +1271,63 @@ static int run_protected(lua_State *L) {
   return 2;
 }
 
-// the name of the script for the budget message, read outside Lua so it is available after a memory error
-static char *script_name_copy(void) {
+// What an export returns for a call that ran out of its Lua memory, where any other failure returns 1: the host tells
+// the memory from a script's error by this code (zhang-core/src/plugin/lua/mod.rs, OUT_OF_LUA_MEMORY), which no script
+// chooses, and not by the message, which a script could imitate
+static const int32_t OUT_OF_LUA_MEMORY = 2;
+
+// the name of the script for the memory message into `name` (`size` bytes, the end cut off past that), read outside Lua
+// so it is available after a memory error, and onto the stack so it needs no memory
+static void script_name(char *name, size_t size) {
+  snprintf(name, size, "?");
   ExtismHandle value = extism_config_get_buf_from_sz("zhang.script_name");
-  if (!value) return NULL;
-  char *name = extism_load_sz_dup(value, NULL);
+  if (!value) return;
+  uint64_t length = extism_length(value);
+  if (length > size - 1) length = size - 1;
+  extism_load_sz(value, 0, name, (size_t)length + 1);
   extism_free(value);
-  return name;
 }
 
-static int dispatch(const char *entry) {
-  Budget budget = {0, false};
+// the error of a call that ran out of Lua memory: the script, its Lua memory, and the limit it is part of
+static int32_t set_memory_error(void) {
+  char name[256], lua[32], instance[32], reserve[32], message[512];
+  script_name(name, sizeof name);
+  format_size(lua, sizeof lua, memory_limit.lua);
+  format_size(instance, sizeof instance, memory_limit.instance);
+  format_size(reserve, sizeof reserve, memory_limit.reserve);
+  snprintf(message, sizeof message,
+           "plugin `%s` exceeded %s of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is %s, less %s for the host)", name, lua,
+           instance, reserve);
+  extism_error_set_buf_from_sz(message);
+  return OUT_OF_LUA_MEMORY;
+}
+
+// Whether the error on top of `L`, of a call that failed, is the Lua memory running out: the memory error itself, or,
+// once a growth was refused, an error carrying its message, which code that caught it raised again in other words (the
+// prelude does, when the output does not fit: "what `analyze` returned cannot be written as JSON: not enough memory").
+// A string is read as it is, without the allocation that converting another value would need
+static bool out_of_lua_memory(lua_State *L, const Budget &budget) {
+  if (budget.exceeded) return true;
+  return budget.refused && lua_type(L, -1) == LUA_TSTRING && strstr(lua_tostring(L, -1), "not enough memory");
+}
+
+// run the entry point `entry`: 0 with its output, or its error and 1, or OUT_OF_LUA_MEMORY
+static int32_t dispatch(const char *entry) {
+  if (!memory_limit.instance) memory_limit = split_limit(configured_max_memory());
+  Budget budget = {false, false};
   lua_State *L = lua_newstate(budget_alloc, &budget);
   if (!L) {
+    if (budget.exceeded) return set_memory_error();
     extism_error_set_buf_from_sz("cannot create a Lua state");
     return 1;
   }
   lua_pushcfunction(L, run_protected);
   lua_pushlightuserdata(L, (void *)entry);
   int status = lua_pcall(L, 1, 2, 0);
-  int failed = status != LUA_OK || !lua_toboolean(L, -2);
-  if (failed && budget.exceeded) {
-    char *name = script_name_copy();
-    char message[512];
-    snprintf(message, sizeof message, "plugin `%s` exceeded 64 MiB", name ? name : "?");
-    free(name);
-    extism_error_set_buf_from_sz(message);
-  } else if (failed) {
+  int32_t code = status != LUA_OK || !lua_toboolean(L, -2) ? 1 : 0;
+  if (code && out_of_lua_memory(L, budget)) {
+    code = set_memory_error();
+  } else if (code) {
     size_t length;
     const char *message = lua_tolstring(L, -1, &length);
     if (message) extism_error_set_buf(message, length);
@@ -1156,7 +1338,7 @@ static int dispatch(const char *entry) {
     extism_output_buf(output ? output : "null", output ? length : 4);
   }
   lua_close(L);
-  return failed ? 1 : 0;
+  return code;
 }
 
 extern "C" {

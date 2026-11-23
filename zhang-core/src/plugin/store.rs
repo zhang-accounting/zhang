@@ -8,6 +8,7 @@ use extism::convert::Json as WasmJson;
 use extism::Manifest;
 use log::{debug, info, warn};
 use zhang_ast::{Directive, Plugin, SpanInfo, Spanned};
+use zhang_shared::plugin_abi::config::MAX_MEMORY as MAX_MEMORY_CONFIG_KEY;
 use zhang_shared::plugin_abi::{analysis as abi, export};
 
 use crate::clock::LoadClock;
@@ -268,14 +269,16 @@ fn known_plugin_types(plugin_name: &str, declared: Vec<serde_json::Value>) -> Zh
 }
 
 /// the settings of every instance of the plugin `declaration` declares, the `occurrence`-th of its module, within
-/// what `policy` allows: its config (the ledger's `options`, its own meta, the values the host sets, and a Lua `script`
-/// under the reserved keys, so a script edit takes effect at the next load), its allowed hosts, its timeout capped at the
-/// policy's `max_timeout` (the cap a router call gets, so registering, a stage and a request have one manifest), and the
-/// policy's memory limit. The module itself belongs to the runtime, which builds each instance with these settings
+/// what `policy` allows: its config (the ledger's `options`, its own meta, the values the host sets, among them the
+/// memory limit in `zhang.max_memory`, and a Lua `script` under the reserved keys, so a script edit takes effect at the
+/// next load), its allowed hosts, its timeout capped at the policy's `max_timeout` (the cap a router call gets, so
+/// registering, a stage and a request have one manifest), and the policy's memory limit. The module itself belongs to
+/// the runtime, which builds each instance with these settings
 fn settings(declaration: &PluginDeclaration, occurrence: usize, options: &[OptionDomain], script: Option<&LuaScript>, policy: &PluginPolicy) -> Manifest {
     let reserved = declaration
         .host_config(occurrence)
         .into_iter()
+        .chain([(MAX_MEMORY_CONFIG_KEY.to_owned(), policy.instance_memory().to_string())])
         .chain(script.into_iter().flat_map(LuaScript::config));
     let config = declaration.config_with(options, reserved);
     Manifest::default()
@@ -672,6 +675,7 @@ mod test {
             ("zhang.allowed_hosts", r#"["api.frankfurter.dev","api.example.com"]"#),
             ("zhang.timeout_ms", "60000"),
             ("zhang.allowed_writes", "[]"),
+            ("zhang.max_memory", "268435456"),
         ]
         .into_iter()
         .map(|(key, value)| (key.to_owned(), value.to_owned()))
@@ -912,5 +916,10 @@ mod test {
         });
         assert_eq!(plugin.manifest(&[]).memory.max_pages, Some(256));
         assert_eq!(plugin.manifest_with_timeout(&[], Duration::from_secs(1)).memory.max_pages, Some(256));
+        // and the plugin reads the limit in its config, for a Lua script the interpreter
+        assert_eq!(plugin.manifest(&[]).config["zhang.max_memory"], "16777216");
+        let mut spoofed = registered_with_meta(&[("zhang.max_memory", "4294967296")]);
+        spoofed.policy = plugin.policy.clone();
+        assert_eq!(spoofed.manifest(&[]).config["zhang.max_memory"], "16777216", "the host's value wins");
     }
 }

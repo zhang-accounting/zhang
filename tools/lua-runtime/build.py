@@ -105,6 +105,9 @@ def main():
             "-D_WASI_EMULATED_PROCESS_CLOCKS",
             "-DLUA_USE_JUMPTABLE=0",
             "-DMAKE_LIB",
+            # runtime.cpp defines the C++ ABI entry points of Lua's throw and catch(...) in place of onelua.c's
+            # micro-runtime, which leaks every exception object (runtime.cpp, "exceptions")
+            "-DLUAW_EXTERNAL_EH",
             # a random string-hash seed for every Lua state (seed.h), against hash flooding; JSON stays
             # byte-identical for identical values because json.cpp writes an object's keys sorted
             "-include", HERE / "seed.h",

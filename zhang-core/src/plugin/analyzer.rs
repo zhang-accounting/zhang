@@ -25,6 +25,7 @@ use crate::inputs::ExtraInput;
 use crate::ledger::Ledger;
 use crate::plugin::host::{PluginHost, MESSAGE_META};
 use crate::plugin::log_safe;
+use crate::plugin::lua::OUT_OF_LUA_MEMORY;
 use crate::plugin::router::{ledger_info, RouterHost};
 use crate::plugin::store::RegisteredPlugin;
 use crate::plugin_policy::{Size, MAX_MEMORY_ENV};
@@ -64,31 +65,38 @@ impl RegisteredPlugin {
                     format!("it declares the type Analyzer and exports no `{}`", abi::ANALYZE),
                 ));
             }
-            plugin
-                .call::<&[u8], &[u8]>(abi::ANALYZE, input)
-                .map(<[u8]>::to_vec)
-                .map_err(|error| match error.to_string().as_str() {
-                    // extism reports a call it stopped at the manifest's timeout as exactly "timeout"
-                    "timeout" => AnalysisFailure::new("timeout", timed_out.clone()),
-                    // and one whose memory would grow past the manifest's limit as exactly "oom"
-                    "oom" => AnalysisFailure::new(
-                        "memory",
-                        format!(
-                            "its analysis needed more than the {} the server allows a plugin ({MAX_MEMORY_ENV})",
-                            Size(self.policy().max_memory)
-                        ),
+            // the interpreter of a script says with its code that the script ran out of its Lua memory; a wasm module's
+            // code is its own, and one without an error is a failure all the same
+            let called = match self.script() {
+                Some(_) => plugin
+                    .call_get_error_code::<&[u8], &[u8]>(abi::ANALYZE, input)
+                    .map_err(|(error, code)| (error, Some(code))),
+                None => plugin.call::<&[u8], &[u8]>(abi::ANALYZE, input).map_err(|error| (error, None)),
+            };
+            called.map(<[u8]>::to_vec).map_err(|(error, code)| match error.to_string().as_str() {
+                // extism reports a call it stopped at the manifest's timeout as exactly "timeout"
+                "timeout" => AnalysisFailure::new("timeout", timed_out.clone()),
+                // and one whose memory would grow past the manifest's limit as exactly "oom"
+                "oom" => AnalysisFailure::new(
+                    "memory",
+                    format!(
+                        "its analysis needed more than the {} the server allows a plugin ({MAX_MEMORY_ENV})",
+                        Size(self.policy().max_memory)
                     ),
-                    // a Lua script's error comes with its stack trace: the ledger's error says what failed, where the
-                    // script raised it, and the trace goes to the log
-                    _ => {
-                        let text = format!("{error:#}");
-                        let cause = text.split_once("\nstack traceback:").map_or(text.as_str(), |(cause, _)| cause.trim_end());
-                        if cause.len() < text.len() {
-                            warn!("analyzer {} failed: {}", log_safe(&self.name), log_safe(&text));
-                        }
-                        AnalysisFailure::new("trap", log_safe(cause).into_owned())
+                ),
+                // a Lua script's error comes with its stack trace: the ledger's error says what failed, where the
+                // script raised it, and the trace goes to the log
+                _ => {
+                    let text = format!("{error:#}");
+                    let cause = text.split_once("\nstack traceback:").map_or(text.as_str(), |(cause, _)| cause.trim_end());
+                    if cause.len() < text.len() {
+                        warn!("analyzer {} failed: {}", log_safe(&self.name), log_safe(&text));
                     }
-                })
+                    // a script that ran out of its Lua memory needed more memory than the server allows, too
+                    let reason = if code == Some(OUT_OF_LUA_MEMORY) { "memory" } else { "trap" };
+                    AnalysisFailure::new(reason, log_safe(cause).into_owned())
+                }
+            })
         })();
         // an analysis has no error list of its own: what the plugin reports is in its output
         for error in plugin_host.take_errors() {
