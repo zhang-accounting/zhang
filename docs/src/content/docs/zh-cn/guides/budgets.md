@@ -9,7 +9,7 @@ sidebar:
 
 预算与账户并存：它们从不改变任何余额。完整语法见[预算](/zh-cn/reference/directives/budget/)。
 
-预算由 `zhang:budget` 解释，它是每个账本都有的官方[插件](/zh-cn/guides/plugins/#服务器允许的范围)，无需任何声明。以关闭插件的方式（`ZHANG_PLUGINS=off`）运行的服务器也会停止它：预算页面会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。查询函数 [`account_budgets()`](/zh-cn/reference/query-language/) 仍然会返回结果，因为它只读取账户 `open` 指令的 `budget` 元数据，而不是 `zhang:budget` 解释的内容。
+预算由 `zhang:budget` 解释，它是每个账本都有的官方[插件](/zh-cn/guides/plugins/#服务器允许的范围)，无需任何声明（见[张记账如何计算预算](#张记账如何计算预算)）。以关闭插件的方式（`ZHANG_PLUGINS=off`）运行的服务器也会停止它：预算页面会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。查询函数 [`account_budgets()`](/zh-cn/reference/query-language/) 仍然会返回结果，因为它只读取账户 `open` 指令的 `budget` 元数据，而不是 `zhang:budget` 解释的内容。
 
 ## 创建预算并关联账户
 
@@ -97,3 +97,12 @@ sidebar:
 预算也可以在[查询](/zh-cn/guides/querying/)中使用，即 `#budgets` 表。见查询语言参考中的[预算表](/zh-cn/reference/query-language/#预算表)。
 
 在 Beancount 账本中，预算写作 `custom` 指令。见[从 Beancount 迁移](/zh-cn/getting-started/from-beancount/#兼容性)。
+
+## 张记账如何计算预算
+
+`zhang:budget` 是张记账内置的 [Lua 插件](/zh-cn/guides/lua-plugins/)，是预算唯一的实现。张记账每次加载账本时它都会读取账本，也就是服务器启动时、每次写入后以及账本文件每次变化后，并给出预算页面、预算表和预算错误。它不修改账本中的任何东西。
+
+- **限制。** 它在服务器允许每个插件使用的范围内运行，即 [`ZHANG_PLUGIN_MAX_TIMEOUT` 和 `ZHANG_PLUGIN_MAX_MEMORY`](/zh-cn/guides/plugins/#服务器允许的范围)。预算需要更多资源的账本（例如有数以千计的预算）加载时没有预算页面，错误列表会显示一个 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误，说明应调大哪个限制。
+- **第一次启动。** 和其他 Lua 插件一样，张记账在它第一次运行时编译它，大约需要半秒，并把编译后的代码保存在[缓存](/zh-cn/guides/plugins/#编译后的代码)中：下次启动只需几十毫秒就能读回，重新加载（也就是每次写入）复用它。
+- **日志。** 每次加载都会记录分析用了多长时间，例如 `analyzer zhang:budget analysed the ledger in 19.182292ms: 0 diagnostics`；没有预算的账本则记录它没有可读的内容（`analyzer zhang:budget has nothing to read in the ledger: its tables are empty`）。
+- **不解释预算的情况。** 关闭插件时，或者在没有插件运行时的构建中（例如在线 Playground），预算指令不会被解释，错误列表会用一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误说明一次。

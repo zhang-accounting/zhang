@@ -698,14 +698,34 @@ The error is on the plugin's directive. The next load analyses the ledger again.
 **Fix:** a `timeout` meta on the directive gives a slow analysis more time, within the server's limit, and a larger
 `ZHANG_PLUGIN_MAX_MEMORY` gives it more memory. Otherwise the message says what to fix in the plugin, or ask its author.
 
+**`zhang:budget`.** [Budgets](/guides/budgets/) are interpreted by the official plugin `zhang:budget`, an analyzer
+bundled with Zhang, which runs within the limits the server sets for every plugin. When its analysis fails, the error is
+on the first `plugin "zhang:budget"` directive, or, as a ledger usually has none, on the first budget directive or `open`
+with `budget` metadata. The budget errors are still reported, but the budget pages, the budget tables, the `budgets`
+column of `#postings` and the `budgets.*` [built-in queries](/reference/builtin-queries/) answer that they are
+unavailable, saying why. The reasons it can fail with:
+
+- `memory`: the ledger's budgets need more memory than the server allows a plugin, `ZHANG_PLUGIN_MAX_MEMORY` (256 MiB
+  by default). Ledgers of thousands of budgets, such as one budget per category and month over years, need the most.
+  Start the server with a larger `ZHANG_PLUGIN_MAX_MEMORY`, such as `512MiB`;
+- `timeout`: the analysis ran longer than the server allows, `ZHANG_PLUGIN_MAX_TIMEOUT` (30 seconds by default).
+  `zhang:budget` has no options, so a `timeout` meta on its directive changes nothing: raise `ZHANG_PLUGIN_MAX_TIMEOUT`
+  instead, up to 60 seconds;
+- `trap` or `output`: a bug in `zhang:budget`. Please [report it](https://github.com/zhang-accounting/zhang/issues)
+  with the message.
+
 ## ExtensionUnavailable
 
 *Budget directives are not interpreted: `<reason>`*
 
 The ledger uses budgets, but the official plugin that interprets them, `zhang:budget`, does not run: the server runs
 with plugins off (`zhang serve --plugins off` or `ZHANG_PLUGINS=off`), which stops every plugin, `zhang:budget`
-included. Every ledger has `zhang:budget` otherwise, without a `plugin` directive and whatever its `features.plugin`
-option says. The ledger loads without budgets: no budget error is reported, and the [budget](/guides/budgets/) pages,
+included. Every ledger `zhang serve` loads has `zhang:budget` otherwise, without a `plugin` directive and whatever its
+`features.plugin` option says. `zhang:budget` is a Lua script bundled with Zhang, the only implementation of budgets,
+so a build without the plugin runtime, such as the WebAssembly build of the online playground, does not interpret
+budgets either (`reason`: `this build has no plugin runtime`), nor does a program that loads ledgers with the
+`zhang-core` library without running the script (`this zhang does not run the bundled zhang:budget script`). The
+ledger loads without budgets: no budget error is reported, and the [budget](/guides/budgets/) pages,
 the budget tables (`#budgets`, `#budget_definitions`, `#budget_events`), the `budgets` column of `#postings` and the
 `budgets.*` [built-in queries](/reference/builtin-queries/) answer that they are unavailable, saying why. The query
 function `account_budgets()` still answers: it reads only the `budget` metadata of the accounts' `open` directives, as

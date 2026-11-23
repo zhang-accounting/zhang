@@ -102,6 +102,8 @@ So by default plugins run read-only, without any network, for at most 30 seconds
 
 **The official plugin `zhang:budget`.** [Budgets](/guides/budgets/) are interpreted by `zhang:budget`, an official plugin every ledger has: it needs no `plugin` directive, and the ledger's `features.plugin` option does not turn it off, so no option of a ledger turns budgets off. A `plugin "zhang:budget"` directive is allowed, and loads no second copy. `zhang:budget` has no options yet: an argument or a meta on that directive, or a second such directive, configures nothing, and the error list says so with a [`PluginError`](/reference/error-codes/#pluginerror). Only the server's switch stops it: with `--plugins off`, budgets are off, the budget pages answer that the budget tables are unavailable, the error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error, and `zhang serve` logs it when it starts.
 
+`zhang:budget` is a [Lua plugin](/guides/lua-plugins/) bundled with Zhang, an analyzer: it reads the ledger at every load, so after every write too, and changes nothing. It is the only implementation of budgets, and runs like any other plugin: it is compiled the first time it runs ([Compiled code](#compiled-code)), the **Settings** page and `GET /api/plugins` list it with the type `Analyzer`, and it gets no more than the settings above allow, whatever a directive says. A ledger whose budgets need more time than `ZHANG_PLUGIN_MAX_TIMEOUT` or more memory than `ZHANG_PLUGIN_MAX_MEMORY` loads without the budget pages, with a [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error saying which.
+
 For example, to let the exchange-rate plugin above fetch its rates, start the server with:
 
 ```shell

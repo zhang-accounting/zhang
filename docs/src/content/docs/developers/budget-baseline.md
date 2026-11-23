@@ -539,7 +539,7 @@ A second self-comparison, with the CPU sets alternating per slot, the p95 judged
 
 ## Reproduce
 
-In a checkout of the commit to measure, with nothing else running if possible:
+In a checkout of the commit to measure, with nothing else running if possible. Since RFC #698's P3.3 the bundled script `zhang:budget` computes the budgets of every build: the native implementation is measured with a build with the `budget-switch` feature (`--features budget-switch`) and `ZHANG_BUDGET_IMPL=native`, and a build without the feature measures the script.
 
 ```sh
 # the machine
@@ -567,7 +567,7 @@ ZHANG_BUDGET_BASELINE_ONLY=requests cargo run --release -p zhang --example budge
 
 # the whole P4 set, its pairs run two sides at a time, then judged (in a bench window on the build pod: see
 # "The fast procedure of P4")
-cargo build --release -p zhang --examples
+cargo build --release -p zhang --examples --features budget-switch
 target/release/examples/budget_pairs --out /tmp/p4 --native target/release/examples/budget_baseline \
   --native-env ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin --expect-analyzer zhang:budget
 

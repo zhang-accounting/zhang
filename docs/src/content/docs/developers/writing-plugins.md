@@ -537,8 +537,8 @@ fn analyze(input: Input) -> Result<Output, Error> {
 ```
 
 `zhang-plugin-sdk/examples/budget` is a whole analyzer: Zhang's budgets, their tables and their errors, computed from
-the budget records and queries. Zhang's tests run it in place of the native budget code and check that it answers the
-budget pages alike, its errors included, with the same ids.
+the budget records and queries. Zhang's tests run it in place of the bundled script `zhang:budget` and check that it
+answers the budget pages alike, its errors included, with the same ids.
 
 ### In Lua
 

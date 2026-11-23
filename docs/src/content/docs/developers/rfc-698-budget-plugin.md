@@ -19,7 +19,9 @@ sidebar:
   - P3 measures the named-query p95 again, with more pairs;
   - P4 measures the final implementation under the same rule and must pass every bar;
   - P3.3's switch merges, and P5 starts, only after that.
-- **In progress:** P3.1 and P3.2, from the prototype (#870): #883 to #887, split by layer (§10.2, as built).
+- **In progress:** P3.1 and P3.2, from the prototype (#870): #883 to #887, split by layer (§10.2, as built). P3.3,
+  the switch, is a draft pull request (§10.2, as built): it merges only once P4 passes on its branch and the owner
+  confirms.
 - **Next:** P4 on P3.3's branch, then P3.3 and P5.
 - **Release:** the owner decided that the whole migration ships in v0.3.0. Until then the `Analyzer` plugin type is
   experimental (§2).
@@ -829,6 +831,26 @@ the optional item #805 deferred.
 - **Compiled code.** The compiled code of a default plugin is kept across loads, by its module and its settings, so a
   reload, and so a write, does not compile it again. The `GET /api/plugins` fields are left to P3.
 
+**As built in P3.3.**
+
+- **The script is `zhang:budget`.** `zhang_server::analysis::load_options`, which every load and reload of
+  `zhang serve` uses, registers the bundled script as the default plugin `zhang:budget` in every build. The native
+  provider and checks no longer run for a load that does not ask for them.
+- **The test switch.** `LoadOptions::native_budgets` has the native code interpret the budgets of a load that does not
+  run the script; only RFC #698's switch sets it (`BudgetImpl::Native`, `ZHANG_BUDGET_IMPL=native` in a build with the
+  `budget-switch` feature, and the test kit's loaders for the tests of zhang-core and zhang-query), so that the
+  contract, `budget_parity` and the fuzzer still compare the two until P5.
+- **`ExtensionUnavailable` for every load that cannot run the script**, once, on the first use of budgets, with the
+  `reason` `this build has no plugin runtime` (the playground, `bindings/wasm`, whose test pins it) or
+  `this zhang does not run the bundled zhang:budget script` (an embedder of `zhang-core` without the script or an
+  `AnalysisHost`), as for `ZHANG_PLUGINS=off`: the tables and named queries answer that they are unavailable.
+- **A failed analysis.** The native checks still stand in for the script's diagnostics when its analysis fails
+  (§2.5's tables are unavailable, the budget errors are the native ones); P5 removes them with the native code.
+- **Options.** `zhang:budget` keeps no options (#869): each argument and meta of its directive is a `PluginError`,
+  and the script runs as without them.
+- **Listing.** `GET /api/plugins` and the Settings page list `zhang:budget`, an `Analyzer`, as they list every
+  registered plugin; the `bundled`, `default` and `status` fields are not added.
+
 ## 7. The language of the official Budget plugin
 
 **Decided:** `zhang:budget` is a bundled Lua script. The comparison below records why, and what it costs.
@@ -1026,6 +1048,11 @@ and the directive and posting diagnostics share one report order. The pull reque
   range on demand. Its first 2,000 seeds found the close above; seeds 1 to 10,000 then found no difference. The
   named-query p95 of G1's condition is measured again there.
 - Left in #870, not proposed: answering an analysis's queries as JSON text (no gain), and its timing logs.
+
+**P3.3 as built (draft).** The switch of §6 ("As built in P3.3"), with #835's contract run with the server's own
+options (the script) byte for byte against its golden files, natively and with the script through the test switch in
+every run, the playground's regression test, and the budgets guide, the plugins guide, the upgrading guide and the
+error codes. It merges only once P4 passes on its branch and the owner confirms.
 
 ## 11. Decisions
 

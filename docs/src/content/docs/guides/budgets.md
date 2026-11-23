@@ -9,7 +9,7 @@ Zhang's budgets are monthly envelopes, in the style of zero-based budgeting: eac
 
 Budgets live beside your accounts: they never change a balance. The full syntax is in [Budget](/reference/directives/budget/).
 
-Budgets are interpreted by `zhang:budget`, an official [plugin](/guides/plugins/#what-the-server-allows) every ledger has, with nothing to declare. A server run with plugins off (`ZHANG_PLUGINS=off`) stops it too: its budget pages then answer that the budget tables are unavailable, and the error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error. The query function [`account_budgets()`](/reference/query-language/) still answers, as it reads only the `budget` metadata of the accounts' `open` directives, not what `zhang:budget` interprets.
+Budgets are interpreted by `zhang:budget`, an official [plugin](/guides/plugins/#what-the-server-allows) every ledger has, with nothing to declare (see [How Zhang computes budgets](#how-zhang-computes-budgets)). A server run with plugins off (`ZHANG_PLUGINS=off`) stops it too: its budget pages then answer that the budget tables are unavailable, and the error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error. The query function [`account_budgets()`](/reference/query-language/) still answers, as it reads only the `budget` metadata of the accounts' `open` directives, not what `zhang:budget` interprets.
 
 ## Create budgets and link accounts
 
@@ -97,3 +97,12 @@ A closed budget takes no more spending. The budget stays open through the whole 
 The budgets are also available to [queries](/guides/querying/), in the `#budgets` table. See [Budgets](/reference/query-language/#budgets) in the query language reference.
 
 In a beancount ledger, budgets are written as `custom` directives. See [Coming from Beancount](/getting-started/from-beancount/#compatibility).
+
+## How Zhang computes budgets
+
+`zhang:budget` is a [Lua plugin](/guides/lua-plugins/) bundled with Zhang, the only implementation of budgets. It reads the ledger every time Zhang loads it, so when the server starts, after every write and after every change of a ledger file, and gives the budget pages, the budget tables and the budget errors. It changes nothing in the ledger.
+
+- **Limits.** It runs within what the server allows every plugin, [`ZHANG_PLUGIN_MAX_TIMEOUT` and `ZHANG_PLUGIN_MAX_MEMORY`](/guides/plugins/#what-the-server-allows). A ledger whose budgets need more, such as thousands of budgets, loads without its budget pages, and the error list shows a [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error that says which limit to raise.
+- **First start.** Zhang compiles it the first time it runs, in about half a second, like any Lua plugin, and keeps the compiled code in its [cache](/guides/plugins/#compiled-code): the next start reads it back in a few tens of milliseconds, and a reload, so a write, reuses it.
+- **Logs.** Every load logs how long the analysis took, such as `analyzer zhang:budget analysed the ledger in 19.182292ms: 0 diagnostics`, or that a ledger without budgets gave it nothing to read (`analyzer zhang:budget has nothing to read in the ledger: its tables are empty`).
+- **Where budgets are not interpreted.** With plugins off, or in a build without the plugin runtime, such as the online playground, budget directives are not interpreted, and the error list says so once with an [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error.
