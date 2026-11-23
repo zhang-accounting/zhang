@@ -10,6 +10,9 @@
 # - src/plugin.rs: `Plugin::set_timeout` sets the timeout of an instance's later calls, so that a host can give one
 #   call less time than the manifest its plugin was compiled with, without compiling it again (a fraction of a
 #   millisecond rounds up: the call is never stopped before its time is up)
+# - src/plugin.rs: `Plugin::new_from_compiled_with_manifest` builds an instance from a compiled plugin with the
+#   settings of another manifest (config, allowed hosts, timeout, memory limits), which only the instance's state reads,
+#   so that a host compiles a module once for every config it runs with
 # - src/plugin_builder.rs, src/plugin.rs, src/lib.rs: `PluginBuilder::with_cache` compiles with a wasmtime `Cache` the
 #   host configured once (re-exported with `CacheConfig`), in place of the one extism sets up from a configuration file
 #   at every compilation, which fails the compilation when wasmtime's default directory cannot be created

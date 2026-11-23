@@ -55,7 +55,7 @@
 //! # Isolation
 //!
 //! Every request runs in a new instance of the plugin, so no state survives between requests; only
-//! the compiled code is shared, through the plugin's [`crate::plugin::runtime::PluginRuntime`]. The
+//! the compiled code of its module is shared ([`crate::plugin::runtime`]), and holds no state. The
 //! instance gets the same config, `allowed_hosts`, memory limit and timeout as the plugin's processor,
 //! all within the operator's [`PluginPolicy`](crate::plugin_policy::PluginPolicy): a call running
 //! longer than the timeout is stopped and answered as [`RouterError::Timeout`]. The caller holds the

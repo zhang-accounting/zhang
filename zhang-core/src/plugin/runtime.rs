@@ -1,18 +1,26 @@
-//! Compile a plugin's module once per registration and instantiate it per call.
+//! Compile a plugin's module once per process and instantiate it per call.
 //!
 //! Compiling a wasm module is the expensive part of running a plugin (hundreds of milliseconds for
 //! an interpreter-sized module), while instantiating compiled code costs a fraction of a
-//! millisecond. A [`PluginRuntime`] therefore owns a registered plugin's module bytes and a pool of
-//! [`CompiledPlugin`]s for the latest [`Manifest`] it was asked for; every call into the plugin
-//! (registration, a stage run, a router request) leases one of them and gets a fresh
-//! [`PluginInstance`] built from it with [`Plugin::new_from_compiled`], so no wasm state survives
-//! between calls (see [`crate::plugin::router`], "Isolation").
+//! millisecond. A module's compiled code ([`ModuleCode`]) is a pool of [`CompiledPlugin`]s, shared
+//! by every [`PluginRuntime`] running the module ([`crate::plugin::cache::code`]); every call into
+//! a plugin (registration, a stage run, a router request) leases one of them and gets a fresh
+//! [`PluginInstance`] built from it with [`Plugin::new_from_compiled_with_manifest`], so no wasm
+//! state survives between calls (see [`crate::plugin::router`], "Isolation").
+//!
+//! Compiled code does not depend on a plugin's settings. extism reads the settings of a
+//! [`Manifest`] (its config, a Lua script included, its allowed hosts, its timeout and its memory
+//! limits) only into the state of an instance, which each instance gets afresh from the manifest
+//! of its call; the module's bytes and wasmtime's settings, which are the same for every module
+//! ([`compile_config`]), are all compiling reads. So one compiled plugin serves every plugin of its
+//! module, whatever its settings, one call at a time: the Lua interpreter every Lua plugin runs on
+//! is compiled once per process, not once per script, per load or per changed option.
 //!
 //! Calls running at the same time never share compiled code. A `CompiledPlugin` owns the wasmtime
 //! engine, and extism enforces a call's timeout by bumping that engine's epoch, which interrupts
 //! every instance on the engine: shared code would let one request's timeout fail a concurrent
 //! request of the same plugin. So a compiled plugin is leased to exactly one instance at a time, a
-//! call finding none idle compiles another, and at most [`IDLE_LIMIT`] are kept idle per plugin.
+//! call finding none idle compiles another, and at most [`IDLE_LIMIT`] are kept idle per module.
 //!
 //! The host functions are linked once, when the module is compiled, so they cannot capture the host
 //! of one call. They resolve the host of the instance calling them through [`InstanceBindings`], a
@@ -22,7 +30,7 @@
 //!
 //! Compiling goes through the disk cache of [`crate::plugin::disk_cache`]: a module compiled before, by this process or
 //! an earlier one, is read back instead of compiled again. The cache keeps code by the module's bytes and wasmtime's
-//! settings, which the settings of a [`Manifest`] do not change, so one entry serves every config of a module.
+//! settings, so one entry serves every config of a module.
 //!
 //! A compilation runs on one thread of its own, which gives the memory the compilation took back before it ends (when
 //! it compiled, rather than read the code back from the disk cache). wasmtime compiles a module's functions in parallel
@@ -31,9 +39,9 @@
 //! freed for that thread, and rayon's threads stay, idle). A cold start with one Lua plugin took 192 MiB on 4 CPUs, 270
 //! on 8 and 906 on 64, and kept it; on a host of 96 CPUs, containers of 384 MiB to 1 GiB were killed at start. Compiled
 //! on one thread, the peak is the same on any machine (103 to 111 MiB with the plugin, 49 without), and the memory goes
-//! back once the compilation is over (57 to 63 MiB). It takes longer, once per module and disk cache: 0.4 s for the Lua
-//! interpreter, where 64 threads took 0.06 s, 8 took 0.08 s and 4 took 0.12 s; reading the code back from the disk
-//! cache takes 3 ms either way. See [`compile_config`] and [`crate::memory`].
+//! back once the compilation is over (57 to 63 MiB). It takes longer, once per module and process (or disk cache): 0.4 s
+//! for the Lua interpreter, where 64 threads took 0.06 s, 8 took 0.08 s and 4 took 0.12 s; reading the code back from
+//! the disk cache takes 3 ms either way. See [`compile_config`] and [`crate::memory`].
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -47,7 +55,7 @@ use uuid::Uuid;
 use crate::plugin::disk_cache;
 use crate::plugin::host::PluginHost;
 
-/// the name of the thread a compilation runs on ([`PluginRuntime::compile`])
+/// the name of the thread a compilation runs on ([`ModuleCode::compile`])
 const COMPILE_THREAD: &str = "zhang-compile";
 
 /// The wasmtime settings every plugin compiles with, under the ones extism sets: one thread compiles all of a module's
@@ -59,9 +67,9 @@ fn compile_config() -> wasmtime::Config {
     config
 }
 
-/// the most compiled plugins a runtime keeps idle for its current settings. Concurrent calls each
-/// lease their own, so a burst past this count compiles afresh and drops the extra when it ends:
-/// a plugin never holds more than this many engines once the burst is over
+/// the most compiled plugins a module keeps idle. Concurrent calls each lease their own, so a
+/// burst past this count compiles afresh and drops the extra when it ends: a module never holds
+/// more than this many engines once the burst is over
 const IDLE_LIMIT: usize = 4;
 
 /// the least margin before its timeout a call must end with to return its compiled plugin to the
@@ -82,8 +90,9 @@ pub(super) struct InstanceContext {
     pub host: PluginHost,
 }
 
-/// the contexts of the live instances of a compiled plugin, by extism instance id. The compiled host
-/// functions look up the instance calling them here, so they hold no state of any one call
+/// the contexts of the live instances of a module's compiled plugins, by extism instance id. The
+/// compiled host functions look up the instance calling them here, so they hold no state of any one
+/// call, nor of any one plugin of the module
 #[derive(Clone, Default)]
 pub(super) struct InstanceBindings(Arc<Mutex<HashMap<Uuid, Weak<InstanceContext>>>>);
 
@@ -92,9 +101,9 @@ impl InstanceBindings {
     /// context of the instance calling it. The lookup lock is released before `callback` runs, so a
     /// slow host call (a query) never blocks another instance's. An instance without a context gets
     /// an error instead of a host: that is what a wasm start function or `_initialize` gets when it
-    /// calls a host function, since both run while [`Plugin::new_from_compiled`] builds the
-    /// instance, before its id exists and the context can be registered (the host functions a
-    /// `Plugin::new` bound per instance aborted the process there instead)
+    /// calls a host function, since both run while [`Plugin::new_from_compiled_with_manifest`]
+    /// builds the instance, before its id exists and the context can be registered (the host
+    /// functions a `Plugin::new` bound per instance aborted the process there instead)
     pub fn function(
         &self, name: &str, params: impl IntoIterator<Item = ValType>, results: impl IntoIterator<Item = ValType>,
         callback: impl Fn(&InstanceContext, &mut CurrentPlugin, &[Val], &mut [Val]) -> Result<(), extism::Error> + Send + Sync + 'static,
@@ -116,74 +125,45 @@ impl InstanceBindings {
     }
 }
 
-/// the compiled code of a runtime's current settings: the compiled plugins no call is using
-#[derive(Default)]
-struct Pool {
-    /// the settings the idle plugins were compiled with; none before the first call
-    manifest: Option<Manifest>,
-    /// bumped whenever `manifest` changes, so a lease taken under earlier settings is not returned
-    generation: u64,
-    idle: Vec<CompiledPlugin>,
-}
-
-/// a registered plugin's module and its compiled code, shared by every clone of the registration
-/// (the router list and the stage list hold one each) and every instance they build
-pub struct PluginRuntime {
+/// A module and its compiled code, for every plugin running the module whatever its settings: the compiled plugins no
+/// instance is using, each with an engine of its own, and the bindings their host functions reach the instances
+/// through. Shared by the runtimes of the module ([`crate::plugin::cache::code`]) and the instances they build
+pub(crate) struct ModuleCode {
     module_bytes: Vec<u8>,
     bindings: InstanceBindings,
-    /// the compiled code of the manifest last asked for. A manifest with other settings (config,
-    /// allowed hosts, timeout) replaces it, so the pool never outlives one setting per plugin
-    pool: Arc<Mutex<Pool>>,
-    /// how many times the module was compiled
-    compilations: AtomicUsize,
+    /// the compiled plugins no instance is using, at most [`IDLE_LIMIT`]
+    idle: Mutex<Vec<CompiledPlugin>>,
     /// the disk cache compiling reads and writes, [`disk_cache::shared`]; none compiles without one
     disk_cache: Option<Cache>,
-    /// what the plugin declared when it registered, once a default plugin's registration read it
-    registration: std::sync::OnceLock<super::store::Registration>,
 }
 
-impl PluginRuntime {
-    /// the runtime of the module `module_bytes`, compiled on first use
-    pub fn new(module_bytes: Vec<u8>) -> Self {
+impl ModuleCode {
+    /// the module `module_bytes`, compiled on first use
+    pub(crate) fn new(module_bytes: Vec<u8>) -> Self {
         Self {
             module_bytes,
             bindings: InstanceBindings::default(),
-            pool: Arc::default(),
-            compilations: AtomicUsize::new(0),
+            idle: Mutex::default(),
             disk_cache: disk_cache::shared().cloned(),
-            registration: std::sync::OnceLock::new(),
         }
     }
 
-    /// the runtime compiling with the disk cache `cache` instead of the shared one, or with none
-    #[cfg(test)]
-    pub(crate) fn with_disk_cache(mut self, cache: Option<Cache>) -> Self {
-        self.disk_cache = cache;
-        self
-    }
-
-    /// what the plugin declared when it registered with this runtime, if a registration kept it
-    pub(crate) fn registration(&self) -> Option<super::store::Registration> {
-        self.registration.get().cloned()
-    }
-
-    /// keep what the plugin declared when it registered: the next registration with this runtime reads it here
-    pub(crate) fn remember_registration(&self, registration: super::store::Registration) {
-        let _ = self.registration.set(registration);
-    }
-
-    /// the module's bytes, as the load read them
-    pub fn module_bytes(&self) -> &[u8] {
+    /// the module's bytes
+    pub(crate) fn module_bytes(&self) -> &[u8] {
         &self.module_bytes
     }
 
-    /// the module compiled with the settings of `manifest`, with the host functions linked in: on a thread of its own
-    /// ([`COMPILE_THREAD`]), which compiles alone ([`compile_config`]) and, when it compiled rather than read the code
-    /// back from the disk cache, gives back what the compilation freed before it ends ([`crate::memory::return_freed`]),
-    /// so that the memory of the thread that asked, a ledger's load or a request, is left as it was
-    fn compile(&self, manifest: Manifest) -> Result<CompiledPlugin, extism::Error> {
-        self.compilations.fetch_add(1, Ordering::Relaxed);
-        let builder = PluginBuilder::new(manifest.with_wasm(Wasm::data(self.module_bytes.clone())))
+    fn idle(&self) -> MutexGuard<'_, Vec<CompiledPlugin>> {
+        self.idle.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// the module compiled, with the host functions linked in and no settings of any plugin, which each instance gets
+    /// when it is built: on a thread of its own ([`COMPILE_THREAD`]), which compiles alone ([`compile_config`]) and,
+    /// when it compiled rather than read the code back from the disk cache, gives back what the compilation freed
+    /// before it ends ([`crate::memory::return_freed`]), so that the memory of the thread that asked, a ledger's load
+    /// or a request, is left as it was
+    fn compile(&self) -> Result<CompiledPlugin, extism::Error> {
+        let builder = PluginBuilder::new(Manifest::default().with_wasm(Wasm::data(self.module_bytes.clone())))
             .with_functions(PluginHost::functions_for_instances(&self.bindings))
             .with_wasi(true)
             .with_wasmtime_config(compile_config());
@@ -209,59 +189,6 @@ impl PluginRuntime {
             compiled
         })
     }
-
-    /// how many times the module was compiled, for any settings
-    pub fn compilations(&self) -> usize {
-        self.compilations.load(Ordering::Relaxed)
-    }
-
-    /// how many compiled plugins are idle, and the pool's generation, which moves only when the settings change
-    #[cfg(test)]
-    pub(crate) fn pool_state(&self) -> (usize, u64) {
-        let pool = lock(&self.pool);
-        (pool.idle.len(), pool.generation)
-    }
-
-    /// a fresh instance of the plugin with the settings of `manifest`, whose host functions reach
-    /// `host`. It leases an idle compiled plugin of these settings, or compiles one when every one
-    /// is in use (or the settings changed since the last call, which drops the idle ones). Within a
-    /// load that is a compilation at registration, whose manifest has the timeout only, and one more
-    /// at the first stage run or router request, which carry the full config
-    pub fn instantiate(&self, manifest: Manifest, host: PluginHost) -> Result<PluginInstance, extism::Error> {
-        debug_assert!(manifest.wasm.is_empty(), "the runtime owns the module bytes");
-        let timeout = manifest.timeout_ms.map(Duration::from_millis);
-        let (idle, generation) = {
-            let mut pool = lock(&self.pool);
-            if pool.manifest.as_ref() != Some(&manifest) {
-                pool.manifest = Some(manifest.clone());
-                pool.idle.clear();
-                pool.generation += 1;
-            }
-            (pool.idle.pop(), pool.generation)
-        };
-        // compiling happens outside the lock: a call never waits for another's compilation
-        let compiled = match idle {
-            Some(compiled) => compiled,
-            None => self.compile(manifest)?,
-        };
-        // this runs the module's start function, if it has one, before the context below exists
-        let plugin = Plugin::new_from_compiled(&compiled)?;
-        let context = Arc::new(InstanceContext { host });
-        self.bindings.lock().insert(plugin.id, Arc::downgrade(&context));
-        Ok(PluginInstance {
-            plugin,
-            bindings: self.bindings.clone(),
-            _context: context,
-            lease: Lease {
-                compiled: Some(compiled),
-                in_call: false,
-                spent: false,
-                generation,
-                timeout,
-                pool: self.pool.clone(),
-            },
-        })
-    }
 }
 
 /// Run `job` on the thread `thread` starts, and answer what it answers; on the calling thread when no thread can be
@@ -282,23 +209,121 @@ fn on_a_thread_of_its_own<T: Send>(thread: std::thread::Builder, job: impl FnOnc
     })
 }
 
-fn lock(pool: &Mutex<Pool>) -> MutexGuard<'_, Pool> {
-    pool.lock().unwrap_or_else(PoisonError::into_inner)
+/// a registered plugin's module and its compiled code, shared by every clone of the registration
+/// (the router list and the stage list hold one each) and every instance they build
+pub struct PluginRuntime {
+    /// the module's compiled code, shared with the other runtimes of the module
+    code: Arc<ModuleCode>,
+    /// how many times building an instance of this runtime compiled the module, finding no compiled plugin idle
+    compilations: AtomicUsize,
+    /// what the plugin declared when it registered, once a default plugin's registration read it
+    registration: std::sync::OnceLock<super::store::Registration>,
 }
 
-/// one instance of a plugin, with wasm state and a host of its own, for exactly one call
+impl PluginRuntime {
+    /// the runtime of the module `module_bytes`, with compiled code of its own, compiled on first use
+    pub fn new(module_bytes: Vec<u8>) -> Self {
+        Self::of(Arc::new(ModuleCode::new(module_bytes)))
+    }
+
+    /// the runtime of the module whose compiled code is `code`
+    pub(crate) fn of(code: Arc<ModuleCode>) -> Self {
+        Self {
+            code,
+            compilations: AtomicUsize::new(0),
+            registration: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// the runtime compiling with the disk cache `cache` instead of the shared one, or with none, into compiled code of
+    /// its own
+    #[cfg(test)]
+    pub(crate) fn with_disk_cache(mut self, cache: Option<Cache>) -> Self {
+        self.code = Arc::new(ModuleCode {
+            disk_cache: cache,
+            ..ModuleCode::new(self.code.module_bytes.clone())
+        });
+        self
+    }
+
+    /// what the plugin declared when it registered with this runtime, if a registration kept it
+    pub(crate) fn registration(&self) -> Option<super::store::Registration> {
+        self.registration.get().cloned()
+    }
+
+    /// keep what the plugin declared when it registered: the next registration with this runtime reads it here
+    pub(crate) fn remember_registration(&self, registration: super::store::Registration) {
+        let _ = self.registration.set(registration);
+    }
+
+    /// the module's bytes, as the load read them
+    pub fn module_bytes(&self) -> &[u8] {
+        self.code.module_bytes()
+    }
+
+    /// the module's compiled code, shared with the other runtimes of the module
+    #[cfg(test)]
+    pub(crate) fn code(&self) -> &Arc<ModuleCode> {
+        &self.code
+    }
+
+    /// how many times building an instance of this runtime compiled the module: none when compiled code of the module
+    /// was idle, an earlier load's or another plugin's of the same module
+    pub fn compilations(&self) -> usize {
+        self.compilations.load(Ordering::Relaxed)
+    }
+
+    /// how many compiled plugins of the module are idle
+    #[cfg(test)]
+    pub(crate) fn idle(&self) -> usize {
+        self.code.idle().len()
+    }
+
+    /// a fresh instance of the plugin with the settings of `manifest`, whose host functions reach
+    /// `host`. It leases an idle compiled plugin of the module, whatever settings the calls before
+    /// it had, or compiles one when every one is in use
+    pub fn instantiate(&self, manifest: Manifest, host: PluginHost) -> Result<PluginInstance, extism::Error> {
+        debug_assert!(manifest.wasm.is_empty(), "the runtime owns the module bytes");
+        let timeout = manifest.timeout_ms.map(Duration::from_millis);
+        let idle = self.code.idle().pop();
+        // compiling happens outside the lock: a call never waits for another's compilation
+        let compiled = match idle {
+            Some(compiled) => compiled,
+            None => {
+                self.compilations.fetch_add(1, Ordering::Relaxed);
+                self.code.compile()?
+            }
+        };
+        // this runs the module's start function, if it has one, before the context below exists
+        let plugin = Plugin::new_from_compiled_with_manifest(&compiled, manifest)?;
+        let context = Arc::new(InstanceContext { host });
+        self.code.bindings.lock().insert(plugin.id, Arc::downgrade(&context));
+        Ok(PluginInstance {
+            plugin,
+            _context: context,
+            lease: Lease {
+                compiled: Some(compiled),
+                in_call: false,
+                spent: false,
+                timeout,
+                code: self.code.clone(),
+            },
+        })
+    }
+}
+
+/// one instance of a plugin, with wasm state, settings and a host of its own, for exactly one call
 /// (registration, a stage run or a router request). Calls keep extism's timeout, error and non-zero
 /// exit behaviour
 pub struct PluginInstance {
     // dropped first, so the compiled plugin is idle again only once its instance is gone
     plugin: Plugin,
-    bindings: InstanceBindings,
     /// keeps the context the bindings refer to alive for as long as the instance
     _context: Arc<InstanceContext>,
     lease: Lease,
 }
 
-/// the compiled plugin an instance was built from, returned to the pool when the instance drops
+/// the compiled plugin an instance was built from, returned to its module's pool when the instance drops
 struct Lease {
     /// taken when the lease drops
     compiled: Option<CompiledPlugin>,
@@ -306,9 +331,8 @@ struct Lease {
     in_call: bool,
     /// set once a call of this instance ended near its timeout; it stays set
     spent: bool,
-    generation: u64,
     timeout: Option<Duration>,
-    pool: Arc<Mutex<Pool>>,
+    code: Arc<ModuleCode>,
 }
 
 impl Drop for Lease {
@@ -318,10 +342,10 @@ impl Drop for Lease {
         if self.in_call || self.spent {
             return;
         }
-        let mut pool = lock(&self.pool);
-        // settings changed under the lease, or enough are idle already: drop it
-        if pool.generation == self.generation && pool.idle.len() < IDLE_LIMIT {
-            pool.idle.push(compiled);
+        let mut idle = self.code.idle();
+        // enough are idle already: drop it
+        if idle.len() < IDLE_LIMIT {
+            idle.push(compiled);
         }
     }
 }
@@ -333,7 +357,7 @@ impl PluginInstance {
     }
 
     /// let each later call of this instance run at most `at_most`, when that is less than the timeout of its settings:
-    /// a shorter timeout for one instance, without compiling the module for other settings
+    /// a shorter timeout for one instance
     pub fn limit_timeout(&mut self, at_most: Duration) {
         if self.lease.timeout.is_none_or(|timeout| at_most < timeout) {
             self.plugin.set_timeout(Some(at_most));
@@ -361,7 +385,7 @@ impl PluginInstance {
 
 impl Drop for PluginInstance {
     fn drop(&mut self) {
-        self.bindings.lock().remove(&self.plugin.id);
+        self.lease.code.bindings.lock().remove(&self.plugin.id);
     }
 }
 
@@ -384,44 +408,102 @@ mod tests {
         serde_json::from_str::<Value>(&output).unwrap()[0]["data"]["Comment"]["content"].clone()
     }
 
-    /// how many compiled plugins are idle, and the pool's generation
-    fn pool_state(runtime: &PluginRuntime) -> (usize, u64) {
-        runtime.pool_state()
+    /// how many compiled plugins of the runtime's module are idle
+    fn idle(runtime: &PluginRuntime) -> usize {
+        runtime.idle()
     }
 
     #[test]
-    fn compiled_code_is_reused_by_later_calls_and_dropped_when_settings_change() {
+    fn compiled_code_is_reused_by_later_calls_whatever_their_settings() {
         let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/config_echo.wat").to_vec());
         let first = Manifest::default().with_config([("zhang.plugin", "first")].into_iter());
         let mut plugin = runtime.instantiate(first.clone(), host("2026-10-05T00:00:00Z")).unwrap();
-        assert_eq!(pool_state(&runtime), (0, 1), "a live instance holds its compiled plugin");
+        assert_eq!(idle(&runtime), 0, "a live instance holds its compiled plugin");
         assert_eq!(echoed_config(&mut plugin), "first");
         drop(plugin);
-        assert_eq!(pool_state(&runtime), (1, 1), "a dropped instance returns its compiled plugin");
+        assert_eq!(idle(&runtime), 1, "a dropped instance returns its compiled plugin");
         let mut plugin = runtime.instantiate(first.clone(), host("2026-10-05T00:00:00Z")).unwrap();
-        assert_eq!(pool_state(&runtime), (0, 1), "the same settings reuse the compiled plugin");
+        assert_eq!(idle(&runtime), 0, "the same settings reuse the compiled plugin");
         assert_eq!(echoed_config(&mut plugin), "first");
+        drop(plugin);
 
+        // other settings reuse it too, each instance with its own config
         let changed = first.clone().with_config([("zhang.plugin", "second")].into_iter());
         let mut changed_plugin = runtime.instantiate(changed.clone(), host("2026-10-06T00:00:00Z")).unwrap();
-        assert_eq!(pool_state(&runtime), (0, 2), "changed settings start a new generation");
+        assert_eq!(idle(&runtime), 0, "changed settings reuse the compiled plugin");
         assert_eq!(echoed_config(&mut changed_plugin), "second");
-        // a live instance of the replaced code keeps its own settings, and is not returned
+        // an instance of the earlier settings, at the same time, gets compiled code of its own and keeps its settings
+        let mut plugin = runtime.instantiate(first, host("2026-10-05T00:00:00Z")).unwrap();
         assert_eq!(echoed_config(&mut plugin), "first");
-        drop(plugin);
-        assert_eq!(pool_state(&runtime), (0, 2), "a lease of earlier settings is dropped");
-        drop(changed_plugin);
-        assert_eq!(pool_state(&runtime), (1, 2));
+        assert_eq!(echoed_config(&mut changed_plugin), "second");
+        assert_eq!(runtime.compilations(), 2, "two instances at the same time, two compiled plugins");
+        drop((plugin, changed_plugin));
+        assert_eq!(idle(&runtime), 2, "both are returned");
 
-        let mut generation = 2;
         for settings in [
             changed.clone().with_allowed_host("example.com"),
             changed.with_timeout(Duration::from_millis(100)),
         ] {
             drop(runtime.instantiate(settings, host("2026-10-06T00:00:00Z")).unwrap());
-            generation += 1;
-            assert_eq!(pool_state(&runtime), (1, generation), "capabilities are part of the settings");
+            assert_eq!(idle(&runtime), 2, "capabilities are settings of the instance");
         }
+        assert_eq!(runtime.compilations(), 2, "compiled no more");
+    }
+
+    /// the memory limit and the timeout are the instance's, from the settings of its call: an instance gets neither
+    /// those of the instance before it on the same compiled plugin, nor those it was compiled with
+    #[test]
+    fn each_instance_runs_within_the_limits_of_its_own_settings() {
+        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/memory_hog.wat").to_vec());
+        // the processor grows its memory by 32 MiB
+        let small = Manifest::default().with_memory_max(256);
+        let error = runtime
+            .instantiate(small.clone(), host("2026-10-05T00:00:00Z"))
+            .unwrap()
+            .call::<&str, &str>("processor", "[]")
+            .unwrap_err();
+        assert_eq!(error.to_string(), "oom", "16 MiB are not enough");
+        let mut roomy = runtime
+            .instantiate(Manifest::default().with_memory_max(4096), host("2026-10-05T00:00:00Z"))
+            .unwrap();
+        assert_eq!(roomy.call::<&str, &str>("processor", "[]").unwrap(), "[]", "256 MiB are");
+        drop(roomy);
+        let error = runtime
+            .instantiate(small, host("2026-10-05T00:00:00Z"))
+            .unwrap()
+            .call::<&str, &str>("processor", "[]")
+            .unwrap_err();
+        assert_eq!(error.to_string(), "oom", "and 16 MiB still are not, on the same compiled plugin");
+        assert_eq!(runtime.compilations(), 1);
+
+        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/loop.wat").to_vec());
+        drop(
+            runtime
+                .instantiate(Manifest::default().with_timeout(Duration::from_secs(30)), host("2026-10-05T00:00:00Z"))
+                .unwrap(),
+        );
+        let mut plugin = runtime
+            .instantiate(Manifest::default().with_timeout(Duration::from_millis(200)), host("2026-10-05T00:00:00Z"))
+            .unwrap();
+        let started = Instant::now();
+        assert_eq!(plugin.call::<&str, &str>("processor", "[]").unwrap_err().to_string(), "timeout");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "stopped at its own timeout: {:?}",
+            started.elapsed()
+        );
+        assert_eq!(runtime.compilations(), 1);
+    }
+
+    /// a compilation that cannot have a thread of its own runs on the thread that asked, rather than fail the load
+    #[test]
+    fn a_compilation_runs_on_the_calling_thread_when_no_thread_can_be_started() {
+        let here = std::thread::current().id();
+        // a stack larger than the address space: the thread cannot be started
+        let impossible = std::thread::Builder::new().name(COMPILE_THREAD.to_owned()).stack_size(1 << 50);
+        assert_eq!(on_a_thread_of_its_own(impossible, || std::thread::current().id()), here);
+        let possible = std::thread::Builder::new().name(COMPILE_THREAD.to_owned());
+        assert_ne!(on_a_thread_of_its_own(possible, || std::thread::current().id()), here);
     }
 
     /// a compilation runs on a thread of its own, which gives back what the compilation freed through the hook the
@@ -442,17 +524,6 @@ mod tests {
         assert!(!returned_on.is_empty(), "the compilation gave up what it freed");
         // the tests compiling at the same time call the hook too, as every compilation does: on its own thread
         assert!(returned_on.iter().all(|name| name.as_deref() == Some(COMPILE_THREAD)), "{returned_on:?}");
-    }
-
-    /// a compilation that cannot have a thread of its own runs on the thread that asked, rather than fail the load
-    #[test]
-    fn a_compilation_runs_on_the_calling_thread_when_no_thread_can_be_started() {
-        let here = std::thread::current().id();
-        // a stack larger than the address space: the thread cannot be started
-        let impossible = std::thread::Builder::new().name(COMPILE_THREAD.to_owned()).stack_size(1 << 50);
-        assert_eq!(on_a_thread_of_its_own(impossible, || std::thread::current().id()), here);
-        let possible = std::thread::Builder::new().name(COMPILE_THREAD.to_owned());
-        assert_ne!(on_a_thread_of_its_own(possible, || std::thread::current().id()), here);
     }
 
     /// wasmtime compiles a plugin's functions on the thread compiling it, rather than in parallel on a thread per CPU,
@@ -572,7 +643,7 @@ mod tests {
         let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/loop.wat").to_vec());
         let settings = Manifest::default().with_timeout(Duration::from_secs(30));
         drop(runtime.instantiate(settings.clone(), host("2026-10-05T00:00:00Z")).unwrap());
-        assert_eq!(pool_state(&runtime), (1, 1));
+        assert_eq!(idle(&runtime), 1);
         let mut plugin = runtime.instantiate(settings.clone(), host("2026-10-05T00:00:00Z")).unwrap();
         // more time than the settings give is no limit
         plugin.limit_timeout(Duration::from_secs(60));
@@ -586,8 +657,8 @@ mod tests {
             started.elapsed()
         );
         drop(plugin);
-        // the settings are the same, so the compiled plugins are; the one stopped at its deadline is not returned
-        assert_eq!(pool_state(&runtime), (0, 1));
+        // the one stopped at its deadline is not returned
+        assert_eq!(idle(&runtime), 0);
         let plugin = runtime.instantiate(settings, host("2026-10-05T00:00:00Z")).unwrap();
         assert_eq!(
             plugin.lease.timeout,
@@ -602,13 +673,13 @@ mod tests {
         let instances: Vec<_> = (0..IDLE_LIMIT + 2)
             .map(|_| runtime.instantiate(Manifest::default(), host("2026-10-05T00:00:00Z")).unwrap())
             .collect();
-        assert_eq!(pool_state(&runtime), (0, 1), "every live instance leases its own compiled plugin");
+        assert_eq!(idle(&runtime), 0, "every live instance leases its own compiled plugin");
         drop(instances);
-        assert_eq!(pool_state(&runtime), (IDLE_LIMIT, 1), "a burst leaves at most the limit idle");
+        assert_eq!(idle(&runtime), IDLE_LIMIT, "a burst leaves at most the limit idle");
         let one = runtime.instantiate(Manifest::default(), host("2026-10-05T00:00:00Z")).unwrap();
-        assert_eq!(pool_state(&runtime), (IDLE_LIMIT - 1, 1));
+        assert_eq!(idle(&runtime), IDLE_LIMIT - 1);
         drop(one);
-        assert_eq!(pool_state(&runtime), (IDLE_LIMIT, 1));
+        assert_eq!(idle(&runtime), IDLE_LIMIT);
     }
 
     #[test]
@@ -620,7 +691,7 @@ mod tests {
         // a quick call of the same instance afterwards does not make its engine safe again
         assert_eq!(plugin.call::<_, String>("name", ()).unwrap(), "\"router-loop\"");
         drop(plugin);
-        assert_eq!(pool_state(&runtime), (0, 1), "an engine whose epoch may still be bumped is not reused");
+        assert_eq!(idle(&runtime), 0, "an engine whose epoch may still be bumped is not reused");
     }
 
     #[test]
@@ -641,7 +712,7 @@ mod tests {
         drop(first);
         assert!(weak_context.upgrade().is_none(), "the compiled code must not retain an instance's host context");
         drop(second);
-        assert!(runtime.bindings.lock().is_empty(), "dropped instances must not accumulate bindings");
+        assert!(runtime.code.bindings.lock().is_empty(), "dropped instances must not accumulate bindings");
     }
 
     #[test]
@@ -673,7 +744,7 @@ mod tests {
 
     #[test]
     fn a_start_function_calling_a_host_function_fails_cleanly() {
-        // a start function runs while `Plugin::new_from_compiled` builds the instance, before its
+        // a start function runs while `Plugin::new_from_compiled_with_manifest` builds the instance, before its
         // id exists and a context can be bound: the host call answers an error instead of a host
         // (a host function bound per `Plugin::new` aborted the whole process here)
         let runtime = PluginRuntime::new(
@@ -689,6 +760,6 @@ mod tests {
             .err()
             .expect("the start function fails");
         assert!(format!("{error:#}").contains("plugin instance has no host context"), "{error:#}");
-        assert!(runtime.bindings.lock().is_empty(), "a failed instantiation leaves no binding");
+        assert!(runtime.code.bindings.lock().is_empty(), "a failed instantiation leaves no binding");
     }
 }

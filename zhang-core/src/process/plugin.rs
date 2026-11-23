@@ -218,7 +218,7 @@ fn located(ledger: &Ledger, span: &SpanInfo) -> String {
 /// `plugin` directive naming its module would, but whatever the ledger's `features.plugin`, and, when `configurable`,
 /// with the metas of `directive`, the first `plugin` directive naming its module, if the ledger has one: then what they
 /// ask for and the errors of the plugin go on that directive. An official plugin is not `configurable`: it has no
-/// options, so it runs as without its directive's metas, and its errors still go on that directive. Its compiled code
+/// options, so it runs as without its directive's metas, and its errors still go on that directive. What it declares
 /// is kept across loads ([`crate::plugin::store::PluginStore::insert_default_plugin`]). The operator's
 /// `ZHANG_PLUGINS=off` stops it as it stops every plugin.
 #[cfg_attr(not(feature = "plugin_runtime"), allow(unused_variables))]

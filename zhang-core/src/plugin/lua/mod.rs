@@ -104,7 +104,8 @@ impl PluginModule {
 
 impl LuaScript {
     /// the config the host sets for the script under the reserved `zhang.` prefix, which pairs the interpreter
-    /// with it: part of every manifest of the plugin, so the script is in the compile cache key
+    /// with it: part of every manifest of the plugin, which each instance of the interpreter gets, so the interpreter's
+    /// compiled code serves every script
     pub fn config(&self) -> Vec<(String, String)> {
         vec![
             (SCRIPT_CONFIG_KEY.to_owned(), self.source.clone()),

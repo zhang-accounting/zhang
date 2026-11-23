@@ -457,14 +457,26 @@ impl Plugin {
 
     /// Create a new plugin from a pre-compiled plugin
     pub fn new_from_compiled(compiled: &CompiledPlugin) -> Result<Plugin, Error> {
-        let available_pages = compiled.manifest.memory.max_pages;
+        Self::new_from_compiled_with_manifest(compiled, compiled.manifest.clone())
+    }
+
+    /// zhang patch: create a new plugin from a pre-compiled plugin, with the settings of `manifest`
+    /// (config, allowed hosts and paths, timeout, memory limits) in place of the ones `compiled` was
+    /// built with. Compiled code does not depend on them: they are read only here, into the new
+    /// instance's state, so one `CompiledPlugin` serves instances of any settings. The modules
+    /// `manifest` lists are not read, the code is `compiled`'s
+    pub fn new_from_compiled_with_manifest(
+        compiled: &CompiledPlugin,
+        manifest: Manifest,
+    ) -> Result<Plugin, Error> {
+        let available_pages = manifest.memory.max_pages;
         debug!("Available pages: {available_pages:?}");
 
         let id = uuid::Uuid::new_v4();
         let mut store = Store::new(
             &compiled.engine,
             CurrentPlugin::new(
-                compiled.manifest.clone(),
+                manifest,
                 compiled.options.wasi,
                 available_pages,
                 compiled.options.http_response_headers,
