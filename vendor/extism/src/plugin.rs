@@ -293,13 +293,8 @@ fn add_module<T: 'static>(
         return Ok(());
     }
 
+    refuse_kernel_non_functions(module)?;
     for import in module.imports() {
-        let module = import.module();
-
-        if module == EXTISM_ENV_MODULE && !matches!(import.ty(), ExternType::Func(_)) {
-            anyhow::bail!("linked modules cannot access non-function exports of extism kernel");
-        }
-
         if !linked.contains(import.module()) {
             if let Some(m) = modules.get(import.module()) {
                 add_module(
@@ -317,6 +312,18 @@ fn add_module<T: 'static>(
     linker.module(store, name.as_str(), module)?;
     linked.insert(name);
 
+    Ok(())
+}
+
+/// zhang patch: refuse a module importing anything of extism's kernel but its functions, such as its memory, which would
+/// give the module raw access to the kernel's state. Upstream's check, in `add_module`, which no longer sees the main
+/// module (see `relink`)
+fn refuse_kernel_non_functions(module: &Module) -> Result<(), Error> {
+    for import in module.imports() {
+        if import.module() == EXTISM_ENV_MODULE && !matches!(import.ty(), ExternType::Func(_)) {
+            anyhow::bail!("linked modules cannot access non-function exports of extism kernel");
+        }
+    }
     Ok(())
 }
 
@@ -422,6 +429,13 @@ fn relink(
     }
 
     for (name, module) in modules.iter() {
+        // zhang patch: not the main module, which `instance_pre` below instantiates, once per store
+        // (`Plugin::instantiate`). Linked as well, as a reactor, it was instantiated a second time here, which
+        // ran its start function and `_initialize` again on an instance no call used, and held its memory
+        if name == MAIN_KEY {
+            refuse_kernel_non_functions(module)?;
+            continue;
+        }
         add_module(
             store,
             &mut linker,
@@ -444,7 +458,8 @@ fn relink(
 /// function, a reactor's `_initialize`, a guest runtime's initialisation), within `timeout` as a call runs: the timer
 /// bumps the engine's epoch at the deadline, which interrupts it, and an interrupted `f` fails with "timeout", as an
 /// interrupted call does. The store `f` runs in must trap at its epoch deadline, one tick ahead. Upstream ran this code
-/// with no timer at all, so a start function that never ends hung its host
+/// with no timer at all, so a start function that never ends hung its host. An `f` stopped by the store's memory
+/// limiter fails with "oom", as such a call does
 fn within_timeout<T>(
     timer_tx: &std::sync::mpsc::Sender<TimerAction>,
     id: uuid::Uuid,
@@ -461,9 +476,14 @@ fn within_timeout<T>(
         .expect("Timer should start");
     let result = f();
     let _ = timer_tx.send(TimerAction::Stop { id });
-    result.map_err(|e| match interrupted(&e) {
-        true => Error::msg("timeout"),
-        false => e,
+    result.map_err(|e| {
+        if interrupted(&e) {
+            Error::msg("timeout")
+        } else if e.root_cause().to_string() == "oom" {
+            Error::msg("oom")
+        } else {
+            e
+        }
     })
 }
 
@@ -519,55 +539,69 @@ impl Plugin {
             )?,
         );
         store.set_epoch_deadline(1);
+        // zhang patch: the memory limiter is the store's from its creation, before any module code runs, so the
+        // memory every instance of the store starts with or grows to counts toward `memory.max_pages`, whatever code
+        // grows it (a start function, `_initialize`). Upstream attached it once the modules were linked, after their
+        // initialisation had run
+        if available_pages.is_some() {
+            store.limiter(|internal| internal.memory_limiter.as_mut().unwrap());
+        }
         // Reactor modules can execute initialization during linking. Use the
         // initialization override when configured, otherwise preserve the
         // existing behavior by falling back to the call fuel limit.
         Self::apply_fuel_limit(&mut store, compiled.options.effective_initialization_fuel())?;
 
         let imports: Vec<Function> = compiled.options.functions.to_vec();
-        // zhang patch: linking instantiates the modules, which runs a module's start function and a reactor's
-        // `_initialize`: within the manifest's timeout, as a call runs
+        // zhang patch: building the instance runs module code: linking instantiates the modules but the main one, and
+        // the main module is instantiated here, once, which runs its start function and its guest runtime's
+        // initialisation (`_initialize`, `__wasm_call_ctors`, `hs_init`). Upstream linked the main module as a reactor
+        // too, then instantiated it again at the first call: its initialisation ran twice, on two memories. All of
+        // it within the manifest's timeout, as a call runs, and within its memory limit
         let timer_tx = Timer::tx();
-        let linked = within_timeout(&timer_tx, id, &compiled.engine, timeout, || {
-            relink(
+        let timer = timer_tx.clone();
+        let built = within_timeout(&timer, id, &compiled.engine, timeout, move || {
+            let (instance_pre, linker, host_context) = relink(
                 &compiled.engine,
                 &mut store,
                 &imports,
                 &compiled.modules,
                 compiled.options.wasi,
-            )
+            )?;
+            let mut plugin = Plugin {
+                modules: compiled.modules.clone(),
+                linker,
+                instance: std::sync::Arc::new(std::sync::Mutex::new(None)),
+                instance_pre,
+                store,
+                runtime: None,
+                id,
+                timer_tx: timer_tx.clone(),
+                cancel_handle: CancelHandle { id, timer_tx },
+                instantiations: 0,
+                output: Output::default(),
+                store_needs_reset: false,
+                debug_options: compiled.options.debug_options.clone(),
+                _functions: imports,
+                error_msg: None,
+                fuel: compiled.options.fuel,
+                initialization_fuel: compiled.options.effective_initialization_fuel(),
+                host_context,
+            };
+            plugin.current_plugin_mut().store = &mut plugin.store;
+            plugin.current_plugin_mut().linker = &mut plugin.linker;
+            let instance = plugin.instance.clone();
+            let mut lock = instance
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            plugin.instantiate(&mut lock)?;
+            drop(lock);
+            Ok(plugin)
         });
+        let mut plugin = built?;
         // a bump of the timer coming late interrupts nothing until the next call sets its own deadline
-        store.epoch_deadline_callback(|_| Ok(UpdateDeadline::Continue(1)));
-        let (instance_pre, linker, host_context) = linked?;
-        let mut plugin = Plugin {
-            modules: compiled.modules.clone(),
-            linker,
-            instance: std::sync::Arc::new(std::sync::Mutex::new(None)),
-            instance_pre,
-            store,
-            runtime: None,
-            id,
-            timer_tx: timer_tx.clone(),
-            cancel_handle: CancelHandle { id, timer_tx },
-            instantiations: 0,
-            output: Output::default(),
-            store_needs_reset: false,
-            debug_options: compiled.options.debug_options.clone(),
-            _functions: imports,
-            error_msg: None,
-            fuel: compiled.options.fuel,
-            initialization_fuel: compiled.options.effective_initialization_fuel(),
-            host_context,
-        };
-
-        plugin.current_plugin_mut().store = &mut plugin.store;
-        plugin.current_plugin_mut().linker = &mut plugin.linker;
-        if available_pages.is_some() {
-            plugin
-                .store
-                .limiter(|internal| internal.memory_limiter.as_mut().unwrap());
-        }
+        plugin
+            .store
+            .epoch_deadline_callback(|_| Ok(UpdateDeadline::Continue(1)));
         debug!("{} created", plugin.id);
         Ok(plugin)
     }
@@ -592,6 +626,12 @@ impl Plugin {
                 )?,
             );
             self.store.set_epoch_deadline(1);
+            // zhang patch: the new store's memory limiter, before relinking runs any module code (see
+            // `Plugin::new_from_compiled_with_manifest`)
+            if self.current_plugin().available_pages.is_some() {
+                self.store
+                    .limiter(|internal| internal.memory_limiter.as_mut().unwrap());
+            }
 
             // A new store starts with no fuel. Restore the effective
             // initialization budget before relinking can execute WebAssembly.
@@ -612,10 +652,6 @@ impl Plugin {
             let current_plugin = self.current_plugin_mut();
             current_plugin.store = store;
             current_plugin.linker = linker;
-            if current_plugin.available_pages.is_some() {
-                self.store
-                    .limiter(|internal| internal.memory_limiter.as_mut().unwrap());
-            }
 
             self.instantiations = 0;
             **instance_lock = None;
@@ -626,6 +662,8 @@ impl Plugin {
 
     // Instantiate the module. This is done lazily to avoid running any code outside of the `call` function,
     // since wasmtime may execute a start function (if configured) at instantiation time,
+    // zhang patch: `Plugin::new_from_compiled_with_manifest` instantiates it at once; a call instantiates it only after
+    // a reset store (`reset_store`)
     pub(crate) fn instantiate(
         &mut self,
         instance_lock: &mut std::sync::MutexGuard<Option<Instance>>,

@@ -58,19 +58,34 @@ impl wasmtime::ResourceLimiter for MemoryLimiter {
         Ok(true)
     }
 
+    // zhang patch: a table's elements count toward the same limit as memory, `TABLE_ELEMENT_BYTES` each, from the
+    // table's initial size on (wasmtime asks for it when it creates a table). Upstream allowed any growth of a table
+    // declaring no maximum: one `table.grow` of 128 Mi elements took 1 GiB of the host's memory under a 32 MiB limit
     fn table_growing(
         &mut self,
-        _current: usize,
+        current: usize,
         desired: usize,
         maximum: Option<usize>,
     ) -> Result<bool> {
         if let Some(max) = maximum {
-            return Ok(desired <= max);
+            if desired > max {
+                return Ok(false);
+            }
         }
 
+        let bytes = (desired - current).saturating_mul(TABLE_ELEMENT_BYTES);
+        if bytes > self.bytes_left {
+            return Err(wasmtime::Error::msg("oom"));
+        }
+
+        self.bytes_left -= bytes;
         Ok(true)
     }
 }
+
+/// zhang patch: the host memory a table element takes, as the memory limit counts it: a function reference is a
+/// pointer, 8 bytes on a 64-bit host, and a GC reference is less
+pub(crate) const TABLE_ELEMENT_BYTES: usize = 8;
 
 /// zhang patch: refuse a block that does not lie inside the kernel's linear memory of `memory_size` bytes.
 ///
