@@ -209,6 +209,8 @@ fn a_lua_analysis_that_fails_loads_the_ledger_with_one_error() {
         assert_eq!(failed.len(), 1, "{reason} {message}: {:?}", ledger.errors);
         assert_eq!(failed[0].0, reason, "{message}: {}", failed[0].1);
         assert!(failed[0].1.contains(&message), "{}", failed[0].1);
+        // the cause, without the script's stack trace, which only the log has
+        assert!(!failed[0].1.contains("stack traceback"), "{}", failed[0].1);
         assert_eq!(
             ledger.extensions.analyzers[0].snapshot.get().unwrap().status,
             SnapshotStatus::Failed { reason: reason.to_owned() }
