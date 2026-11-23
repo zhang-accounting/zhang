@@ -30,7 +30,7 @@ pub struct PriceMap {
 /// kept: a division of 28 digits, which a query converting every posting through the opposite pair would otherwise
 /// repeat for each one. Nothing is inverted for a pair never read the other way, so a map of many prices costs no more
 /// to build than its history.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 struct Pair {
     history: History,
     /// `1 / rate` of each point of `history`, `None` for a zero rate; the cells are made at the first such read
@@ -60,6 +60,13 @@ impl PartialEq for Pair {
 }
 
 impl Eq for Pair {}
+
+/// A pair prints as its history, whichever inverses were read.
+impl std::fmt::Debug for Pair {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.history.fmt(f)
+    }
+}
 
 impl PriceMap {
     /// build from `(date, base, quote, rate)` points in stream order
