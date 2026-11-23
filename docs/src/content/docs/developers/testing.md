@@ -61,6 +61,15 @@ Everything else, in particular:
 - each error's kind, metas, span (file, start, end, line) and id, and the order of the errors at one place;
 - every figure by value, every status, and every name and type of a column.
 
+### The budget script against the native budgets
+
+Until the bundled script `zhang:budget` (`plugins/budget/budget.lua`) is the only implementation of budgets (RFC #698 P3.3), zhang computes budgets natively, and a test switch chooses the implementation:
+
+- `zhang_server::analysis::BudgetImpl` is `native`, `plugin` (the script, registered as a default plugin, in place of the native provider and checks) or `both`, and `load_options_for` loads a ledger with it. A build with the `budget-switch` feature of `zhang-server` (or of `zhang`, for the budget baseline) reads it from `ZHANG_BUDGET_IMPL` in every load the server makes; `both` loads with the script there, as a server serves one ledger. A build without the feature, every release, loads natively.
+- `budget_contract_as_the_budget_script` runs every case of the contract with the script against the same golden files, ids and places of the errors included, and lists each difference with the rule above that allows it; any other difference fails it. With the native cases, it is the contract in `both` mode, in every test run.
+- `the_budget_script_answers_the_reference_figures_on_every_ledger` checks the script's budget pages on every ledger of the repository against the independent computation of `budget_reference`, as `the_handlers_answer_the_reference_figures_on_every_ledger` checks the native ones. With `ZHANG_BUDGET_IMPL=plugin` (or `both`) every test of `budget_commodity`, its hand-worked ledgers included, loads with the script: `ZHANG_BUDGET_IMPL=plugin cargo nextest run -p zhang-server --test golden -E 'test(/budget_commodity/)'`.
+- `zhang_testkit::budget_parity` is `both`: it loads a ledger natively and with the script, served as the server serves it, and compares the errors id-exact, the three budget tables, the `budgets` of `#postings`, the errors page and the budget pages' named queries. `budget_parity::the_bench_ledgers_answer_alike_both_ways` runs it on the budget baseline's two ledgers, on demand: `cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(the_bench_ledgers)'`.
+
 ## Conventions
 
 - Test names are sentences in `snake_case` that state the fact: `a_pad_books_the_difference_now`, `every_ledger_has_an_oracle`.

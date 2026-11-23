@@ -20,7 +20,9 @@ use zhang_core::clock::Clock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
+use zhang_core::plugin_policy::PluginPolicy;
 use zhang_query::Params;
+use zhang_server::analysis::{load_options_for, BudgetImpl};
 use zhang_server::response::{QueryResultEntity, ResponseWrapper};
 use zhang_server::state::SharedLedger;
 use zhang_server::ServerResult;
@@ -161,22 +163,33 @@ impl Fixture {
         format!("{}/{}", dir, self.entry)
     }
 
-    /// the ledger, or `None` if it cannot be loaded. The local data source does not expand wildcard
-    /// includes and fails on a missing include, so a ledger that has either is loaded from a copy
-    /// with its wildcards expanded and its missing includes empty ([`materialize`])
-    pub(crate) async fn try_load(&self) -> Option<SharedLedger> {
-        self.try_load_at(Clock::System).await
+    /// the ledger, with the current time read from `clock`, or `None` if it cannot be loaded. The local data source
+    /// does not expand wildcard includes and fails on a missing include, so a ledger that has either is loaded from a
+    /// copy with its wildcards expanded and its missing includes empty ([`materialize`]). The budgets are the native
+    /// ones, or those of the bundled script `zhang:budget` when `ZHANG_BUDGET_IMPL` is `plugin` or `both` (RFC #698's
+    /// test switch): then this whole module checks the script against the reference.
+    pub(crate) async fn try_load_at(&self, clock: Clock) -> Option<SharedLedger> {
+        let budgets = BudgetImpl::from_env().unwrap_or_else(|error| panic!("{error}"));
+        self.try_load_with(clock, budgets).await
     }
 
-    /// [`Fixture::try_load`] with the current time read from `clock`.
-    pub(crate) async fn try_load_at(&self, clock: Clock) -> Option<SharedLedger> {
+    /// [`Fixture::try_load_at`] with the budgets computed by `budgets`.
+    pub(crate) async fn try_load_with(&self, clock: Clock, budgets: BudgetImpl) -> Option<SharedLedger> {
         let load = |dir: PathBuf| async move {
             let source: Arc<dyn zhang_core::data_source::DataSource> = if self.entry.ends_with(".bean") {
                 Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}))
             } else {
                 Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
             };
-            Ledger::load_with_clock(dir, self.entry.clone(), source, clock).ok()
+            match budgets {
+                BudgetImpl::Native => Ledger::load_with_clock(dir, self.entry.clone(), source, clock).ok(),
+                _ => {
+                    let options = load_options_for(Arc::new(PluginPolicy::default()), budgets);
+                    let ledger = Ledger::load_with_options(dir, self.entry.clone(), source, clock, options).ok()?;
+                    zhang_testkit::budget_parity::assert_published(&ledger);
+                    Some(ledger)
+                }
+            }
         };
         let ledger = match load(self.dir.clone()).await {
             Some(ledger) => ledger,
@@ -539,9 +552,21 @@ mod test {
     /// Every answer of the handlers on the repository's ledgers is right ([`check`]).
     #[tokio::test(flavor = "multi_thread")]
     async fn the_handlers_answer_the_reference_figures_on_every_ledger() {
+        answer_the_reference_figures(BudgetImpl::from_env().unwrap_or_else(|error| panic!("{error}"))).await
+    }
+
+    /// The same with the bundled script `zhang:budget` computing the budgets (RFC #698's `plugin` mode), in every run.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_budget_script_answers_the_reference_figures_on_every_ledger() {
+        answer_the_reference_figures(BudgetImpl::Plugin).await
+    }
+
+    async fn answer_the_reference_figures(budgets: BudgetImpl) {
         let mut wrong = vec![];
         for fixture in repository_fixtures() {
-            let Some(ledger) = fixture.try_load().await else { continue };
+            let Some(ledger) = fixture.try_load_with(Clock::System, budgets).await else {
+                continue;
+            };
             let context = Context::of(&ledger).await;
             for probe in probes(&ledger).await {
                 if let Err(why) = check(&probe, &probe.run(&ledger).await, &context) {
@@ -1178,11 +1203,15 @@ option "operating_currency" "CNY"
         text.push_str("2025-01-10 \"Market\" \"lunch\"\n  Expenses:Food 10 CNY\n  Assets:Bank\n");
         text.push_str("9999-01-01 \"Market\" \"a typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n");
         let ledger = ledger_at(&text, "2025-03-15T04:00:00Z").await;
-        // "this month" in Explore is bounded by today() too
-        let this_month = zhang_query::Query::compile("SELECT name, available FROM #budgets WHERE date = yearmonth(today())")
+        // "this month" in Explore is bounded by today() too; compiled against the ledger's tables, as Explore's are
+        let served = ledger.read().await;
+        let catalog = zhang_query::Catalog::of_ledger(&served);
+        let sql = "SELECT name, available FROM #budgets WHERE date = yearmonth(today())";
+        let this_month = zhang_query::Query::compile_in(&catalog, sql, &zhang_query::ParamTypes::default())
             .unwrap()
-            .execute(&*ledger.read().await, &Params::new())
+            .execute(&served, &Params::new())
             .unwrap();
+        drop(served);
         assert_eq!(this_month.rows.len(), 12);
         let list = new_json(&ledger, Probe::BudgetList { month: None }).await;
         assert_eq!(list.as_array().unwrap().len(), 12);
