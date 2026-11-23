@@ -1,0 +1,366 @@
+{
+  "case": "lots-of-two-cost-currencies",
+  "description": "A posting sold from two lots at costs in two currencies (see main.zhang): checked whole through its first lot's cost currency, its activity per lot.",
+  "ledger": "zhang-server/tests/golden/budget_contract/lots-of-two-cost-currencies/main.zhang",
+  "now": "2024-02-15T00:00:00Z",
+  "errors": [
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.zhang",
+      "line": 30,
+      "metas": [{"key": "account_name", "value": "Assets:Vault"}, {"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Gold"}, {"key": "commodity", "value": "GOLD"}, {"key": "txn_id", "value": "33dbf277-be71-1298-97ce-87939536d6fc"}]
+    }
+  ],
+  "error_list": [
+    {
+      "id": "06eff2db-8b1d-4ca4-f8fc-e2907b00464d",
+      "id_of": "main.zhang@1105 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 1105, "end": 1233, "line": 30},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Assets:Vault",
+        "budget_commodity": "CNY",
+        "budget_name": "Gold",
+        "commodity": "GOLD",
+        "txn_id": "33dbf277-be71-1298-97ce-87939536d6fc"
+      }
+    }
+  ],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-02-15", "00:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-01-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Gold", null, null, "CNY", "2024-01-01", {"number": "5000", "currency": "CNY"}, "2130.00", {"number": "2870.00", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-02-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Gold", null, null, "CNY", "2024-02-01", {"number": "2870.00", "currency": "CNY"}, "-2130.00", {"number": "5000.00", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gold"}},
+          {"name": "budgets.budget_month", "params": {"name": "Gold", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gold", null, null, "CNY", ["Assets:Vault"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Gold", null, null, "CNY", "2024-01-01", {"number": "5000", "currency": "CNY"}, "2130.00", {"number": "2870.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Gold", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gold", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "5000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-02", "00:00:00", 1704153600, "Assets:Vault", "5f126a65-ff13-154c-daab-603b7175d697", "Dealer", "a bar at a cost in dollars", {"number": "1", "currency": "GOLD"}, {"number": "1", "currency": "GOLD"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gold"}},
+          {"name": "budgets.events", "params": {"name": "Gold", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gold", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gold", null, null, "CNY", ["Assets:Vault"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "5000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-02", "00:00:00", 1704153600, "Assets:Vault", "5f126a65-ff13-154c-daab-603b7175d697", "Dealer", "a bar at a cost in dollars", {"number": "1", "currency": "GOLD"}, {"number": "1", "currency": "GOLD"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gold"}},
+          {"name": "budgets.budget_month", "params": {"name": "Gold", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gold", null, null, "CNY", ["Assets:Vault"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Gold", null, null, "CNY", "2024-02-01", {"number": "2870.00", "currency": "CNY"}, "-2130.00", {"number": "5000.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Gold", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gold", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-02-01", "00:00:00", 1706745600, "Assets:Vault", "b7c9c2b2-d8bd-71de-070a-740c9676c97e", "Friend", "both bars given away in one posting, booked from the two lots", {"number": "-1", "currency": "GOLD"}, {"number": "1", "currency": "GOLD"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gold"}},
+          {"name": "budgets.events", "params": {"name": "Gold", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gold", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gold", null, null, "CNY", ["Assets:Vault"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-02-01", "00:00:00", 1706745600, "Assets:Vault", "b7c9c2b2-d8bd-71de-070a-740c9676c97e", "Friend", "both bars given away in one posting, booked from the two lots", {"number": "-1", "currency": "GOLD"}, {"number": "1", "currency": "GOLD"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [["Gold", "2024-01-01", "CNY", null, null, ["Assets:Vault"], null, null]]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": [["Gold", "2024-01-01", "00:00:00", 1704067200, "assign", {"number": "5000", "currency": "CNY"}]]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "Gold",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "5000", "currency": "CNY"},
+              {"number": "5000", "currency": "CNY"},
+              {"number": "2130.00", "currency": "CNY"},
+              {"number": "2870.00", "currency": "CNY"},
+              false,
+              ["Assets:Vault"]
+            ],
+            [
+              "Gold",
+              "2024-02-01",
+              2024,
+              2,
+              "CNY",
+              null,
+              null,
+              {"number": "2870.00", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "-2130.00", "currency": "CNY"},
+              {"number": "5000.00", "currency": "CNY"},
+              false,
+              ["Assets:Vault"]
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            [
+              "2024-01-02",
+              "00:00:00",
+              "Assets:Vault",
+              "a bar at a cost in dollars",
+              {"number": "1", "currency": "GOLD"},
+              ["Gold"]
+            ],
+            [
+              "2024-01-02",
+              "00:00:00",
+              "Assets:Bank",
+              "a bar at a cost in dollars",
+              {"number": "-300", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-01-03",
+              "00:00:00",
+              "Assets:Vault",
+              "a bar at a cost in pounds, which nothing converts",
+              {"number": "1", "currency": "GOLD"},
+              []
+            ],
+            [
+              "2024-01-03",
+              "00:00:00",
+              "Assets:Bank",
+              "a bar at a cost in pounds, which nothing converts",
+              {"number": "-250", "currency": "GBP"},
+              []
+            ],
+            [
+              "2024-02-01",
+              "00:00:00",
+              "Assets:Vault",
+              "both bars given away in one posting, booked from the two lots",
+              {"number": "-1", "currency": "GOLD"},
+              ["Gold"]
+            ],
+            [
+              "2024-02-01",
+              "00:00:00",
+              "Assets:Vault",
+              "both bars given away in one posting, booked from the two lots",
+              {"number": "-1", "currency": "GOLD"},
+              []
+            ],
+            [
+              "2024-02-01",
+              "00:00:00",
+              "Expenses:Gifts",
+              "both bars given away in one posting, booked from the two lots",
+              {"number": "300", "currency": "USD"},
+              []
+            ],
+            [
+              "2024-02-01",
+              "00:00:00",
+              "Expenses:Gifts",
+              "both bars given away in one posting, booked from the two lots",
+              {"number": "250", "currency": "GBP"},
+              []
+            ]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}

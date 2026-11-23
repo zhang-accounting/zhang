@@ -1,0 +1,8 @@
+{
+  "description": "A posting sold from two lots at costs in two currencies (see main.zhang): checked whole through its first lot's cost currency, its activity per lot.",
+  "now": "2024-02-15T00:00:00Z",
+  "pages": {
+    "months": ["2024-01-01", "2024-02-01"],
+    "budgets": ["Gold"]
+  }
+}
