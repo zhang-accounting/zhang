@@ -102,8 +102,14 @@ mod test {
         std::fs::write(dir.path().join("main.zhang"), "1970-01-01 open Assets:Cash\n").unwrap();
         let first = load(dir.path(), options("zhang:cache-test-reload"));
         assert_eq!(runtime(&first).compilations(), 1, "registering compiles the module");
+        assert!(runtime(&first).registration().is_some(), "and keeps what the plugin declared");
         let second = first.reloader()().expect("the ledger reloads");
         assert!(Arc::ptr_eq(&runtime(&first), &runtime(&second)), "a reload keeps the runtime");
+        let (registered, types) = &second.plugins.ordered[0];
+        assert_eq!(
+            (registered.name.as_str(), types.as_slice()),
+            ("router-now", [crate::plugin::PluginType::Router].as_slice())
+        );
         assert_eq!(runtime(&second).compilations(), 1, "and compiles nothing again");
         // the settings changed with an option of the ledger: compiled again, once, for them
         std::fs::write(dir.path().join("main.zhang"), "option \"title\" \"Home\"\n1970-01-01 open Assets:Cash\n").unwrap();

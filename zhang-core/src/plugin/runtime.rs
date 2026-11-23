@@ -114,6 +114,8 @@ pub struct PluginRuntime {
     compilations: AtomicUsize,
     /// the disk cache compiling reads and writes, [`disk_cache::shared`]; none compiles without one
     disk_cache: Option<Cache>,
+    /// what the plugin declared when it registered, once a default plugin's registration read it
+    registration: std::sync::OnceLock<super::store::Registration>,
 }
 
 impl PluginRuntime {
@@ -125,6 +127,7 @@ impl PluginRuntime {
             pool: Arc::default(),
             compilations: AtomicUsize::new(0),
             disk_cache: disk_cache::shared().cloned(),
+            registration: std::sync::OnceLock::new(),
         }
     }
 
@@ -133,6 +136,16 @@ impl PluginRuntime {
     pub(crate) fn with_disk_cache(mut self, cache: Option<Cache>) -> Self {
         self.disk_cache = cache;
         self
+    }
+
+    /// what the plugin declared when it registered with this runtime, if a registration kept it
+    pub(crate) fn registration(&self) -> Option<super::store::Registration> {
+        self.registration.get().cloned()
+    }
+
+    /// keep what the plugin declared when it registered: the next registration with this runtime reads it here
+    pub(crate) fn remember_registration(&self, registration: super::store::Registration) {
+        let _ = self.registration.set(registration);
     }
 
     /// the module's bytes, as the load read them
