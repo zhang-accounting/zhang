@@ -6,32 +6,45 @@
 //! ```sh
 //! budget_pairs --out <dir> --native <budget_baseline> [--env VAR=value]... [--native-env VAR=value]... \
 //!     [--candidate <budget_baseline>] [--candidate-env VAR=value]... \
+//!     (--expect-analyzer zhang:budget | --no-expect-analyzer) \
 //!     [--ledgers 10000tx-30b-60m,100000tx-30b-60m] [--modes e2e,requests] [--pairs 10] [--most-pairs 15] \
 //!     [--requests-pairs 60] [--rounds 200] [--cpus 16-63] [--cpus-per-side 8] [--max-invalid <n>] \
-//!     [--compare <budget_compare>] [-- <options of budget_compare, such as --expect-analyzer zhang:budget>]
+//!     [--sequential] [--confirm-pairs 10] [--no-confirm] [--compare <budget_compare>] \
+//!     [-- <other options of budget_compare, such as --p95-rule ratio>]
 //! ```
 //!
 //! - **A pair's two runs run at the same time**, each pinned to a CPU set of its own (`ZHANG_BUDGET_BASELINE_CPUS`, with
 //!   as many worker threads as CPUs), so that both see the same state of the machine, its memory's slow periods
 //!   included. The CPUs of `--cpus` are cut into sets of `--cpus-per-side` and the sets into slots of two, one pair a
-//!   slot: 16-63 by 8 is three pairs at once. The two sides swap the sets of their slot from pair to pair.
+//!   slot: 16-63 by 8 is three pairs at once. Each slot gives its first set to either side in turn, so that each set
+//!   serves both sides equally. `--sequential` runs the two runs of a pair one after the other instead, alone, on the
+//!   first set, their order alternating.
 //! - **Each mode and ledger gets its valid pairs**: `--pairs` for the `e2e` (and full) mode, `--requests-pairs` for the
 //!   `requests` mode, whose runs take `--rounds` rounds of warm requests. A pair with a run that is invalid (a build
 //!   ran, the cgroup was throttled or its tasks waited for a CPU, a timer kept fewer than its clean rounds, the run
 //!   failed) is moved to `<out>/invalid/` and run again, up to `--max-invalid` times a mode and ledger (as many as its
-//!   pairs by default).
+//!   pairs by default). The invalid runs are counted by side and cause in `<out>/invalid-runs.json`: the pressure the
+//!   bench reads is the whole pod's, the bench's own processes included, so a heavier side can be invalidated more
+//!   often.
 //! - **Then `budget_compare` judges them**, and while a verdict of the `e2e` mode is inconclusive and its ledger has
 //!   fewer than `--most-pairs` valid pairs, more pairs are run (at least as many as there are slots) and they are
 //!   judged again. The `requests` mode gets no more: its pairs are all run before the judgement.
+//! - **A PASS to confirm is confirmed**: `budget_compare` reports `CONFIRM` for a PASS of pairs run at the same time
+//!   whose interval reaches past 70% of what is allowed, as the two sides of a pair share the memory bandwidth and the
+//!   caches. Its mode and ledger then get `--confirm-pairs` pairs run one after the other, in `<out>/sequential/`,
+//!   judged the same way; their verdict is the one that counts (`<out>/verdicts.json`). `--no-confirm` skips it.
 //!
 //! The binaries are run as they are: one binary for both sides with an environment each (`--native-env
 //! ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin`), or two; `--env` sets a variable on both sides
-//! (`ZHANG_BUDGET_BASELINE_COMMIT`). The reports go to `<out>/<side>/<mode>/<ledger>/<pair>/<ledger>.json`, with the
-//! run's stdout and stderr, which is budget_compare's layout; `<out>/runs.jsonl` records every pair run,
+//! (`ZHANG_BUDGET_BASELINE_COMMIT`). P4 compares the plugin with the native implementation, so `--expect-analyzer
+//! zhang:budget` is required (`budget_compare` then refuses a candidate that does not publish it, and a native side
+//! that does); `--no-expect-analyzer` allows other candidates, for a self-comparison or a calibration. The reports go
+//! to `<out>/<side>/<mode>/<ledger>/<pair>/<ledger>.json`, with the run's stdout and stderr, which is budget_compare's
+//! layout; `<out>/runs.jsonl` records every pair run (its slot, each run's CPUs, exit and validity),
 //! `<out>/compare.txt` and `<out>/summary.json` the last judgement. Run again with the same `--out`, it keeps the valid
-//! pairs it finds and runs what is missing. A run's timings only mean something in a bench window, with no build
-//! running in the machine: on the build pod, run this under `kbuild --bench`. It exits with budget_compare's status, or
-//! a failure of its own.
+//! pairs it finds of the same builds and setup, moves the others aside, and runs what is missing. A run's timings only
+//! mean something in a bench window, with no build running in the machine: on the build pod, run this under `kbuild
+//! --bench`. It exits with a failure when a verdict that counts fails or is refused, or on a failure of its own.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::fs::File;
@@ -59,19 +72,34 @@ const POLL: Duration = Duration::from_millis(200);
 const REQUESTS_PAIRS: usize = 60;
 /// the rounds of warm requests of a `requests` run (`ZHANG_BUDGET_BASELINE_ROUNDS`)
 const REQUESTS_ROUNDS: usize = 200;
+/// the pairs run one after the other that confirm a `CONFIRM`
+const CONFIRM_PAIRS: usize = 10;
 
-/// one side of the comparison: its name in the layout, the bench's binary and the environment it runs with
+/// one side of the comparison: its name in the layout, the bench's binary, its SHA-256 (the build the reports
+/// record) and the environment it runs with
+#[derive(Clone)]
 struct Side {
     name: &'static str,
     binary: PathBuf,
+    build: String,
     env: Vec<(String, String)>,
 }
 
+impl Side {
+    /// the value the side's environment gives `name`, the last one if several
+    fn env(&self, name: &str) -> Option<&str> {
+        self.env.iter().rev().find(|(it, _)| it == name).map(|(_, value)| value.as_str())
+    }
+}
+
+#[derive(Clone)]
 struct Config {
     out: PathBuf,
     sides: [Side; 2],
     ledgers: Vec<String>,
     modes: Vec<String>,
+    /// the modes and ledgers to run, when not every mode on every ledger (a confirmation)
+    only: Option<Vec<Group>>,
     pairs: usize,
     most: usize,
     /// the pairs of the `requests` mode, all run before they are judged
@@ -81,6 +109,11 @@ struct Config {
     per_side: usize,
     rounds: usize,
     max_invalid: Option<usize>,
+    /// the two runs of a pair one after the other, alone
+    sequential: bool,
+    /// whether a `CONFIRM` gets its pairs one after the other, and how many
+    confirm: bool,
+    confirm_pairs: usize,
     compare: PathBuf,
     compare_args: Vec<String>,
 }
@@ -102,7 +135,7 @@ impl Config {
         if group.mode == "requests" {
             self.requests_pairs
         } else {
-            self.most
+            self.most.max(self.pairs)
         }
     }
 }
@@ -127,13 +160,99 @@ impl Group {
     }
 }
 
-/// a pair in flight: its two runs, started together
+/// a pair in flight or done: its two runs, in the order of the sides, and the slot it ran in
 struct Running {
     group: Group,
     pair: usize,
+    slot: usize,
     runs: Vec<(Child, PathBuf, String)>,
     started: Instant,
     started_at: String,
+}
+
+/// The runs of each side and the invalid ones by cause.
+#[derive(Default)]
+struct Tally {
+    runs: BTreeMap<&'static str, usize>,
+    invalid: BTreeMap<&'static str, usize>,
+    causes: BTreeMap<(&'static str, &'static str), usize>,
+}
+
+impl Tally {
+    fn count(&mut self, side: &'static str, reason: Option<&str>) {
+        *self.runs.entry(side).or_default() += 1;
+        if let Some(reason) = reason {
+            *self.invalid.entry(side).or_default() += 1;
+            for cause in causes(reason) {
+                *self.causes.entry((side, cause)).or_default() += 1;
+            }
+        }
+    }
+
+    fn json(&self) -> Value {
+        let sides = self
+            .runs
+            .iter()
+            .map(|(side, runs)| {
+                let invalid = self.invalid.get(side).copied().unwrap_or(0);
+                let causes = self
+                    .causes
+                    .iter()
+                    .filter(|((it, _), _)| it == side)
+                    .map(|((_, cause), count)| (cause.to_string(), json!(count)))
+                    .collect::<serde_json::Map<_, _>>();
+                (side.to_string(), json!({"runs": runs, "invalid": invalid, "causes": causes}))
+            })
+            .collect::<serde_json::Map<_, _>>();
+        Value::Object(sides)
+    }
+
+    fn line(&self) -> String {
+        self.runs
+            .iter()
+            .map(|(side, runs)| {
+                let invalid = self.invalid.get(side).copied().unwrap_or(0);
+                let causes = self
+                    .causes
+                    .iter()
+                    .filter(|((it, _), _)| it == side)
+                    .map(|((_, cause), count)| format!("{cause} {count}"))
+                    .collect::<Vec<_>>();
+                let causes = if causes.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", causes.join(", "))
+                };
+                format!("{side} {invalid} of {runs} runs invalid{causes}")
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+}
+
+/// the causes of a run's invalidity, from its reasons
+fn causes(reason: &str) -> Vec<&'static str> {
+    let known = [
+        ("a build ran", "build"),
+        ("throttled", "throttled"),
+        ("waited for a CPU", "pressure"),
+        ("not readable", "cgroup unreadable"),
+        ("clean rounds", "short timer"),
+        ("the run failed", "failed"),
+        ("no report", "failed"),
+        ("a report of the mode", "other setup"),
+        ("another build or setup", "other setup"),
+    ];
+    let mut causes = known
+        .iter()
+        .filter(|(text, _)| reason.contains(text))
+        .map(|(_, cause)| *cause)
+        .collect::<Vec<_>>();
+    causes.dedup();
+    if causes.is_empty() {
+        causes.push("other");
+    }
+    causes
 }
 
 fn main() -> ExitCode {
@@ -146,7 +265,8 @@ fn main() -> ExitCode {
         }
     };
     match run(&config) {
-        Ok(code) => code,
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
         Err(error) => {
             eprintln!("budget_pairs: {error}");
             ExitCode::FAILURE
@@ -155,10 +275,18 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> &'static str {
-    "usage: budget_pairs --out <dir> --native <budget_baseline> [--env VAR=value]... [--native-env VAR=value]... [--candidate <budget_baseline>] \
-     [--candidate-env VAR=value]... [--ledgers a,b] [--modes e2e,requests] [--pairs 10] [--most-pairs 15] \
-     [--requests-pairs 60] [--rounds 200] [--cpus 16-63] [--cpus-per-side 8] [--max-invalid <n>] \
+    "usage: budget_pairs --out <dir> --native <budget_baseline> [--env VAR=value]... [--native-env VAR=value]... \
+     [--candidate <budget_baseline>] [--candidate-env VAR=value]... (--expect-analyzer <provider> | --no-expect-analyzer) \
+     [--ledgers a,b] [--modes e2e,requests] [--pairs 10] [--most-pairs 15] [--requests-pairs 60] [--rounds 200] \
+     [--cpus 16-63] [--cpus-per-side 8] [--max-invalid <n>] [--sequential] [--confirm-pairs 10] [--no-confirm] \
      [--compare <budget_compare>] [-- <budget_compare options>]"
+}
+
+/// the SHA-256 of a file, as the bench records its build
+fn sha256(path: &Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+    Ok(Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 fn parse(args: Vec<String>) -> Result<Config, String> {
@@ -170,7 +298,8 @@ fn parse(args: Vec<String>) -> Result<Config, String> {
     let mut modes = "e2e,requests".to_owned();
     let (mut pairs, mut most, mut cpus, mut per_side) = (10, 15, "16-63".to_owned(), 8);
     let (mut rounds, mut max_invalid, mut compare, mut compare_args) = (REQUESTS_ROUNDS, None, None, vec![]);
-    let mut requests_pairs = REQUESTS_PAIRS;
+    let (mut requests_pairs, mut sequential, mut confirm, mut confirm_pairs) = (REQUESTS_PAIRS, false, true, CONFIRM_PAIRS);
+    let (mut expect_analyzer, mut no_expect_analyzer) = (None, false);
     let number = |flag: &str, value: Option<String>| -> Result<usize, String> {
         value
             .as_deref()
@@ -192,18 +321,38 @@ fn parse(args: Vec<String>) -> Result<Config, String> {
             "--env" => env.push(assignment(&arg, args.next())?),
             "--native-env" => native_env.push(assignment(&arg, args.next())?),
             "--candidate-env" => candidate_env.push(assignment(&arg, args.next())?),
+            "--expect-analyzer" => expect_analyzer = Some(args.next().ok_or_else(missing)?),
+            "--no-expect-analyzer" => no_expect_analyzer = true,
             "--ledgers" => ledgers = args.next().ok_or_else(missing)?,
             "--modes" => modes = args.next().ok_or_else(missing)?,
             "--pairs" => pairs = number(&arg, args.next())?,
             "--most-pairs" => most = number(&arg, args.next())?,
+            "--requests-pairs" => requests_pairs = number(&arg, args.next())?,
+            "--rounds" => rounds = number(&arg, args.next())?,
             "--cpus" => cpus = args.next().ok_or_else(missing)?,
             "--cpus-per-side" => per_side = number(&arg, args.next())?,
-            "--rounds" => rounds = number(&arg, args.next())?,
-            "--requests-pairs" => requests_pairs = number(&arg, args.next())?,
             "--max-invalid" => max_invalid = Some(number(&arg, args.next())?),
+            "--sequential" => sequential = true,
+            "--confirm-pairs" => confirm_pairs = number(&arg, args.next())?,
+            "--no-confirm" => confirm = false,
             "--compare" => compare = Some(PathBuf::from(args.next().ok_or_else(missing)?)),
             "--" => compare_args.extend(args.by_ref()),
             _ => return Err(format!("unknown argument {arg}")),
+        }
+    }
+    // the plugin against the native implementation, unless told otherwise: a candidate without the budget analyzer, or
+    // a native side with it, is refused by budget_compare
+    let passed = compare_args.iter().position(|it| it == "--expect-analyzer");
+    match (expect_analyzer, passed, no_expect_analyzer) {
+        (Some(_), _, true) | (_, Some(_), true) => return Err("--expect-analyzer and --no-expect-analyzer contradict".to_owned()),
+        (Some(analyzer), None, false) => compare_args.extend(["--expect-analyzer".to_owned(), analyzer]),
+        (Some(_), Some(_), false) | (None, Some(_), false) | (None, None, true) => {}
+        (None, None, false) => {
+            return Err(
+                "P4 compares the budget plugin with the native implementation: give --expect-analyzer zhang:budget, \
+                        or --no-expect-analyzer for a self-comparison or a calibration"
+                    .to_owned(),
+            )
         }
     }
     let out = out.ok_or("--out is required")?;
@@ -246,29 +395,30 @@ fn parse(args: Vec<String>) -> Result<Config, String> {
     if !compare.is_file() {
         return Err(format!("{}: no budget_compare (build the examples, or give --compare)", compare.display()));
     }
+    let side = |name: &'static str, binary: PathBuf, own: Vec<(String, String)>| -> Result<Side, String> {
+        Ok(Side {
+            name,
+            build: sha256(&binary)?,
+            binary,
+            env: env.iter().cloned().chain(own).collect(),
+        })
+    };
     Ok(Config {
         out,
-        sides: [
-            Side {
-                name: "native",
-                binary: native,
-                env: env.iter().cloned().chain(native_env).collect(),
-            },
-            Side {
-                name: "candidate",
-                binary: candidate,
-                env: env.iter().cloned().chain(candidate_env).collect(),
-            },
-        ],
+        sides: [side("native", native, native_env)?, side("candidate", candidate, candidate_env)?],
         ledgers,
         modes,
+        only: None,
         pairs,
         most,
+        requests_pairs,
         slots,
         per_side,
-        requests_pairs,
         rounds,
         max_invalid,
+        sequential,
+        confirm,
+        confirm_pairs,
         compare,
         compare_args,
     })
@@ -305,27 +455,37 @@ fn now() -> String {
     chrono::Utc::now().format("%H:%M:%S").to_string()
 }
 
-/// The pairs of every mode and ledger, the judgement, the top-ups, the judgement again: budget_compare's status.
-fn run(config: &Config) -> Result<ExitCode, String> {
+/// The pairs of every mode and ledger, the judgement, the top-ups, the judgement again, and the confirmation of what
+/// is to be confirmed: whether every verdict that counts passed or stayed inconclusive.
+fn run(config: &Config) -> Result<bool, String> {
     let started = Instant::now();
     std::fs::create_dir_all(&config.out).map_err(|error| format!("{}: {error}", config.out.display()))?;
-    let mut groups = config
-        .modes
-        .iter()
-        .flat_map(|mode| {
-            config.ledgers.iter().map(move |ledger| Group {
-                mode: mode.clone(),
-                ledger: ledger.clone(),
+    let mut groups = match &config.only {
+        Some(groups) => groups.clone(),
+        None => config
+            .modes
+            .iter()
+            .flat_map(|mode| {
+                config.ledgers.iter().map(move |ledger| Group {
+                    mode: mode.clone(),
+                    ledger: ledger.clone(),
+                })
             })
-        })
-        .collect::<Vec<_>>();
+            .collect::<Vec<_>>(),
+    };
     groups.sort_by_key(Group::cost);
+    let how = match config.sequential {
+        true => format!("one run at a time on CPUs {}", config.slots[0][0]),
+        false => format!(
+            "{} slots of 2 x {} CPUs ({})",
+            config.slots.len(),
+            config.per_side,
+            config.slots.iter().map(|it| it.join(" | ")).collect::<Vec<_>>().join(", ")
+        ),
+    };
     eprintln!(
-        "[{}] budget_pairs: {} slots of 2 x {} CPUs ({}); valid pairs {}",
+        "[{}] budget_pairs: {how}; valid pairs {}",
         now(),
-        config.slots.len(),
-        config.per_side,
-        config.slots.iter().map(|it| it.join(" | ")).collect::<Vec<_>>().join(", "),
         groups
             .iter()
             .map(|it| format!("{} {} {} (at most {})", it.mode, it.ledger, config.target(it), config.most(it)))
@@ -335,6 +495,7 @@ fn run(config: &Config) -> Result<ExitCode, String> {
     // the pairs already there, from an earlier run into the same directory
     let mut valid = BTreeMap::new();
     let mut invalid = BTreeMap::<Group, usize>::new();
+    let mut tally = Tally::default();
     for group in &groups {
         valid.insert(group.clone(), resume(config, group)?);
     }
@@ -342,13 +503,15 @@ fn run(config: &Config) -> Result<ExitCode, String> {
         .iter()
         .map(|group| (group.clone(), config.target(group).saturating_sub(valid[group])))
         .collect::<Vec<_>>();
-    let status = loop {
+    let (passed, verdicts) = loop {
         let mut queue = VecDeque::new();
         for (group, count) in &wanted {
             queue.extend(std::iter::repeat_n(group.clone(), *count));
         }
-        schedule(config, queue, &mut valid, &mut invalid)?;
-        let (status, verdicts) = judge(config)?;
+        let scheduled = schedule(config, queue, &mut valid, &mut invalid, &mut tally);
+        write_tally(config, &tally)?;
+        scheduled?;
+        let (passed, verdicts) = judge(config)?;
         // top-ups: the modes and ledgers with an inconclusive verdict that more pairs would decide
         wanted = vec![];
         for group in &groups {
@@ -367,12 +530,12 @@ fn run(config: &Config) -> Result<ExitCode, String> {
             }
         }
         if wanted.is_empty() {
-            break status;
+            break (passed, verdicts);
         }
     };
     let elapsed = started.elapsed().as_secs();
     eprintln!(
-        "[{}] budget_pairs: done in {}:{:02}:{:02}; valid pairs {}; pairs run again {}",
+        "[{}] budget_pairs: done in {}:{:02}:{:02}; valid pairs {}; invalid runs: {}",
         now(),
         elapsed / 3600,
         elapsed / 60 % 60,
@@ -382,13 +545,80 @@ fn run(config: &Config) -> Result<ExitCode, String> {
             .map(|it| format!("{} {} {}", it.mode, it.ledger, valid[it]))
             .collect::<Vec<_>>()
             .join(", "),
-        groups
-            .iter()
-            .map(|it| format!("{} {} {}", it.mode, it.ledger, invalid.get(it).copied().unwrap_or(0)))
-            .collect::<Vec<_>>()
-            .join(", ")
+        if tally.invalid.is_empty() { "none".to_owned() } else { tally.line() }
     );
-    Ok(status)
+    // the PASSes to confirm, with pairs one after the other
+    let to_confirm = groups
+        .iter()
+        .filter(|group| {
+            verdicts
+                .iter()
+                .any(|it| it["ledger"] == group.ledger.as_str() && it["verdict"] == "CONFIRM" && reads(&group.mode, it["section"].as_str().unwrap_or_default()))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut confirmed = vec![];
+    let mut passed = passed;
+    if !to_confirm.is_empty() && config.confirm && !config.sequential {
+        eprintln!(
+            "[{}] budget_pairs: to confirm with pairs one after the other: {}",
+            now(),
+            to_confirm.iter().map(|it| format!("{} {}", it.mode, it.ledger)).collect::<Vec<_>>().join(", ")
+        );
+        let mut sequential = config.clone();
+        sequential.out = config.out.join("sequential");
+        sequential.only = Some(to_confirm);
+        sequential.sequential = true;
+        sequential.confirm = false;
+        sequential.pairs = config.confirm_pairs;
+        passed &= run(&sequential)?;
+        confirmed = read_summary(&sequential.out.join("summary.json")).unwrap_or_default();
+    }
+    // the verdicts that count: a confirmation's, for what it confirmed
+    let counted = verdicts
+        .iter()
+        .map(|it| {
+            let same = |other: &&Value| ["ledger", "criterion", "item"].iter().all(|key| other[*key] == it[*key]);
+            match (it["verdict"].as_str(), confirmed.iter().find(same)) {
+                (Some("CONFIRM"), Some(sequential)) => json!({
+                    "ledger": it["ledger"], "criterion": it["criterion"], "item": it["item"],
+                    "verdict": sequential["verdict"], "concurrent": "CONFIRM", "pairs": sequential["pairs"],
+                    "confirmed_by": "pairs one after the other",
+                }),
+                _ => it.clone(),
+            }
+        })
+        .collect::<Vec<_>>();
+    if !config.sequential {
+        let path = config.out.join("verdicts.json");
+        let text = serde_json::to_string_pretty(&json!({ "verdicts": counted })).expect("JSON");
+        std::fs::write(&path, text + "\n").map_err(|error| format!("{}: {error}", path.display()))?;
+        for it in counted.iter().filter(|it| it["concurrent"] == "CONFIRM") {
+            eprintln!(
+                "[{}] confirmed one after the other: {} {} {}: {}",
+                now(),
+                it["ledger"].as_str().unwrap_or_default(),
+                it["criterion"].as_str().unwrap_or_default(),
+                it["item"].as_str().unwrap_or_default(),
+                it["verdict"].as_str().unwrap_or_default()
+            );
+        }
+    }
+    let failed = counted.iter().any(|it| matches!(it["verdict"].as_str(), Some("FAIL" | "REFUSED")));
+    Ok(passed && !failed)
+}
+
+/// the verdicts of a summary of budget_compare
+fn read_summary(path: &Path) -> Option<Vec<Value>> {
+    let summary = serde_json::from_str::<Value>(&std::fs::read_to_string(path).ok()?).ok()?;
+    summary["verdicts"].as_array().cloned()
+}
+
+/// the invalid runs by side and cause, in `<out>/invalid-runs.json`
+fn write_tally(config: &Config, tally: &Tally) -> Result<(), String> {
+    let path = config.out.join("invalid-runs.json");
+    let text = serde_json::to_string_pretty(&tally.json()).expect("JSON");
+    std::fs::write(&path, text + "\n").map_err(|error| format!("{}: {error}", path.display()))
 }
 
 /// whether the reports of `mode` hold the `section` a verdict read
@@ -396,8 +626,9 @@ fn reads(mode: &str, section: &str) -> bool {
     matches!((mode, section), ("full", _) | ("e2e", "end_to_end") | ("requests", "requests"))
 }
 
-/// The pairs of `group` already in the output directory: the valid ones stay, the others (invalid, or with a run
-/// missing, from an interrupted run) are moved to `<out>/invalid/`. The number of valid pairs.
+/// The pairs of `group` already in the output directory: the valid ones of the same builds and setup stay, the others
+/// (invalid, of another build, commit or setup, or with a run missing, from an interrupted run) are moved to
+/// `<out>/invalid/`. The number of valid pairs.
 fn resume(config: &Config, group: &Group) -> Result<usize, String> {
     let mut pairs = std::collections::BTreeSet::new();
     for side in &config.sides {
@@ -434,17 +665,33 @@ fn next_pair(config: &Config, group: &Group) -> usize {
         + 1
 }
 
-/// Run the pairs of `queue`, as many at once as there are slots, until each is done and valid; a pair found invalid
-/// is moved aside and queued again, up to `--max-invalid` times a mode and ledger.
-fn schedule(config: &Config, mut queue: VecDeque<Group>, valid: &mut BTreeMap<Group, usize>, invalid: &mut BTreeMap<Group, usize>) -> Result<(), String> {
-    let mut slots: Vec<Option<Running>> = config.slots.iter().map(|_| None).collect();
+/// Run the pairs of `queue` until each is done and valid: as many at once as there are slots, or one run at a time
+/// with `--sequential`. A pair found invalid is moved aside and queued again, up to `--max-invalid` times a mode and
+/// ledger.
+fn schedule(
+    config: &Config, mut queue: VecDeque<Group>, valid: &mut BTreeMap<Group, usize>, invalid: &mut BTreeMap<Group, usize>, tally: &mut Tally,
+) -> Result<(), String> {
     let mut failure = None;
+    if config.sequential {
+        let mut turn = 0;
+        while failure.is_none() {
+            let Some(group) = queue.pop_front() else { break };
+            let running = sequential_pair(config, group, turn)?;
+            turn += 1;
+            settle(config, running, valid, invalid, tally, &mut queue, &mut failure)?;
+        }
+        return failure.map_or(Ok(()), Err);
+    }
+    let mut slots: Vec<Option<Running>> = config.slots.iter().map(|_| None).collect();
+    // how many pairs each slot started: its sets go to either side in turn
+    let mut turns = vec![0; config.slots.len()];
     loop {
         if failure.is_none() {
             for (index, slot) in slots.iter_mut().enumerate() {
                 if slot.is_none() {
                     if let Some(group) = queue.pop_front() {
-                        *slot = Some(start(config, index, group)?);
+                        *slot = Some(start(config, index, turns[index], group)?);
+                        turns[index] += 1;
                     }
                 }
             }
@@ -459,68 +706,83 @@ fn schedule(config: &Config, mut queue: VecDeque<Group>, valid: &mut BTreeMap<Gr
             for (child, _, _) in running.runs.iter_mut() {
                 done &= child.try_wait().map_err(|error| format!("a run: {error}"))?.is_some();
             }
-            if !done {
-                continue;
-            }
-            let running = slot.take().expect("a pair");
-            let group = running.group.clone();
-            if finish(config, running)? {
-                *valid.get_mut(&group).expect("a group") += 1;
-            } else {
-                let count = invalid.entry(group.clone()).or_default();
-                *count += 1;
-                let most = config.max_invalid.unwrap_or_else(|| config.target(&group));
-                if *count > most {
-                    failure.get_or_insert(format!(
-                        "{} {}: {} invalid pairs, more than --max-invalid {}; see {}",
-                        group.mode,
-                        group.ledger,
-                        count,
-                        most,
-                        config.out.join("runs.jsonl").display()
-                    ));
-                } else {
-                    queue.push_front(group);
-                }
+            if done {
+                let running = slot.take().expect("a pair");
+                settle(config, running, valid, invalid, tally, &mut queue, &mut failure)?;
             }
         }
     }
     failure.map_or(Ok(()), Err)
 }
 
-/// Start the two runs of the next pair of `group` in slot `slot`, at the same time, each on a set of the slot's CPUs;
-/// the sides swap the sets from pair to pair.
-fn start(config: &Config, slot: usize, group: Group) -> Result<Running, String> {
+/// A pair is done: counted valid, or moved aside and queued again, or, past `--max-invalid`, the end of the schedule.
+fn settle(
+    config: &Config, running: Running, valid: &mut BTreeMap<Group, usize>, invalid: &mut BTreeMap<Group, usize>, tally: &mut Tally,
+    queue: &mut VecDeque<Group>, failure: &mut Option<String>,
+) -> Result<(), String> {
+    let group = running.group.clone();
+    if finish(config, running, tally)? {
+        *valid.get_mut(&group).expect("a group") += 1;
+        return Ok(());
+    }
+    let count = invalid.entry(group.clone()).or_default();
+    *count += 1;
+    let most = config.max_invalid.unwrap_or_else(|| config.target(&group));
+    if *count > most {
+        failure.get_or_insert(format!(
+            "{} {}: {} invalid pairs, more than --max-invalid {}; see {}",
+            group.mode,
+            group.ledger,
+            count,
+            most,
+            config.out.join("runs.jsonl").display()
+        ));
+    } else {
+        queue.push_front(group);
+    }
+    Ok(())
+}
+
+/// Start the run of side `index` of pair `pair` of `group` on `cpus`.
+fn spawn(config: &Config, group: &Group, pair: usize, index: usize, cpus: &str) -> Result<(Child, PathBuf), String> {
+    let side = &config.sides[index];
+    let dir = group.dir(&config.out, side.name).join(format!("{pair:02}"));
+    std::fs::create_dir_all(&dir).map_err(|error| format!("{}: {error}", dir.display()))?;
+    let file = |name: &str| File::create(dir.join(name)).map_err(|error| format!("{}: {error}", dir.join(name).display()));
+    let mut command = Command::new(&side.binary);
+    command
+        .arg(&group.ledger)
+        .current_dir(&dir)
+        .stdin(Stdio::null())
+        .stdout(file("stdout.txt")?)
+        .stderr(file("stderr.txt")?)
+        // pinned by the bench itself, on the CPUs of its side
+        .env_remove("ZHANG_BUDGET_BASELINE_PINNED")
+        .env("ZHANG_BUDGET_BASELINE_ONLY", if group.mode == "full" { "" } else { group.mode.as_str() })
+        .env("ZHANG_BUDGET_BASELINE_OUT", &dir)
+        .env("ZHANG_BUDGET_BASELINE_CPUS", cpus)
+        .env("ZHANG_BUDGET_BASELINE_WORKERS", config.per_side.to_string());
+    if group.mode == "requests" {
+        command.env("ZHANG_BUDGET_BASELINE_ROUNDS", config.rounds.to_string());
+    }
+    command.envs(side.env.iter().map(|(name, value)| (name, value)));
+    let child = command.spawn().map_err(|error| format!("{}: {error}", side.binary.display()))?;
+    Ok((child, dir))
+}
+
+/// Start the two runs of the next pair of `group` in slot `slot`, at the same time, each on a set of the slot's CPUs:
+/// the slot's `turn`th pair gives its first set to the native side when `turn` is even, to the candidate when odd.
+fn start(config: &Config, slot: usize, turn: usize, group: Group) -> Result<Running, String> {
     let pair = next_pair(config, &group);
     let sets = &config.slots[slot];
     let mut runs = vec![];
-    for (index, side) in config.sides.iter().enumerate() {
-        let cpus = sets[(index + pair) % 2].clone();
-        let dir = group.dir(&config.out, side.name).join(format!("{pair:02}"));
-        std::fs::create_dir_all(&dir).map_err(|error| format!("{}: {error}", dir.display()))?;
-        let file = |name: &str| File::create(dir.join(name)).map_err(|error| format!("{}: {error}", dir.join(name).display()));
-        let mut command = Command::new(&side.binary);
-        command
-            .arg(&group.ledger)
-            .current_dir(&dir)
-            .stdin(Stdio::null())
-            .stdout(file("stdout.txt")?)
-            .stderr(file("stderr.txt")?)
-            // pinned by the bench itself, on the CPUs of its side
-            .env_remove("ZHANG_BUDGET_BASELINE_PINNED")
-            .env("ZHANG_BUDGET_BASELINE_ONLY", if group.mode == "full" { "" } else { group.mode.as_str() })
-            .env("ZHANG_BUDGET_BASELINE_OUT", &dir)
-            .env("ZHANG_BUDGET_BASELINE_CPUS", &cpus)
-            .env("ZHANG_BUDGET_BASELINE_WORKERS", config.per_side.to_string());
-        if group.mode == "requests" {
-            command.env("ZHANG_BUDGET_BASELINE_ROUNDS", config.rounds.to_string());
-        }
-        command.envs(side.env.iter().map(|(name, value)| (name, value)));
-        let child = command.spawn().map_err(|error| format!("{}: {error}", side.binary.display()))?;
+    for index in 0..config.sides.len() {
+        let cpus = sets[(index + turn) % 2].clone();
+        let (child, dir) = spawn(config, &group, pair, index, &cpus)?;
         runs.push((child, dir, cpus));
     }
     eprintln!(
-        "[{}] {} {} pair {pair:02}: started, {}",
+        "[{}] {} {} pair {pair:02}: started in slot {slot}, {}",
         now(),
         group.mode,
         group.ledger,
@@ -535,19 +797,53 @@ fn start(config: &Config, slot: usize, group: Group) -> Result<Running, String> 
     Ok(Running {
         group,
         pair,
+        slot,
         runs,
         started: Instant::now(),
         started_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     })
 }
 
-/// The pair is done: whether it is valid; an invalid one is moved aside. Either way it is recorded in `runs.jsonl`.
-fn finish(config: &Config, mut running: Running) -> Result<bool, String> {
+/// Run the two runs of the next pair of `group` one after the other, alone, on the first set of CPUs: the native side
+/// first in the even `turn`s, the candidate first in the odd ones.
+fn sequential_pair(config: &Config, group: Group, turn: usize) -> Result<Running, String> {
+    let pair = next_pair(config, &group);
+    let cpus = config.slots[0][0].clone();
+    let order = if turn.is_multiple_of(2) { [0, 1] } else { [1, 0] };
+    eprintln!(
+        "[{}] {} {} pair {pair:02}: one after the other on {cpus}, {} first",
+        now(),
+        group.mode,
+        group.ledger,
+        config.sides[order[0]].name
+    );
+    let (started, started_at) = (Instant::now(), chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+    let mut runs: Vec<Option<(Child, PathBuf, String)>> = vec![None, None];
+    for index in order {
+        let (mut child, dir) = spawn(config, &group, pair, index, &cpus)?;
+        child.wait().map_err(|error| format!("a run: {error}"))?;
+        runs[index] = Some((child, dir, cpus.clone()));
+    }
+    Ok(Running {
+        group,
+        pair,
+        slot: 0,
+        runs: runs.into_iter().map(|it| it.expect("both runs")).collect(),
+        started,
+        started_at,
+    })
+}
+
+/// The pair is done: whether it is valid; an invalid one is moved aside. Either way it is recorded in `runs.jsonl`, and
+/// each run in the tally.
+fn finish(config: &Config, mut running: Running, tally: &mut Tally) -> Result<bool, String> {
     let wall = running.started.elapsed().as_secs_f64();
     let mut sides = vec![];
     for (side, (child, dir, cpus)) in config.sides.iter().zip(running.runs.iter_mut()) {
         let status = child.wait().map_err(|error| format!("a run: {error}"))?;
-        let check = check_run(&running.group, &dir.join(format!("{}.json", running.group.ledger)), status.success());
+        let report = dir.join(format!("{}.json", running.group.ledger));
+        let check = check_run(config, side, &running.group, &report, status.success());
+        tally.count(side.name, check.as_ref().err().map(String::as_str));
         sides.push(json!({
             "side": side.name,
             "binary": side.binary,
@@ -580,6 +876,8 @@ fn finish(config: &Config, mut running: Running) -> Result<bool, String> {
         "mode": running.group.mode,
         "ledger": running.group.ledger,
         "pair": running.pair,
+        "slot": if config.sequential { Value::Null } else { json!(running.slot) },
+        "sequential": config.sequential,
         "started": running.started_at,
         "wall_s": (wall * 10.0).round() / 10.0,
         "valid": valid,
@@ -598,7 +896,7 @@ fn finish(config: &Config, mut running: Running) -> Result<bool, String> {
     Ok(valid)
 }
 
-/// whether both runs of a pair in the layout are there and valid
+/// whether both runs of a pair in the layout are there, valid, and of the builds and setup of this run
 fn check_pair(config: &Config, group: &Group, pair: usize) -> Result<(), String> {
     let reasons = config
         .sides
@@ -608,7 +906,7 @@ fn check_pair(config: &Config, group: &Group, pair: usize) -> Result<(), String>
                 .dir(&config.out, side.name)
                 .join(format!("{pair:02}"))
                 .join(format!("{}.json", group.ledger));
-            check_run(group, &path, true).err().map(|why| format!("{}: {why}", side.name))
+            check_run(config, side, group, &path, true).err().map(|why| format!("{}: {why}", side.name))
         })
         .collect::<Vec<_>>();
     if reasons.is_empty() {
@@ -618,9 +916,10 @@ fn check_pair(config: &Config, group: &Group, pair: usize) -> Result<(), String>
     }
 }
 
-/// Whether a run's report says it is valid for `group`: the run ended well, wrote its report, in the mode asked, found
-/// its conditions good (no build, no throttling, little CPU pressure), and each end-to-end timer kept its clean rounds.
-fn check_run(group: &Group, report: &Path, exited_well: bool) -> Result<(), String> {
+/// Whether a run's report says it is valid for `group` and `side`: the run ended well, wrote its report, in the mode
+/// asked, of the side's build, commit and burden (and the rounds asked of the warm requests), found its conditions
+/// good (no build, no throttling, little CPU pressure), and each end-to-end timer kept its clean rounds.
+fn check_run(config: &Config, side: &Side, group: &Group, report: &Path, exited_well: bool) -> Result<(), String> {
     let text = std::fs::read_to_string(report).map_err(|_| format!("no report{}", if exited_well { "" } else { ", the run failed" }))?;
     let report: Value = serde_json::from_str(&text).map_err(|error| format!("the report: {error}"))?;
     if !exited_well {
@@ -629,6 +928,27 @@ fn check_run(group: &Group, report: &Path, exited_well: bool) -> Result<(), Stri
     let mode = group.mode.as_str();
     if report["mode"] != mode {
         return Err(format!("a report of the mode {}, not {mode}", report["mode"]));
+    }
+    // a pair of another build or setup, from an earlier run into the same directory, is not this comparison's
+    let identity = &report["identity"];
+    let expected = [
+        ("build", json!(side.build)),
+        ("commit", side.env("ZHANG_BUDGET_BASELINE_COMMIT").map_or(Value::Null, |it| json!(it))),
+        (
+            "burden_mib",
+            json!(side.env("ZHANG_BUDGET_BASELINE_BURDEN_MIB").and_then(|it| it.parse::<u64>().ok()).unwrap_or(0)),
+        ),
+    ];
+    for (key, value) in expected {
+        if identity[key] != value {
+            return Err(format!("another build or setup: {key} {} where {value} is expected", identity[key]));
+        }
+    }
+    if mode == "requests" && report["requests"]["month"]["n"] != json!(config.rounds) {
+        return Err(format!(
+            "another build or setup: {} rounds of warm requests where {} are expected",
+            report["requests"]["month"]["n"], config.rounds
+        ));
     }
     if report["valid"] != true {
         let reasons = report["validity"]["reasons"]
@@ -674,8 +994,9 @@ fn move_aside(config: &Config, group: &Group, pair: usize) -> Result<(), String>
     Ok(())
 }
 
-/// budget_compare on the layout: its output, printed and kept in `<out>/compare.txt`, its status, and its verdicts.
-fn judge(config: &Config) -> Result<(ExitCode, Vec<Value>), String> {
+/// budget_compare on the layout: its output, printed and kept in `<out>/compare.txt`, whether it passed, and its
+/// verdicts.
+fn judge(config: &Config) -> Result<(bool, Vec<Value>), String> {
     let summary = config.out.join("summary.json");
     let _ = std::fs::remove_file(&summary);
     let output = Command::new(&config.compare)
@@ -692,12 +1013,8 @@ fn judge(config: &Config) -> Result<(ExitCode, Vec<Value>), String> {
     eprint!("{}", String::from_utf8_lossy(&output.stderr));
     let path = config.out.join("compare.txt");
     std::fs::write(&path, text.as_bytes()).map_err(|error| format!("{}: {error}", path.display()))?;
-    let verdicts = std::fs::read_to_string(&summary)
-        .ok()
-        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-        .and_then(|summary| summary["verdicts"].as_array().cloned())
-        .ok_or_else(|| format!("budget_compare wrote no summary ({})", output.status))?;
-    Ok((if output.status.success() { ExitCode::SUCCESS } else { ExitCode::FAILURE }, verdicts))
+    let verdicts = read_summary(&summary).ok_or_else(|| format!("budget_compare wrote no summary ({})", output.status))?;
+    Ok((output.status.success(), verdicts))
 }
 
 #[cfg(test)]
@@ -736,5 +1053,20 @@ mod tests {
                 "requests 10000tx-30b-60m"
             ]
         );
+    }
+
+    #[test]
+    fn invalid_runs_are_counted_by_cause() {
+        assert_eq!(
+            causes("a build ran at the start: cargo (1); the cgroup was throttled for 202 ms"),
+            ["build", "throttled"]
+        );
+        assert_eq!(causes("tasks of the cgroup waited for a CPU 5.9% of the time"), ["pressure"]);
+        assert_eq!(causes("no report, the run failed"), ["failed"]);
+        assert_eq!(causes("something else"), ["other"]);
+        let mut tally = Tally::default();
+        tally.count("native", None);
+        tally.count("candidate", Some("the cgroup was throttled for 1 ms"));
+        assert_eq!(tally.line(), "candidate 1 of 1 runs invalid: throttled 1; native 0 of 1 runs invalid");
     }
 }
