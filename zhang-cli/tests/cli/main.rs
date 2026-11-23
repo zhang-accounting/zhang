@@ -5,4 +5,5 @@
 mod load_error_output;
 mod log_filter;
 mod serve_exit_code;
+mod stop_signal;
 mod version;
