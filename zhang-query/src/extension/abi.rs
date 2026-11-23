@@ -394,6 +394,14 @@ pub(crate) fn cell(ty: DataType, json: &Json) -> Result<Value, String> {
             let currency = amount.get("currency").and_then(Json::as_str).ok_or("an amount has a currency, a string")?;
             Ok(Value::Amount(Amount::new(number, currency)))
         }
+        // the shorter form, `["12.50", "CNY"]`
+        (DataType::Amount, Json::Array(pair)) if pair.len() == 2 => {
+            let Value::Decimal(number) = decimal(&pair[0])? else {
+                return Err("an amount has a number".to_owned());
+            };
+            let currency = pair[1].as_str().ok_or("an amount has a currency, a string")?;
+            Ok(Value::Amount(Amount::new(number, currency)))
+        }
         (DataType::Metas, Json::Array(pairs)) => pairs
             .iter()
             .map(|pair| {
@@ -404,7 +412,7 @@ pub(crate) fn cell(ty: DataType, json: &Json) -> Result<Value, String> {
             })
             .collect::<Result<Vec<_>, _>>()
             .map(Value::Metas),
-        (DataType::Amount, _) => Err("an amount is {\"number\": \"12.50\", \"currency\": \"CNY\"}".to_owned()),
+        (DataType::Amount, _) => Err("an amount is {\"number\": \"12.50\", \"currency\": \"CNY\"} or [\"12.50\", \"CNY\"]".to_owned()),
         (DataType::Metas, _) => Err("metadata is a list of {\"key\", \"value\"} strings".to_owned()),
         (ty, json) => from_json(ty, json).map_err(json_error),
     }
@@ -452,12 +460,49 @@ fn no_other_cells(row: &Map<String, Json>, expected: impl Fn(&str) -> bool) -> R
 }
 
 /// A row of the record table `decl`.
-fn record_row(decl: &TableDecl, row: &Map<String, Json>, values: &mut Values) -> Result<RecordRow, String> {
+fn record_row(decl: &TableDecl, row: &Json, values: &mut Values) -> Result<RecordRow, String> {
+    let row = match row {
+        Json::Object(row) => row,
+        // a list of its cells, in the order of the columns, maybe followed by its metadata
+        Json::Array(cells) => return listed_row(decl, cells, values),
+        _ => return Err("a row is an object of its cells, or a list of them".to_owned()),
+    };
     no_other_cells(row, |key| decl.columns.iter().any(|column| column.name == key))?;
     let cells = decl.columns.iter().map(|column| cell_of(row, column, values)).collect::<Result<Vec<_>, _>>()?;
     Ok(RecordRow {
         cells: cells.into_boxed_slice(),
         meta: row_meta(row)?,
+    })
+}
+
+/// A row of the record table `decl` written as the list `listed`: its cells in the order of the columns, maybe
+/// followed by its metadata, `{"key": ["value"]}`.
+fn listed_row(decl: &TableDecl, listed: &[Json], values: &mut Values) -> Result<RecordRow, String> {
+    let columns = decl.columns.len();
+    if listed.len() != columns && listed.len() != columns + 1 {
+        return Err(format!(
+            "it lists {} cells, where the table has {} columns (and maybe the row's metadata after them)",
+            listed.len(),
+            columns
+        ));
+    }
+    let cells = decl
+        .columns
+        .iter()
+        .zip(listed)
+        .map(|(column, json)| {
+            let value = cell(column.ty, json).map_err(|err| format!("{}: {}", column.name, err))?;
+            values.count(&value)?;
+            Ok(value)
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let meta = match listed.get(columns) {
+        None => None,
+        Some(meta) => row_meta(&Map::from_iter([(abi::ROW_META.to_owned(), meta.clone())]))?,
+    };
+    Ok(RecordRow {
+        cells: cells.into_boxed_slice(),
+        meta,
     })
 }
 
@@ -484,8 +529,9 @@ fn series_partition(decl: &TableDecl, partition: &abi::PartitionOutput, entries:
         let value = cell_of(&partition.key, column, values).map_err(|err| format!("its key: {}", err))?;
         key.insert(column.name.as_str(), value);
     }
-    let mut facts = Vec::with_capacity(partition.rows.len());
+    let mut facts: Vec<FactRow> = Vec::with_capacity(partition.rows.len());
     for (at, row) in partition.rows.iter().enumerate() {
+        let previous = facts.last();
         let fact = (|| {
             no_other_cells(row, |name| {
                 !in_key(name) && part(name).is_none() && decl.columns.iter().any(|column| column.name == name)
@@ -497,20 +543,34 @@ fn series_partition(decl: &TableDecl, partition: &abi::PartitionOutput, entries:
             let cells = decl
                 .columns
                 .iter()
+                .enumerate()
                 .map(
-                    |column| match (column.name == series.period, part(&column.name), key.get(column.name.as_str())) {
+                    |(index, column)| match (column.name == series.period, part(&column.name), key.get(column.name.as_str())) {
                         (true, _, _) => Ok(Value::Date(period)),
                         (_, Some(DatePart::Year), _) => Ok(Value::Int(i64::from(period.year()))),
                         (_, Some(DatePart::Month), _) => Ok(Value::Int(i64::from(period.month()))),
                         (_, None, Some(value)) => Ok(value.clone()),
-                        (_, None, None) => cell_of(row, column, values),
+                        // a fact after the first may leave out a cell filled with `carry`: it is the fact's before
+                        (_, None, None) => match (row.contains_key(&column.name), &column.fill, previous) {
+                            (false, Some(Fill::Carry), Some(previous)) => {
+                                let value = previous.cells[index].clone();
+                                values.count(&value)?;
+                                Ok(value)
+                            }
+                            _ => cell_of(row, column, values),
+                        },
                     },
                 )
                 .collect::<Result<Vec<_>, _>>()?;
+            // and its metadata: then it has the fact's before, as a generated period does
+            let meta = match (row.contains_key(abi::ROW_META), previous) {
+                (false, Some(previous)) => previous.meta.clone(),
+                _ => row_meta(row)?,
+            };
             Ok(FactRow {
                 period,
                 cells: cells.into_boxed_slice(),
-                meta: row_meta(row)?,
+                meta,
             })
         })()
         .map_err(|err: String| format!("row {}: {}", at + 1, err))?;

@@ -33,7 +33,7 @@
 //!     let mut output = Output::default();
 //!     for record in &input.records {
 //!         let item = record.fields["values"][0].as_str().unwrap_or_default();
-//!         output.tables.entry("items".to_owned()).or_default().push(serde_json::Map::from_iter([("item".to_owned(), item.into())]));
+//!         output.tables.entry("items".to_owned()).or_default().push(serde_json::json!({ "item": item }));
 //!         if item.is_empty() {
 //!             output.diagnostics.push(Diagnostic {
 //!                 kind: "UnknownItem".to_owned(),

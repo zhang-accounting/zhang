@@ -9,6 +9,9 @@ build = "build.rs"
 
 [features]
 frontend = ["rust-embed"]
+# RFC #698's test switch: `load_options` reads which implementation computes budgets from ZHANG_BUDGET_IMPL
+# (`native`, `plugin` or `both`). For tests and benches only; a release build loads with the native one.
+budget-switch = []
 
 [dependencies]
 zhang-core = { version = "0.1", path = "../zhang-core", features = ["plugin_runtime", "openapi"] }

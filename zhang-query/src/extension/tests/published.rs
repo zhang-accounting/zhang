@@ -190,6 +190,78 @@ fn an_analyzers_tables_are_the_ledgers_own_and_read_its_snapshot() {
 }
 
 #[test]
+fn a_fact_after_the_first_may_leave_out_its_carried_cells_and_metadata() {
+    let mut stocked = ledger(TEXT);
+    attach(&mut stocked, &[("shop", shop(), false)]);
+    let output = |rows: Json| {
+        let mut output = shop_output();
+        output["series"]["stock"]["partitions"][0]["rows"] = rows;
+        output
+    };
+    publish(
+        &stocked,
+        "shop",
+        output(json!([
+            {"date": "2024-01-01", "opening": "0", "sold": "0", "closing": "10", "$meta": {"origin": ["Fuji"]}},
+            {"date": "2024-03-01", "opening": "10", "sold": "4"}
+        ])),
+    )
+    .unwrap();
+    assert_eq!(
+        rows(
+            &stocked,
+            "SELECT date, opening, sold, closing, meta('origin') FROM #shop_stock WHERE date <= 2024-03-01"
+        ),
+        texts(&[
+            &["2024-01-01", "0", "0", "10", "Fuji"],
+            &["2024-02-01", "10", "0", "10", "Fuji"],
+            &["2024-03-01", "10", "4", "10", "Fuji"],
+        ])
+    );
+    // the first fact has every cell, and a cell filled otherwise is never left out
+    let mut first = ledger(TEXT);
+    attach(&mut first, &[("shop", shop(), false)]);
+    let refused = publish(&first, "shop", output(json!([{"date": "2024-01-01", "opening": "0", "sold": "0"}]))).unwrap_err();
+    assert!(refused.ends_with("row 1: it has no closing"), "{refused}");
+    let refused = publish(
+        &first,
+        "shop",
+        output(json!([
+            {"date": "2024-01-01", "opening": "0", "sold": "0", "closing": "10"},
+            {"date": "2024-03-01", "opening": "10", "closing": "6"}
+        ])),
+    )
+    .unwrap_err();
+    assert!(refused.ends_with("row 2: it has no sold"), "{refused}");
+}
+
+#[test]
+fn a_row_may_list_its_cells_and_an_amount_be_a_pair() {
+    let mut listed = ledger(TEXT);
+    attach(&mut listed, &[("shop", shop(), false)]);
+    let mut output = shop_output();
+    output["tables"]["items"] = json!([
+        ["apple", ["1.50", "USD"], ["fruit"], {"origin": ["Fuji"]}],
+        ["pear", null, null]
+    ]);
+    publish(&listed, "shop", output).unwrap();
+    assert_eq!(
+        rows(&listed, "SELECT item, price, tags, meta('origin') FROM #shop_items"),
+        texts(&[&["apple", "1.50 USD", "fruit", "Fuji"], &["pear", "NULL", "NULL", "NULL"]])
+    );
+    // as many cells as columns, and maybe the metadata
+    let mut short = ledger(TEXT);
+    attach(&mut short, &[("shop", shop(), false)]);
+    let mut output = shop_output();
+    output["tables"]["items"] = json!([["apple", ["1.50", "USD"]]]);
+    let refused = publish(&short, "shop", output).unwrap_err();
+    assert!(
+        refused.ends_with("row 1: it lists 2 cells, where the table has 3 columns (and maybe the row's metadata after them)"),
+        "{refused}"
+    );
+}
+
+#[test]
 fn a_snapshot_is_read_once_its_analyzer_published_it() {
     let mut loaded = ledger(TEXT);
     let mut failed = ledger(TEXT);
@@ -597,6 +669,9 @@ fn the_quick_way_reads_an_output_as_the_long_way_does_or_leaves_it_to_it() {
         r#"{"x": 1, "series": {"stock": {"y": [], "partitions": [{"rows": [{"date": "2024-01-01", "opening": "0", "sold": "1", "closing": "9", "$meta": {"k": ["v"]}}], "first_cause": {"seq": 0, "z": 1}, "until_cause": null, "until": "2024-03-01", "key": {"item": "apple"}, "w": {}}]}},
             "labels": {"items": [{"params": {"min": "1", "accounts": ["Assets:Bank"]}, "label": "apple", "v": 1}]}}"#.to_owned(),
         r#"{"series": {"stock": {}}, "labels": {"items": []}, "tables": {"items": []}}"#.to_owned(),
+        // the shorter forms: a row listed, an amount as a pair, the carried cells and metadata left out
+        r#"{"tables": {"all": [["x", 1, "1", "2024-01-31", true, ["1", "USD"], null, null], ["y", 2, "2", "2024-02-01", false, null, null, null, {"k": ["v"]}]]}}"#.to_owned(),
+        r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-03-01", "rows": [{"date": "2024-01-01", "opening": "0", "sold": "1", "closing": "9", "$meta": {"k": ["v"]}}, {"date": "2024-02-01", "opening": "9", "sold": "1"}, {"date": "2024-03-01", "opening": "9", "sold": "2", "closing": "7", "$meta": {}}]}]}}}"#.to_owned(),
     ];
     for text in &taken {
         let (long, quick) = both_ways(&ledger, if text.contains("\"all\"") { "cells" } else { "shop" }, text);
@@ -627,14 +702,20 @@ fn the_quick_way_reads_an_output_as_the_long_way_does_or_leaves_it_to_it() {
         r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": 1, "a": null, "e": null, "m": null}]}}"#,
         r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": {"number": null, "currency": "USD"}, "e": null, "m": null}]}}"#,
         r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": {"number": "1"}, "e": null, "m": null}]}}"#,
-        r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": ["1", "USD"], "e": null, "m": null}]}}"#,
         r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": null, "e": ["a", 1], "m": null}]}}"#,
         r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": null, "e": null, "m": [{"key": "k"}]}]}}"#,
         r#"{"tables": {"all": [{"s": "x", "i": 1, "d": "1", "t": "2024-01-31", "b": true, "a": null, "e": null, "m": null, "$meta": null}]}}"#,
-        r#"{"tables": {"all": [["x", 1, "1", "2024-01-31", true, null, null, null]]}}"#,
         r#"{"tables": {"all": {}}}"#,
         r#"{"tables": {"all": 1, "all": []}}"#,
         r#"{"labels": {"items": [{"label": 1}], "items": []}}"#,
+        r#"{"tables": {"all": [["x", 1, "1", "2024-01-31", true, ["1", "USD", "x"], null, null]]}}"#,
+        r#"{"tables": {"all": [["x", 1, "1", "2024-01-31", true, [1, "USD"], null, null]]}}"#,
+        r#"{"tables": {"all": [["x", 1, "1", "2024-01-31", true, null, null]]}}"#,
+        r#"{"tables": {"all": [["x", 1, "1", "2024-01-31", true, null, null, null, {}, {}]]}}"#,
+        r#"{"tables": {"all": [["x", 1, "1", "2024-01-31", true, null, null, null, null]]}}"#,
+        r#"{"tables": {"all": ["x"]}}"#,
+        r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-01-01", "rows": [{"date": "2024-01-01", "opening": "0", "sold": "0"}]}]}}}"#,
+        r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-02-01", "rows": [{"date": "2024-01-01", "opening": "0", "sold": "0", "closing": "1"}, {"date": "2024-02-01", "opening": "0", "closing": "1"}]}]}}}"#,
         r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-01-01", "first_cause": {"seq": 1000}, "rows": [{"date": "2024-01-01", "opening": "0", "sold": "0", "closing": "0"}]}]}}}"#,
         r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-01-01", "rows": [{"date": "2024-01-01", "opening": "0", "sold": "0"}]}]}}}"#,
         r#"{"series": {"stock": {"partitions": [{"key": {"item": "a"}, "until": "2024-01-01", "rows": [{"date": null, "opening": "0", "sold": "0", "closing": "0"}]}]}}}"#,

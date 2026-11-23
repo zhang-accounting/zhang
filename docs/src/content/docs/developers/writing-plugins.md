@@ -455,12 +455,16 @@ It answers the diagnostics and the rows of its tables, by their names in the man
 ```
 
 - **A cell** is JSON as the query API writes one: a string, an integer, a boolean, a date `YYYY-MM-DD`, an amount
-  `{"number": "1.50", "currency": "CNY"}`, a set as a list of strings, metadata as `[{"key", "value"}]`, or `null`. A
-  decimal is text: a JSON number in a `decimal` or `amount` cell is refused, and so is a decimal (an amount's number
-  too) of more than 1000 digits written out in full, before and after its point together, the bound of `zhang_convert`
-  (`1e999` is 1000 digits, `0.` and 1000 digits after the point 1001). A row has a cell for every column (a
-  series fact every column but its partition's and those derived from the period), and maybe its metadata under
-  `$meta`, which `meta()` reads.
+  `{"number": "1.50", "currency": "CNY"}` (or, shorter, `["1.50", "CNY"]`), a set as a list of strings, metadata as
+  `[{"key", "value"}]`, or `null`. A decimal is text: a JSON number in a `decimal` or `amount` cell is refused, and so
+  is a decimal (an amount's number too) of more than 1000 digits written out in full, before and after its point
+  together, the bound of `zhang_convert` (`1e999` is 1000 digits, `0.` and 1000 digits after the point 1001). A row
+  has a cell for every column (a series fact every column but its partition's and those derived from the period), and
+  maybe its metadata under `$meta`, which `meta()` reads. A row of a record table may instead be the list of its cells
+  in the order of the columns, maybe followed by its metadata: `["apple", ["1.50", "CNY"], {"origin": ["Fuji"]}]`. A
+  series fact after a partition's first may leave out the cells of the columns filled with `carry`, and its `$meta`: it
+  then has those of the fact before it, as a generated period does. The shorter forms make the output smaller, which
+  every load reads.
 - **A diagnostic** names a kind of its manifest and a target: `{"seq": n}`, an entry; `{"txn": "<id>"}`, a
   transaction; or `{"plugin": true}`, the plugin's directive. Zhang reports it as a
   [`PluginError`](/reference/error-codes/#pluginerror) with the metas `plugin`, `kind` (its kind), `message` and its own,

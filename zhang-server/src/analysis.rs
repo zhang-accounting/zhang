@@ -10,11 +10,13 @@
 use std::any::Any;
 use std::collections::BTreeMap;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 
 use bigdecimal::BigDecimal;
 use chrono::NaiveDate;
+use serde_json::value::{to_raw_value, RawValue};
 use serde_json::Value;
 use zhang_core::analysis::{AnalysisCatalog, AnalysisHost, AnalyzerTables, LentLedger, LoadOptions};
 use zhang_core::ledger::Ledger;
@@ -48,6 +50,7 @@ impl AnalysisHost for ServerAnalysisHost {
         Arc::new(AnalysisQueries {
             ledger,
             queries: AtomicUsize::new(0),
+            spent: Spent::default(),
         })
     }
 
@@ -67,11 +70,65 @@ pub fn analysis_host() -> Arc<dyn AnalysisHost> {
 }
 
 /// The options the server loads a ledger with: `plugin_policy`, the operator's, and the host of the analyses.
+///
+/// A build with the feature `budget-switch` (tests and benches only, RFC #698's test switch) reads which implementation
+/// of budgets to load with from [`BudgetImpl::ENV`]; any other build loads with the native one.
 pub fn load_options(plugin_policy: Arc<PluginPolicy>) -> LoadOptions {
-    LoadOptions {
+    #[cfg(feature = "budget-switch")]
+    let budgets = BudgetImpl::from_env().unwrap_or_else(|error| panic!("{error}"));
+    #[cfg(not(feature = "budget-switch"))]
+    let budgets = BudgetImpl::Native;
+    load_options_for(plugin_policy, budgets)
+}
+
+/// Which implementation computes the budgets of a load: RFC #698's test switch, until the bundled script is the only
+/// one (P3.3). Production builds load with [`BudgetImpl::Native`]; tests and benches choose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetImpl {
+    /// zhang's native budget code: the in-process provider of the budget tables and the fold's budget checks
+    Native,
+    /// the bundled Lua script `zhang:budget` (`plugins/budget/budget.lua`), an analyzer registered as a default plugin:
+    /// its snapshot serves the budget tables and its diagnostics stand for the native checks, which do not run
+    Plugin,
+    /// both, compared: a load is the plugin's, and the harnesses that read this (the budget contract, the parity runs)
+    /// load the ledger natively too and compare the errors, the tables and the named queries
+    Both,
+}
+
+impl BudgetImpl {
+    /// the environment variable a test or a bench reads the switch from: `native`, `plugin` or `both`
+    pub const ENV: &'static str = "ZHANG_BUDGET_IMPL";
+
+    /// the switch as [`BudgetImpl::ENV`] sets it, `native` when it is unset; an error for any other value
+    pub fn from_env() -> Result<BudgetImpl, String> {
+        match std::env::var(Self::ENV).as_deref() {
+            Err(_) | Ok("") | Ok("native") => Ok(BudgetImpl::Native),
+            Ok("plugin") => Ok(BudgetImpl::Plugin),
+            Ok("both") => Ok(BudgetImpl::Both),
+            Ok(other) => Err(format!("{}={other:?}: expected native, plugin or both", Self::ENV)),
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            BudgetImpl::Native => "native",
+            BudgetImpl::Plugin => "plugin",
+            BudgetImpl::Both => "both",
+        }
+    }
+}
+
+/// [`load_options`] with the budgets computed by `budgets`: [`BudgetImpl::Plugin`] and [`BudgetImpl::Both`] register
+/// the bundled `zhang:budget` script as a default plugin.
+pub fn load_options_for(plugin_policy: Arc<PluginPolicy>, budgets: BudgetImpl) -> LoadOptions {
+    let mut options = LoadOptions {
         analysis: Some(analysis_host()),
         ..LoadOptions::with_policy(plugin_policy)
+    };
+    if budgets != BudgetImpl::Native {
+        options.default_plugins.push(zhang_core::analysis::DefaultPlugin::budget());
     }
+    options
 }
 
 /// What an analyzer reads the ledger being loaded with, during its analysis: the ledger is lent for the call, and reads
@@ -80,6 +137,49 @@ struct AnalysisQueries {
     ledger: LentLedger,
     /// the queries the analysis ran so far
     queries: AtomicUsize,
+    /// the time the analysis spent in these functions, logged when it ends
+    spent: Spent,
+}
+
+/// The time an analysis spent in the host functions, in nanoseconds: compiling, running and encoding its queries,
+/// and converting amounts. The rest of an analysis is the plugin's own (RFC #698 G1's split of its time).
+#[derive(Default)]
+struct Spent {
+    /// the execution of the first query, which builds the query engine's cache of the ledger
+    first: AtomicU64,
+    /// binding the parameters of the queries
+    bind: AtomicU64,
+    compile: AtomicU64,
+    execute: AtomicU64,
+    encode: AtomicU64,
+    convert: AtomicU64,
+    conversions: AtomicUsize,
+}
+
+impl Spent {
+    fn add(counter: &AtomicU64, since: Instant) -> Instant {
+        let now = Instant::now();
+        counter.fetch_add(now.duration_since(since).as_nanos() as u64, Ordering::Relaxed);
+        now
+    }
+}
+
+impl Drop for AnalysisQueries {
+    fn drop(&mut self) {
+        let ms = |counter: &AtomicU64| counter.load(Ordering::Relaxed) as f64 / 1e6;
+        let spent = &self.spent;
+        log::info!(
+            "analysis host: {} queries (bind {:.1} ms, compile {:.1} ms, execute {:.1} ms of which the first {:.1} ms, encode {:.1} ms), {} conversions in {:.1} ms",
+            self.queries.load(Ordering::Relaxed),
+            ms(&spent.bind),
+            ms(&spent.compile),
+            ms(&spent.execute),
+            ms(&spent.first),
+            ms(&spent.encode),
+            spent.conversions.load(Ordering::Relaxed),
+            ms(&spent.convert),
+        );
+    }
 }
 
 fn failure(error: zhang_query::QueryError) -> QueryFailure {
@@ -102,17 +202,40 @@ impl AnalysisQueries {
     /// `bql` with parameters of `types` compiled against the ledger's catalog, run with `params` and the limits of
     /// `POST /api/query`, and answered as that endpoint answers
     fn run(&self, bql: &str, types: &ParamTypes, params: &Params) -> Result<Value, QueryFailure> {
+        self.run_as(bql, types, params, |result| serde_json::to_value(result))
+    }
+
+    /// [`AnalysisQueries::run`], its answer written by `encode`: as JSON values, or straight to JSON text
+    fn run_as<T>(
+        &self, bql: &str, types: &ParamTypes, params: &Params, encode: impl FnOnce(&QueryResultEntity) -> serde_json::Result<T>,
+    ) -> Result<T, QueryFailure> {
         let count = self.queries.fetch_add(1, Ordering::Relaxed) + 1;
         if count > MAX_QUERIES {
             return Err(unlocated(format!("the analysis ran more than {MAX_QUERIES} queries")));
         }
+        let started = Instant::now();
         let result = self.read(|ledger| {
             let query = Query::compile_in(&Catalog::of_ledger(ledger), bql, types).map_err(failure)?;
-            query
+            let compiled = Spent::add(&self.spent.compile, started);
+            let result = query
                 .execute_with_options(ledger, params, &execute_options(max_result_values()))
-                .map_err(failure)
+                .map_err(failure);
+            let executed = Spent::add(&self.spent.execute, compiled);
+            if count == 1 {
+                // the first query of a load also builds the query engine's cache of the ledger
+                self.spent.first.store(executed.duration_since(compiled).as_nanos() as u64, Ordering::Relaxed);
+            }
+            log::debug!(
+                "analysis query {count} ran in {:?}: {}",
+                executed.duration_since(compiled),
+                bql.chars().take(100).collect::<String>()
+            );
+            result
         })??;
-        serde_json::to_value(QueryResultEntity::from(result)).map_err(|e| unlocated(format!("the result cannot be encoded: {e}")))
+        let encoding = Instant::now();
+        let encoded = encode(&QueryResultEntity::from(result)).map_err(|e| unlocated(format!("the result cannot be encoded: {e}")));
+        Spent::add(&self.spent.encode, encoding);
+        encoded
     }
 
     /// `read` with the ledger, while the analysis runs
@@ -129,8 +252,20 @@ impl RouterHost for AnalysisQueries {
     }
 
     fn query_with_params(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Value, QueryFailure> {
+        let started = Instant::now();
         let (types, values) = bind_json(params.iter().map(|(name, param)| (name.as_str(), param.ty.as_str(), &param.value))).map_err(unlocated)?;
+        Spent::add(&self.spent.bind, started);
         self.run(bql, &types, &values)
+    }
+
+    // an analysis's queries are answered straight to JSON text, without a tree of JSON values first
+    fn query_json(&self, bql: &str) -> Result<Box<RawValue>, QueryFailure> {
+        self.run_as(bql, &ParamTypes::default(), &Params::new(), to_raw_value)
+    }
+
+    fn query_with_params_json(&self, bql: &str, params: &BTreeMap<String, RawQueryParam>) -> Result<Box<RawValue>, QueryFailure> {
+        let (types, values) = bind_json(params.iter().map(|(name, param)| (name.as_str(), param.ty.as_str(), &param.value))).map_err(unlocated)?;
+        self.run_as(bql, &types, &values, to_raw_value)
     }
 
     fn schema(&self) -> Result<Value, QueryFailure> {
@@ -139,12 +274,16 @@ impl RouterHost for AnalysisQueries {
     }
 
     fn convert(&self, conversions: &[Conversion]) -> Result<Vec<Option<ConvertedAmount>>, HostError> {
-        self.ledger.with(|ledger| convert(ledger, conversions)).unwrap_or_else(|| {
+        let started = Instant::now();
+        self.spent.conversions.fetch_add(conversions.len(), Ordering::Relaxed);
+        let converted = self.ledger.with(|ledger| convert(ledger, conversions)).unwrap_or_else(|| {
             Err(HostError::new(
                 HostErrorKind::Unavailable,
                 "the analysis has ended: its ledger is no longer lent",
             ))
-        })
+        });
+        Spent::add(&self.spent.convert, started);
+        converted
     }
 }
 
