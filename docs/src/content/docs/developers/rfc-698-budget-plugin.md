@@ -19,7 +19,7 @@ sidebar:
   - P3 measures the named-query p95 again, with more pairs;
   - P4 measures the final implementation under the same rule and must pass every bar;
   - P3.3's switch merges, and P5 starts, only after that.
-- **In progress:** P3.1 and P3.2, from the prototype (#870).
+- **In progress:** P3.1 and P3.2, from the prototype (#870): #883 to #887, split by layer (§10.2, as built).
 - **Next:** P4 on P3.3's branch, then P3.3 and P5.
 - **Release:** the owner decided that the whole migration ships in v0.3.0. Until then the `Analyzer` plugin type is
   experimental (§2).
@@ -999,6 +999,30 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | ⛳ **P3.3** `feat(budget)!` switch | The plugin is the only runtime implementation; native code remains only behind the test switch. A playground regression test (`bindings/wasm`: `ExtensionUnavailable` on a budget ledger, unchanged otherwise) | #835 identical, ids and report order included; P4's bars pass on its branch (G1's condition, 2026-11-23); ⛳ the owner confirms |
 | ⛳ **P4** `test(budget)` performance and release | Paired native and plugin runs at 10,000 and 100,000 transactions: many budgets, currencies and months, typo dates, concurrent requests. Load, named-query and write p95; memory. Container first start and upgrade canary. | ⛳ Added end-to-end time (a load or a write, then the first budget page and errors page after it) ≤ max(5% of P0b after #840/#841, 50 ms) at 10,000 and 100,000; named-query p95 ≤ 1.1×; memory ≤ max(+10%, +40 MiB) |
 | **P5** `refactor(core)!` delete native, and docs | Removes `process/budget.rs`, the `Ledger` budget fields, `check_budgets`, `table/budgets.rs`, `Record::Budget*`, `posting_budgets`, `as_budget_interval`, the in-process provider and the switch. Keeps the compat mapping. Docs: budgets guide, query reference, plugin development, upgrading (en and zh-cn). | `rg -i budget` in `zhang-core/src` and `zhang-query/src` finds only the compat mapping; every suite green; the docs build |
+
+**P3.1 and P3.2 as built (2026-11-23).** They were split by layer rather than by the two halves of `budget.lua`. A
+script publishing only `#budget_definitions`, `#budget_events` and the directive diagnostics could not be compared
+with the native budgets without host code that P3.2 would throw away: the legacy names and the five named queries,
+which read all three tables, are granted to `zhang:budget` whole, the native fallback runs every native check or none,
+and the directive and posting diagnostics share one report order. The pull requests:
+
+- #883 `perf(price)` and #884 `perf(plugin)`: two levers of G1, each with its numbers (an inverse rate computed once,
+  rather than at every lookup of the opposite pair; what a default plugin declares read once per kept runtime, so its
+  registration's warnings, for unknown types or errors it reported, come once per kept runtime, not per load).
+- #885 `feat(plugin)!`: G1's changes to the experimental analyzer ABI (listed rows, pair amounts, carried facts,
+  `last_transaction` in the input), and `written_time`, a record's time as written where a daylight-saving change
+  skips it, which the fuzzer showed the script, and the SDK's budget analyzer, need for a close.
+- #886 `feat(budget)`: `budget.lua` (#870's), `DefaultPlugin::budget`, and the test switch `native|plugin|both`
+  (`BudgetImpl`; only a build with the `budget-switch` feature reads `ZHANG_BUDGET_IMPL`, every release build loads
+  natively until P3.3). #835's contract and the `budget_reference` oracle with the script, in every test run: no
+  difference, decimal scales included, once review added a case the contract lacked (a posting sold from lots at
+  costs in two currencies is checked whole, through its first lot's cost currency). The script keeps the native
+  `&a + &b` zero quirk of `assigned`, so §4's alignment of the native code was not needed for parity; it is left for
+  P5. `zhang:budget` keeps no options with the script registered (#869).
+- #887 `test(budget)`: the differential fuzzer, `zhang_testkit::budget_fuzz`, seeds 1 to 40 in every test run and any
+  range on demand. Its first 2,000 seeds found the close above; seeds 1 to 10,000 then found no difference. The
+  named-query p95 of G1's condition is measured again there.
+- Left in #870, not proposed: answering an analysis's queries as JSON text (no gain), and its timing logs.
 
 ## 11. Decisions
 
