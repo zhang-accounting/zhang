@@ -23,6 +23,17 @@
 //! Compiling goes through the disk cache of [`crate::plugin::disk_cache`]: a module compiled before, by this process or
 //! an earlier one, is read back instead of compiled again. The cache keeps code by the module's bytes and wasmtime's
 //! settings, which the settings of a [`Manifest`] do not change, so one entry serves every config of a module.
+//!
+//! A compilation runs on one thread of its own, which gives the memory the compilation took back before it ends (when
+//! it compiled, rather than read the code back from the disk cache). wasmtime compiles a module's functions in parallel
+//! by default, on rayon's global pool: a thread per CPU the process may use, each taking about 10 MiB for the Lua
+//! interpreter every Lua plugin runs on, which the allocator kept after the compilation (mimalloc keeps what a thread
+//! freed for that thread, and rayon's threads stay, idle). A cold start with one Lua plugin took 192 MiB on 4 CPUs, 270
+//! on 8 and 906 on 64, and kept it; on a host of 96 CPUs, containers of 384 MiB to 1 GiB were killed at start. Compiled
+//! on one thread, the peak is the same on any machine (103 to 111 MiB with the plugin, 49 without), and the memory goes
+//! back once the compilation is over (57 to 63 MiB). It takes longer, once per module and disk cache: 0.4 s for the Lua
+//! interpreter, where 64 threads took 0.06 s, 8 took 0.08 s and 4 took 0.12 s; reading the code back from the disk
+//! cache takes 3 ms either way. See [`compile_config`] and [`crate::memory`].
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -34,6 +45,18 @@ use uuid::Uuid;
 
 use crate::plugin::disk_cache;
 use crate::plugin::host::PluginHost;
+
+/// the name of the thread a compilation runs on ([`PluginRuntime::compile`])
+const COMPILE_THREAD: &str = "zhang-compile";
+
+/// The wasmtime settings every plugin compiles with, under the ones extism sets: one thread compiles all of a module's
+/// functions, the one that asked (see the module's documentation for why). wasmtime's cache keeps code by settings that
+/// do not include this one, so code an earlier version compiled in parallel is read back as before.
+fn compile_config() -> wasmtime::Config {
+    let mut config = wasmtime::Config::new();
+    config.parallel_compilation(false);
+    config
+}
 
 /// the most compiled plugins a runtime keeps idle for its current settings. Concurrent calls each
 /// lease their own, so a burst past this count compiles afresh and drops the extra when it ends:
@@ -153,22 +176,40 @@ impl PluginRuntime {
         &self.module_bytes
     }
 
-    /// the module compiled with the settings of `manifest`, with the host functions linked in
+    /// the module compiled with the settings of `manifest`, with the host functions linked in: on a thread of its own
+    /// ([`COMPILE_THREAD`]), which compiles alone ([`compile_config`]) and, when it compiled rather than read the code
+    /// back from the disk cache, gives back what the compilation freed before it ends ([`crate::memory::return_freed`]),
+    /// so that the memory of the thread that asked, a ledger's load or a request, is left as it was
     fn compile(&self, manifest: Manifest) -> Result<CompiledPlugin, extism::Error> {
         self.compilations.fetch_add(1, Ordering::Relaxed);
         let builder = PluginBuilder::new(manifest.with_wasm(Wasm::data(self.module_bytes.clone())))
             .with_functions(PluginHost::functions_for_instances(&self.bindings))
-            .with_wasi(true);
+            .with_wasi(true)
+            .with_wasmtime_config(compile_config());
         // never extism's own cache, which `EXTISM_CACHE_CONFIG` or wasmtime's configuration file set up
-        let compiled = match &self.disk_cache {
+        let builder = match &self.disk_cache {
             Some(cache) => builder.with_cache(cache.clone()),
             None => builder.with_cache_disabled(),
-        }
-        .compile();
-        // compiling, or reading the code back from the disk cache, freed the buffers it took on this thread: they are
-        // given up now, for any thread to reuse, as a compile is rare (once per plugin and settings)
-        crate::memory::return_freed();
-        compiled
+        };
+        let cache = self.disk_cache.clone();
+        std::thread::scope(|scope| {
+            let compiling = std::thread::Builder::new().name(COMPILE_THREAD.to_owned()).spawn_scoped(scope, move || {
+                let misses = cache.as_ref().map(Cache::cache_misses);
+                let compiled = builder.compile();
+                // compiled rather than read back from the disk cache (a count another compilation may move too, which
+                // only gives back once more): what it took and freed goes back to the system before the thread ends.
+                // Reading the code back takes a few MiB, which the end of the thread hands to the allocator to reuse
+                let compiled_anew = match (&cache, misses) {
+                    (Some(cache), Some(misses)) => cache.cache_misses() > misses,
+                    _ => true,
+                };
+                if compiled_anew {
+                    crate::memory::return_freed();
+                }
+                compiled
+            })?;
+            compiling.join().unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+        })
     }
 
     /// how many times the module was compiled, for any settings
@@ -367,21 +408,32 @@ mod tests {
         }
     }
 
-    /// a compilation gives up the buffers it freed through the hook the binary set
-    /// ([`crate::memory::set_return_freed`]), on the thread that compiled; reusing the compiled code does not
+    /// a compilation runs on a thread of its own, which gives back what the compilation freed through the hook the
+    /// binary set ([`crate::memory::set_return_freed`]) before it ends; reusing the compiled code compiles nothing
     #[test]
-    fn a_compilation_returns_the_memory_it_freed() {
-        thread_local!(static RETURNED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) });
-        fn count() {
-            RETURNED.with(|it| it.set(it.get() + 1));
+    fn a_compilation_returns_the_memory_it_freed_on_a_thread_of_its_own() {
+        static RETURNED_ON: Mutex<Vec<Option<String>>> = Mutex::new(Vec::new());
+        fn record() {
+            RETURNED_ON.lock().unwrap().push(std::thread::current().name().map(str::to_owned));
         }
-        crate::memory::set_return_freed(count);
+        crate::memory::set_return_freed(record);
         let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/config_echo.wat").to_vec()).with_disk_cache(None);
         let settings = Manifest::default().with_config([("zhang.plugin", "returned")].into_iter());
         drop(runtime.instantiate(settings.clone(), host("2026-10-05T00:00:00Z")).unwrap());
-        assert_eq!(RETURNED.with(std::cell::Cell::get), 1, "once, after the compilation");
         drop(runtime.instantiate(settings, host("2026-10-05T00:00:00Z")).unwrap());
-        assert_eq!(RETURNED.with(std::cell::Cell::get), 1, "not when the compiled code is reused");
+        assert_eq!(runtime.compilations(), 1, "the second instance reuses the compiled code");
+        let returned_on = RETURNED_ON.lock().unwrap();
+        assert!(!returned_on.is_empty(), "the compilation gave up what it freed");
+        // the tests compiling at the same time call the hook too, as every compilation does: on its own thread
+        assert!(returned_on.iter().all(|name| name.as_deref() == Some(COMPILE_THREAD)), "{returned_on:?}");
+    }
+
+    /// wasmtime compiles a plugin's functions on the thread compiling it, rather than in parallel on a thread per CPU,
+    /// whose memory grew with the CPUs (see the module's documentation)
+    #[test]
+    fn plugins_compile_on_one_thread() {
+        let config = format!("{:?}", compile_config());
+        assert!(config.contains("parallel_compilation: false"), "{config}");
     }
 
     #[test]
