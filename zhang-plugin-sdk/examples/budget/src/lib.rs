@@ -490,10 +490,11 @@ fn analyze(input: Input) -> Result<Output, Error> {
                     continue;
                 };
                 budget.saw(on, record.seq);
-                // a budget closes with its first budget-close
+                // a budget closes with its first budget-close, at its time as written: a time the ledger's timezone skips
+                // (a daylight-saving change) is `written_time`, where `time` is the instant zhang reads it as
                 budget.close.get_or_insert(Close {
                     date: on,
-                    time: record.has_time.then(|| record.time.clone()),
+                    time: record.has_time.then(|| record.written_time.clone().unwrap_or_else(|| record.time.clone())),
                 });
                 events.push(Event {
                     name,
