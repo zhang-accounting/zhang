@@ -423,7 +423,7 @@ G1 和 P4 的正式比较基准点是[端到端](#端到端)一节中[使用 mim
 
 一个构建（预算插件）要与原生实现逐次运行地比较：在同一台机器上、同一次会话中，并且只用有效的运行：
 
-1. 以**成对**的方式交替运行两个构建的端到端模式（原生、候选、原生、候选……，或在每一对内随机安排顺序），每次运行把报告写到单独的目录：
+1. 以**成对**的方式交替运行两个构建的端到端模式（原生、候选、原生、候选……，或在每一对内随机安排顺序），或者像 [P4 的快速流程](#p4-的快速流程)那样让一对中的两次运行同时进行，每次运行把报告写到单独的目录：
    ```sh
    ZHANG_BUDGET_BASELINE_ONLY=e2e ZHANG_BUDGET_BASELINE_OUT=/tmp/cmp/native/01 \
      cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m      # 原生构建
@@ -442,7 +442,8 @@ G1 和 P4 的正式比较基准点是[端到端](#端到端)一节中[使用 mim
 3. 允许增加的时间为 max(原生 p50 中位数的 5%, 50 ms)：区间的上端低于它时，该计时项**通过**；下端高于它时**不通过**。否则为**无结论**：增加成对的运行，最多到 15 对，若仍无结论则报告为无结论。**每个计时项的错误通过率不超过 5%，可选停止也已计入**：真实的差值中位数恰好等于允许增加的时间的计时项，从 5 对开始判断时最多有 4.1% 的比较会通过，从 10 对开始时最多 2.8%。
 4. 给出结论至少需要的对数：1 万笔交易的 (c) 和 (e)、10 万笔交易的 (a) 和 (c) 至少 **10 对**，因为在使用 mimalloc 之前的结果中它们各次运行的 p50 相差超过了允许增加的时间；其他计时项至少 **5 对**（也就是 6 对，第一个有区间的对数）；在比较中原生运行的 p50 相差超过允许增加的时间的计时项，也至少需要 10 对。
 5. **G1 要求 12 个计时项全部通过**：1 万和 10 万笔交易各六个计时项。12 个中有一个不通过，应当重新运行该计时项（新的成对运行），而不是立即否决。
-6. **内存**在同一批运行上按账本判定：报告中 `memory_mib` 的每一项（加载后的常驻内存，加载、重载之后和结束时的峰值，结束时的常驻内存），候选构建各次运行的中位数与原生实现各次运行的中位数相比，最多只能增加 **max(10%, 40 MiB)**。40 MiB 的下限是负责人在 2026-11-22 的决定（RFC #698，决定 16），与时间的 50 ms 下限一样：插件运行时本身占用一部分内存，与账本大小无关，单用 10% 会把它算到 1 万笔交易的账本头上（重载期间 156 MiB 峰值的 10% 是 15.6 MiB）。10 万笔交易时由 10% 决定。`budget_compare` 只判定时间；每份报告中都有它的内存数字。
+6. **内存**在同一批运行上按账本判定：报告中 `memory_mib` 的每一项（加载后的常驻内存，加载、重载之后和结束时的峰值，结束时的常驻内存），候选构建各次运行的中位数与原生实现各次运行的中位数相比，最多只能增加 **max(10%, 40 MiB)**。40 MiB 的下限是负责人在 2026-11-22 的决定（RFC #698，决定 16），与时间的 50 ms 下限一样：插件运行时本身占用一部分内存，与账本大小无关，单用 10% 会把它算到 1 万笔交易的账本头上（重载期间 156 MiB 峰值的 10% 是 15.6 MiB）。10 万笔交易时由 10% 决定。`budget_compare` 在计时项之后判定它。
+7. **命名查询的 p95** 在 `requests` 模式的运行上判定，按账本和热请求的种类（[请求](#请求)中的六类）：每一对中候选的 p95 与原生 p95 之比，以及比值中位数的区间，求法同第 2 步。区间上端不超过 **1.1** 时，该请求**通过**；下端高于 1.1 时**不通过**；否则为**无结论**。它在 **60 对**上判定，这些对在判定之前全部运行完（不再追加：错误通过率因此最多 1.4%），每次运行 **200 轮**。一次 `requests` 运行只需几秒，而这些请求大多在 1 毫秒内响应，它们的 p95 在不同进程之间相差 10% 到 50%，与轮数无关：像 G1 和 P3 那样用 15 对、每次 30 轮时，亚毫秒请求的区间比标准还宽。`budget_compare` 在旁边打印 G1 的读法，即各次运行 p95 的中位数之比，便于与 G1 和 P3 对照。
 
 `budget_compare` 会把这一规则应用到报告上：
 
@@ -450,7 +451,7 @@ G1 和 P4 的正式比较基准点是[端到端](#端到端)一节中[使用 mim
 cargo run --release -p zhang --example budget_compare -- /tmp/cmp/native /tmp/cmp/candidate --expect-analyzer zhang:budget
 ```
 
-它按路径顺序读取每个目录下的所有报告，并按这个顺序把每个账本的运行配成对。它打印每一方的配置（构建、提交、分析器及其发布的内容、表的提供者、账本、CPU 和工作线程），并在以下情况下**拒绝**比较：同一方的运行在其中任何一项上不一致；两方运行的 CPU、工作线程或账本不同；某个候选运行在第一次加载后或结束时没有显示 `--expect-analyzer` 指定的分析器已发布（`zhang:budget: ok`）。它跳过含有无效运行的对，并说明原因（`--include-invalid` 会保留它们，只用于诊断，从不用于给出结论）。对每个计时项，它打印对数、原生 p50 的中位数、差值中位数、它的区间和覆盖率、允许增加的时间、每一方因文件监视器被排除和被保留的轮次数以及结论，对于无结论的计时项还给出还需要多少对；某次运行中干净轮次少于 20 个的计时项会被**拒绝**。有计时项不通过或被拒绝时，它以失败退出。
+它按路径顺序读取每个目录下的所有报告，并按这个顺序把每个账本的运行配成对：有端到端计时项的运行用于计时项和内存，有热请求的运行用于 p95。它打印每一方的配置（构建、提交、模式、分析器及其发布的内容、表的提供者、账本、CPU 数、工作线程和热请求的轮数），并在以下情况下**拒绝**比较：同一方的运行在其中任何一项上不一致；两方运行的模式、CPU 数、工作线程、轮数或账本不同；某个候选运行在第一次加载后或结束时没有显示 `--expect-analyzer` 指定的分析器已发布（`zhang:budget: ok`）。它跳过含有无效运行的对，并说明原因（`--include-invalid` 会保留它们，只用于诊断，从不用于给出结论）。对每个计时项，它打印对数、原生 p50 的中位数、差值中位数、它的区间和覆盖率、允许增加的时间、每一方因文件监视器被排除和被保留的轮次数以及结论，对于无结论的计时项还给出还需要多少对；某次运行中干净轮次少于 20 个的计时项会被**拒绝**。然后，对每一项内存数字，打印每一方的中位数、差值和允许增加的量；对每类热请求，打印每一方 p95 的中位数、G1 的比值、比值中位数及其区间和结论；还打印每一对的两次运行相隔多久开始。有计时项、内存数字或 p95 不通过，或者比较被拒绝时，它以失败退出。`--summary <文件>` 还会把各项结论写成 JSON。
 
 在构建 pod 上，计时比较应在基准窗口中运行：它会等到没有构建在运行，并在命令结束之前挡住其他所有构建（一次只运行一个基准）。先构建 example，再在窗口中运行构建好的二进制文件，这样编译时不会挡住任何人。
 
@@ -459,6 +460,45 @@ kbuild <lane> <worktree> 'CARGO_TARGET_DIR=/cache/target/<lane> cargo build --re
 kbuild --bench <lane> --no-sync 'ZHANG_BUDGET_BASELINE_ONLY=e2e ZHANG_BUDGET_BASELINE_OUT=/tmp/cmp/native/01 \
   /cache/target/<lane>/release/examples/budget_baseline 10000tx-30b-60m'
 ```
+
+### P4 的快速流程
+
+P4 在 1 万和 10 万笔交易上判定三条标准，每条都按规则成对运行：12 个端到端计时项（第 1 到 5 步）、同一批运行的内存（第 6 步）和命名查询的 p95（第 7 步）。像 G1 那样一次接一次地运行，要花几个小时：一次 `e2e` 运行在 1 万笔交易时约 2.4 分钟，10 万笔时约 4.5 分钟；G1 和 P3 取 p95 所用的完整运行约 4 分钟和 8.5 分钟：两种规模上各 10 对，`e2e` 运行约 2.3 小时，完整运行约 4.2 小时；P3 的 p95 测量大多是一次接一次地运行，用了约 4 小时。快速流程只运行每条标准需要的部分，并让成对的运行同时进行。
+
+**每条标准一个模式。** `ZHANG_BUDGET_BASELINE_ONLY=e2e` 运行计时项，它的报告中有第 6 步判定的内存：报告中结束时的数字是在计时项之后读取的，所以内存不单独测量。`ZHANG_BUDGET_BASELINE_ONLY=requests` 只运行热请求：加载、每个模式开头都有的那次重载（不计时）、每类 3 个请求的预热，然后是计时轮次，除非 `ZHANG_BUDGET_BASELINE_ROUNDS` 另行指定，与完整模式一样为 30 轮（`budget_pairs` 使用 200 轮）；在它们之前，进程中不运行其他任何东西。200 轮时，一次 `requests` 运行在 1 万笔交易时约 2 秒，10 万笔时约 11 秒。每份报告记录它的 `mode`，`budget_compare` 拒绝把不同模式或不同轮数的运行配成对。
+
+**运行器。** `budget_pairs`（`zhang-cli/examples/budget_pairs.rs`）运行每个模式和账本的成对运行，并给出判定：
+
+- **一对中的两次运行同时进行**，各自固定在自己的 8 个 CPU 上，使用 8 个工作线程。`--cpus 16-63`（默认值）被分成 6 组，因此同时运行 3 对，共 48 个 CPU，低于构建 pod 64 核的配额。两方在每一对之间交换所在槽位的两组 CPU，使任何一方都不会一直占用较快的那组。
+- **每个模式和账本得到各自的有效对数**：`e2e` 模式 `--pairs` 对（默认 10），`requests` 模式 `--requests-pairs` 对（60，每次运行 `--rounds` 200 轮）。如果一对中有运行被基准标记为无效（有构建在运行、cgroup 被限流、其任务等待 CPU 的时间达到 2%）、某个计时项的干净轮次少于 20 个，或者运行失败，这一对就被移到 `<out>/invalid/` 并重新运行，最多 `--max-invalid` 次。
+- **然后它对收集到的结果运行 `budget_compare`**（`<out>/native`、`<out>/candidate`，每个模式、账本和对各一个目录）；只要某个计时项的结论是无结论、且它的账本的有效 `e2e` 对数少于 `--most-pairs`（15），就再运行至少 3 对，然后再次判定，这是第 3 步所允许的；p95 不会超过它的 60 对。它打印判定结果并保存在 `<out>/compare.txt` 和 `<out>/summary.json` 中，把运行过的每一对记录在 `<out>/runs.jsonl` 中（每次运行的 CPU、退出状态、有效性），并以 `budget_compare` 的状态退出。用同一个 `--out` 再次启动时，它保留找到的有效对，只运行缺少的部分。
+
+在一个基准窗口中运行完整的 P4 集合，两方使用同一个二进制文件、以环境区分（在启用 `budget-switch` 特性的构建中用 `ZHANG_BUDGET_IMPL`），或者使用两个二进制文件（`--candidate <路径>`）：
+
+```sh
+kbuild <lane> <worktree> 'CARGO_TARGET_DIR=/cache/target/<lane> cargo build --release -p zhang --examples --features budget-switch'
+kbuild <lane> --no-sync 'mkdir -p /cache/<lane>-bin && cp /cache/target/<lane>/release/examples/budget_{baseline,compare,pairs} /cache/<lane>-bin/'
+kbuild --bench <lane> --no-sync '/cache/<lane>-bin/budget_pairs --out /cache/<lane>-p4 \
+  --native /cache/<lane>-bin/budget_baseline --env ZHANG_BUDGET_BASELINE_COMMIT=<commit> \
+  --native-env ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin \
+  -- --expect-analyzer zhang:budget'
+```
+
+默认值就是 P4 集合：`--ledgers 10000tx-30b-60m,100000tx-30b-60m --modes e2e,requests --pairs 10 --most-pairs 15 --requests-pairs 60 --rounds 200 --cpus 16-63 --cpus-per-side 8`。先把二进制文件从目标目录中复制出来，这样运行期间这个 lane 的构建不会替换它们。比终端存活更久的运行可以在 pod 中以分离的方式启动（`nohup setsid`），前面加一个像 `kbuild --bench` 那样占用基准窗口的脚本。
+
+**为什么同时成对运行是可靠的。** 规则比较的是一对中的两次运行，从不把一次运行与本页的表格比较：它需要的是一对中的两次运行遇到同样的机器。一次接一次地运行时，情况并非如此：虚拟机的内存有持续 0.2 到 2 秒的慢速时段（G1 发现的，#870），节点上的其他租户来来去去，所以一对中的第二次运行可能遇到与第一次不同的机器。同时开始的两次运行经过同样的秒数、同样的慢速时段和同样的邻居，它们 p50 的差或 p95 的比会抵消两者共有的部分。每次运行仍保有让运行可信的条件：自己的 CPU（一次运行从不等待另一次运行的 CPU，有效性检查会确认这一点：没有限流，CPU 压力低于 2%）、自己的进程、账本目录和文件监视器，以及同样的 20 个干净轮次。两方在每一对之间交换 CPU 组，使两组 CPU 之间的差异不会进入中位数。
+
+**它的局限。**
+
+- **各次运行共用机器。** 同时最多有六次运行，它们共用内存带宽和 L3 缓存（两组的 vCPU 可能位于同一个 CCD 上），其他槽位中的对还会加重这种负载。因此一次运行的绝对时间不能与本页一次接一次运行的结果比较，也不能与另一种并发度下的运行比较：只比较同一次会话中成对的差和比。在下面的自我比较中，计时项的原生 p50 与同一个二进制文件在没有其他运行时逐次运行两次的结果相比，持平到高出 9%。
+- **一对中的两方会相互干扰一点。** 读写内存更多的一方会让另一方稍慢一些，这会缩小主要来自内存访问的差值。当某项结论接近它的标准时，用一次只运行一对的方式确认（`--cpus 16-31` 一次只运行一对，两方仍然同时进行），或者像第 1 步那样一次接一次地运行。
+- **有效性检查读取的是 pod 的 cgroup，所有运行共用它。** 任何一次运行造成的限流或 CPU 压力，都会使与它重叠的每一次运行无效：检查变得更严格，而不是更宽松。内存数字是各进程自己的，不受影响。
+
+**自我比较。** `main`（`362a602f`，含本工具）与它自己比较，两方使用同一个二进制文件，于 2026-11-23 在构建 pod 上的一个基准窗口中，用默认参数运行 `budget_pairs`：在 1 万和 10 万笔交易上各 10 对 `e2e` 和各 60 对 200 轮的 `requests`，共用 **28 分钟**（`e2e` 对 24 分钟，`requests` 对 4 分钟）。一次接一次地运行，单是 `e2e` 运行就要约 2.3 小时。每次运行第一次就有效：从未被限流，CPU 压力最多 0.017%，每一对的两次运行开始的时间相差不到 0.1 秒。
+
+- **计时项**：12 个全部在 10 对上通过，都不需要追加，差值中位数在 1 万笔交易时为 −0.4 到 +3.1 ms，10 万笔时为 −9.0 到 +6.0 ms。区间宽度在 1 万笔交易时为 3.3 到 14.8 ms，而 G1 一次接一次运行的成对结果（取 10 对，同样的规则）为 9.8 到 60.1 ms；10 万笔时为 15.7 到 64.4 ms，G1 为 20.3 到 77.2 ms。1 万笔交易时的写入和重载计时项要重新换入内存，因而会遇到虚拟机的慢速时段，它们的区间窄了 2 到 18 倍；启动计时项与之前一样宽。10 万笔时写入计时项更窄，重载和启动计时项一样宽，或者在两次这样的自我比较中的一次里宽了最多一倍：同时进行的六次 10 万笔交易的加载共用内存带宽（第一条局限）。每个区间的上端都低于允许增加量的一半。
+- **内存**：除 1 万笔交易时结束时的常驻内存（−6.9 MiB，最嘈杂的一项）外，每一项都在 2.6 MiB 以内：通过。
+- **p95**：12 个请求中 10 个通过。10 万笔交易时的 `month_first`（[0.94, 1.12]）和 1 万笔时的 `errors`（[0.95, 1.11]），p95 分别为 0.34 和 0.08 ms，仍为无结论；没有不通过。较早的一次自我比较像 G1 和 P3 那样用 15 对、每次 30 轮测量 p95，12 个中有 6 个无结论，除 `month` 和 `interval` 外，区间与 P3 一次接一次运行的成对结果差不多宽（最宽 [0.99, 1.80]）：同时成对运行不会让亚毫秒请求的 p95 变窄，它在不同进程之间变化；更多的对和更多的轮数才会。
 
 ### 请求中的错误页面
 
@@ -495,6 +535,15 @@ ZHANG_BUDGET_BASELINE_ONLY=e2e cargo run --release -p zhang --example budget_bas
 # kbuild --bench，见"与基线比较一个构建"）
 cargo run --release -p zhang --example budget_compare -- /tmp/cmp/native /tmp/cmp/candidate --expect-analyzer zhang:budget
 
+# 只运行一个账本的加载和热请求，即 P4 的命名查询 p95
+ZHANG_BUDGET_BASELINE_ONLY=requests cargo run --release -p zhang --example budget_baseline -- 100000tx-30b-60m
+
+# 完整的 P4 集合，每一对的两方同时运行，然后判定（在构建 pod 上请在基准窗口中运行：
+# 见"P4 的快速流程"）
+cargo build --release -p zhang --examples
+target/release/examples/budget_pairs --out /tmp/p4 --native target/release/examples/budget_baseline \
+  --native-env ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin -- --expect-analyzer zhang:budget
+
 # 只运行一个账本的加载和写入，用于重复测量
 ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m
 
@@ -502,6 +551,6 @@ ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_
 cd /tmp/budget-ledgers/100000tx-30b-60m && LC_ALL=C sha256sum *.zhang | sha256sum
 ```
 
-每个账本在 stderr 上把它的数字打印成一张表，在 stdout 上打印一行 `BASELINE {...}` 形式的 JSON，其中包含按采集顺序排列的每个样本（最多 200 个）、机器信息和运行前后的负载。`ZHANG_BUDGET_BASELINE_OUT` 把同样的 JSON 写到 `<dir>/<ledger>.json`。`ZHANG_BUDGET_BASELINE_KEEP` 把每个账本按生成时的样子写到 `<dir>/<ledger>/`，也可以用 `zhang serve` 打开。`ZHANG_BUDGET_BASELINE_SOURCE=local` 改用 `LocalFileSystemDataSource` 而不是 `zhang serve` 的数据源读取文件，用于对比。`ZHANG_BUDGET_BASELINE_ONLY=writes` 只测量加载和写入，`ZHANG_BUDGET_BASELINE_ONLY=e2e` 只测量加载和端到端计时项。设置了 `ZHANG_BUDGET_BASELINE_OUT` 时，每次运行都会把报告写到那里，单个账本的运行也是如此。每次运行固定在 `ZHANG_BUDGET_BASELINE_CPUS`（`8-15`）上，使用 `ZHANG_BUDGET_BASELINE_WORKERS` 个工作线程（8 个），记录 `ZHANG_BUDGET_BASELINE_COMMIT` 指定的提交；受到构建、限流或 CPU 压力干扰的运行会被标记为无效。`ZHANG_BUDGET_BASELINE_IDLE=<秒数>` 在运行结束后空闲这么长时间，再读一次常驻内存。基准使用二进制的分配器：mimalloc，或用 `--no-default-features` 时系统的分配器。
+每个账本在 stderr 上把它的数字打印成一张表，在 stdout 上打印一行 `BASELINE {...}` 形式的 JSON，其中包含按采集顺序排列的每个样本（最多 200 个）、机器信息和运行前后的负载。`ZHANG_BUDGET_BASELINE_OUT` 把同样的 JSON 写到 `<dir>/<ledger>.json`。`ZHANG_BUDGET_BASELINE_KEEP` 把每个账本按生成时的样子写到 `<dir>/<ledger>/`，也可以用 `zhang serve` 打开。`ZHANG_BUDGET_BASELINE_SOURCE=local` 改用 `LocalFileSystemDataSource` 而不是 `zhang serve` 的数据源读取文件，用于对比。`ZHANG_BUDGET_BASELINE_ONLY=writes` 只测量加载和写入，`ZHANG_BUDGET_BASELINE_ONLY=e2e` 只测量加载和端到端计时项，`ZHANG_BUDGET_BASELINE_ONLY=requests` 只测量加载和热请求；其他值会被拒绝。`ZHANG_BUDGET_BASELINE_ROUNDS=<n>` 设置热请求的轮数（30）。设置了 `ZHANG_BUDGET_BASELINE_OUT` 时，每次运行都会把报告写到那里，单个账本的运行也是如此。每次运行固定在 `ZHANG_BUDGET_BASELINE_CPUS`（`8-15`）上，使用 `ZHANG_BUDGET_BASELINE_WORKERS` 个工作线程（8 个），记录 `ZHANG_BUDGET_BASELINE_COMMIT` 指定的提交；受到构建、限流或 CPU 压力干扰的运行会被标记为无效。`ZHANG_BUDGET_BASELINE_IDLE=<秒数>` 在运行结束后空闲这么长时间，再读一次常驻内存。基准使用二进制的分配器：mimalloc，或用 `--no-default-features` 时系统的分配器。
 
 整个基准至少运行两轮，并在同一次会话中交替运行插件和原生实现进行比较。
