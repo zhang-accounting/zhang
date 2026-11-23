@@ -240,6 +240,52 @@ mod tests {
         assert_eq!(copy.rate("USD", "CNY", Some(date("2024-03-01"))).unwrap().to_string(), "8");
     }
 
+    /// The opposite pair reads, digit for digit and scale for scale, the inverse of its latest non-zero rate on or
+    /// before the date, as computed on every lookup before the inverses were kept: whatever the order of the reads,
+    /// with zero rates, same-day prices and pairs quoted both ways. The map prints and compares as one never read.
+    #[test]
+    fn a_kept_inverse_reads_as_one_computed_on_lookup() {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |bound: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % bound as u64) as usize
+        };
+        let pairs = [("USD", "CNY"), ("CNY", "USD"), ("EUR", "USD"), ("AAPL", "USD"), ("USD", "JPY"), ("JPY", "USD")];
+        let rates = ["0", "0.1", "0.14", "3", "7.2345", "0.000123", "1250", "0.3333", "0.00", "8"];
+        let day = |n: usize| NaiveDate::from_yo_opt(2024, 1 + n as u32).unwrap();
+        let points = (0..600)
+            .map(|_| {
+                let (base, quote) = pairs[next(pairs.len())];
+                (day(next(90)), base, quote, d(rates[next(rates.len())]))
+            })
+            .collect::<Vec<_>>();
+        let (prices, unread) = (PriceMap::from_points(points.clone()), PriceMap::from_points(points));
+        let printed = format!("{prices:?}");
+        let on_lookup = |base: &str, quote: &str, date: Option<NaiveDate>| {
+            let history = &unread.rates.get(quote)?.get(base)?.history;
+            let end = date.map_or(history.len(), |date| history.partition_point(|(day, _)| *day <= date));
+            history[..end].iter().rev().find(|(_, rate)| !rate.is_zero()).and_then(|(_, rate)| invert(rate))
+        };
+        let commodities = ["USD", "CNY", "EUR", "AAPL", "JPY"];
+        let mut read = 0;
+        for _ in 0..3000 {
+            let (base, quote) = (commodities[next(commodities.len())], commodities[next(commodities.len())]);
+            if base == quote || unread.rates.get(base).is_some_and(|quotes| quotes.contains_key(quote)) {
+                continue;
+            }
+            let date = (next(10) > 0).then(|| day(next(100)));
+            let expected = on_lookup(base, quote, date).map(|rate| (rate.to_string(), rate.fractional_digit_count()));
+            let rate = prices.rate(base, quote, date).map(|rate| (rate.to_string(), rate.fractional_digit_count()));
+            assert_eq!(rate, expected, "{base} in {quote} on {date:?}");
+            read += usize::from(rate.is_some());
+        }
+        assert!(read > 300, "{read} inverses read");
+        assert_eq!(prices, unread);
+        assert_eq!(format!("{prices:?}"), printed);
+    }
+
     /// A conversion takes the pair's rate, else goes through the cost currency, and needs a price on or before
     /// the date.
     #[test]
