@@ -22,7 +22,12 @@
 #   reset store): upstream attached the limiter once the modules were linked, and linking also instantiated the main
 #   module as a reactor, so its start function and `_initialize` ran twice, the first time on an instance no call used,
 #   outside the limiter. The memory every instance starts with or grows to, the kernel's included, now counts toward
-#   `memory.max_pages`, once; an initialisation the limiter stops fails with "oom"
+#   `memory.max_pages`, once; an initialisation the limiter stops fails with "oom". The check refusing a module that
+#   imports anything of the kernel but its functions (its memory, say) runs over the main module too, as it did when
+#   the main module was linked
+# - src/current_plugin.rs: a table's elements count toward `memory.max_pages` too, 8 bytes each, from the table's
+#   initial size on: upstream allowed any growth of a table declaring no maximum (1 GiB of host memory for one
+#   `table.grow` under a 32 MiB limit)
 # - src/plugin_builder.rs, src/plugin.rs, src/lib.rs: `PluginBuilder::with_cache` compiles with a wasmtime `Cache` the
 #   host configured once (re-exported with `CacheConfig`), in place of the one extism sets up from a configuration file
 #   at every compilation, which fails the compilation when wasmtime's default directory cannot be created

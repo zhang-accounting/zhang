@@ -293,13 +293,8 @@ fn add_module<T: 'static>(
         return Ok(());
     }
 
+    refuse_kernel_non_functions(module)?;
     for import in module.imports() {
-        let module = import.module();
-
-        if module == EXTISM_ENV_MODULE && !matches!(import.ty(), ExternType::Func(_)) {
-            anyhow::bail!("linked modules cannot access non-function exports of extism kernel");
-        }
-
         if !linked.contains(import.module()) {
             if let Some(m) = modules.get(import.module()) {
                 add_module(
@@ -317,6 +312,18 @@ fn add_module<T: 'static>(
     linker.module(store, name.as_str(), module)?;
     linked.insert(name);
 
+    Ok(())
+}
+
+/// zhang patch: refuse a module importing anything of extism's kernel but its functions, such as its memory, which would
+/// give the module raw access to the kernel's state. Upstream's check, in `add_module`, which no longer sees the main
+/// module (see `relink`)
+fn refuse_kernel_non_functions(module: &Module) -> Result<(), Error> {
+    for import in module.imports() {
+        if import.module() == EXTISM_ENV_MODULE && !matches!(import.ty(), ExternType::Func(_)) {
+            anyhow::bail!("linked modules cannot access non-function exports of extism kernel");
+        }
+    }
     Ok(())
 }
 
@@ -426,6 +433,7 @@ fn relink(
         // (`Plugin::instantiate`). Linked as well, as a reactor, it was instantiated a second time here, which
         // ran its start function and `_initialize` again on an instance no call used, and held its memory
         if name == MAIN_KEY {
+            refuse_kernel_non_functions(module)?;
             continue;
         }
         add_module(

@@ -417,7 +417,7 @@ impl PluginRuntime {
             )),
             // and memory that would grow past the limit as exactly "oom"
             "oom" => extism::Error::msg(format!(
-                "its start function or initialisation (`_initialize`) needed more than the {} the server allows a plugin ({MAX_MEMORY_ENV})",
+                "building its instance (its memory and tables, its start function, its `_initialize`) needed more than the {} the server allows a plugin ({MAX_MEMORY_ENV})",
                 Size(memory_limit.unwrap_or_default())
             )),
             _ => error,
@@ -1004,7 +1004,7 @@ mod tests {
             let error = runtime.instantiate(small, host("2026-10-05T00:00:00Z")).err().expect(fixture);
             assert_eq!(
                 format!("{error:#}"),
-                "its start function or initialisation (`_initialize`) needed more than the 32 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)",
+                "building its instance (its memory and tables, its start function, its `_initialize`) needed more than the 32 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)",
                 "{fixture}"
             );
             assert!(started.elapsed() < Duration::from_secs(5), "{fixture}: {:?}", started.elapsed());
@@ -1014,6 +1014,56 @@ mod tests {
                 .unwrap_or_else(|error| panic!("{fixture}: {error:#}"));
             plugin.call::<&str, String>("name", "").unwrap();
         }
+    }
+
+    /// A table's elements count toward the memory limit, 8 bytes each, from its declared size on: a table declaring no
+    /// maximum grew without bound, one `table.grow` of 128 Mi elements taking 1 GiB of the host's memory under 32 MiB
+    #[test]
+    fn tables_count_toward_the_memory_limit() {
+        // 32 MiB
+        let small = || Manifest::default().with_memory_max(512).with_timeout(Duration::from_secs(30));
+        let refused = "building its instance (its memory and tables, its start function, its `_initialize`) needed more than the 32 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)";
+
+        // grown in a call: the call fails, and a growth that fits does not
+        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/table_hog.wat").to_vec());
+        let started = Instant::now();
+        let mut plugin = runtime.instantiate(small(), host("2026-10-05T00:00:00Z")).unwrap();
+        assert_eq!(plugin.call::<&str, String>("grow_table", "").unwrap_err().to_string(), "oom");
+        assert!(started.elapsed() < Duration::from_secs(5), "{:?}", started.elapsed());
+        let mut plugin = runtime.instantiate(small(), host("2026-10-05T00:00:00Z")).unwrap();
+        plugin.call::<&str, String>("grow_table_a_little", "").expect("1000 elements fit");
+
+        // declared that large, or grown so by a start function: building the instance fails
+        let grown_at_start = br#"(module
+            (memory 1)
+            (table $t 1 funcref)
+            (func $grow (drop (table.grow $t (ref.null func) (i32.const 134217728))))
+            (start $grow)
+            (func (export "name") (result i32) (i32.const 0)))"#;
+        let fixtures = [
+            ("table_initial.wat", include_bytes!("../../tests/plugins/table_initial.wat").as_slice()),
+            ("grown at start", grown_at_start.as_slice()),
+        ];
+        for (fixture, bytes) in fixtures {
+            let started = Instant::now();
+            let error = PluginRuntime::new(bytes.to_vec())
+                .instantiate(small(), host("2026-10-05T00:00:00Z"))
+                .err()
+                .expect(fixture);
+            assert_eq!(format!("{error:#}"), refused, "{fixture}");
+            assert!(started.elapsed() < Duration::from_secs(5), "{fixture}: {:?}", started.elapsed());
+        }
+    }
+
+    /// A module importing anything of extism's kernel but its functions, such as its memory, is refused, the main module
+    /// as any other: the check ran where the modules were linked, which the main module no longer is
+    #[test]
+    fn a_module_importing_the_kernels_memory_is_refused() {
+        let error = PluginRuntime::new(include_bytes!("../../tests/plugins/kernel_memory_import.wat").to_vec())
+            .instantiate(Manifest::default(), host("2026-10-05T00:00:00Z"))
+            .err()
+            .expect("the module is refused");
+        assert_eq!(error.to_string(), "linked modules cannot access non-function exports of extism kernel");
     }
 
     /// The memory a module starts with counts toward its limit once, the extism kernel's (1 MiB) with it: the module was

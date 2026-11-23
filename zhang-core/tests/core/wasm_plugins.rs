@@ -776,7 +776,7 @@ fn a_start_function_growing_past_the_memory_limit_fails_the_load() {
     assert_eq!(
         error.to_string(),
         format!(
-            "custom error: plugin {module} cannot be loaded: its start function or initialisation (`_initialize`) needed more than the 32 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)"
+            "custom error: plugin {module} cannot be loaded: building its instance (its memory and tables, its start function, its `_initialize`) needed more than the 32 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)"
         )
     );
     assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
