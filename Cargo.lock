@@ -6583,6 +6583,7 @@ dependencies = [
  "ureq",
  "url",
  "uuid",
+ "wasmtime",
  "zhang-ast",
  "zhang-query",
  "zhang-shared",

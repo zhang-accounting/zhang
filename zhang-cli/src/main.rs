@@ -423,6 +423,41 @@ mod test {
 
     };
 }
+    /// Loading a ledger with a Lua plugin compiles the Lua interpreter. With the binary's allocator, compiling it on a
+    /// thread per CPU raised the peak of the process by about 10 MiB per CPU (840 MiB on 64), and kept it; compiled on
+    /// a thread of its own (`zhang_core::plugin::runtime`), the peak rises by the same on any machine, and what the
+    /// compilation took goes back once it is over. Ignored: the peak is the process's, which the tests running at the
+    /// same time raise too. Run it alone, on a machine with many CPUs:
+    /// `cargo test -p zhang --bin zhang -- --ignored --exact test::compiling_a_lua_plugin_takes_little_memory_and_gives_it_back`
+    #[test]
+    #[ignore]
+    #[cfg(target_os = "linux")]
+    fn compiling_a_lua_plugin_takes_little_memory_and_gives_it_back() {
+        use zhang_core::data_source::LocalFileSystemDataSource;
+        use zhang_core::data_type::text::ZhangDataType;
+        use zhang_core::plugin::disk_cache::CACHE_DIR_ENV;
+
+        fn status_mib(key: &str) -> u64 {
+            let status = std::fs::read_to_string("/proc/self/status").unwrap();
+            let line = status.lines().find_map(|line| line.strip_prefix(key)).unwrap();
+            line.trim_start_matches(':').trim().trim_end_matches("kB").trim().parse::<u64>().unwrap() / 1024
+        }
+        crate::allocator::install();
+        // no disk cache, so that the interpreter is compiled rather than read back
+        std::env::set_var(CACHE_DIR_ENV, "");
+        let tempdir = tempdir().unwrap();
+        std::fs::write(tempdir.path().join("main.zhang"), "option \"features.plugin\" \"true\"\nplugin \"zhang:mcp\"\n").unwrap();
+        let (peak, resident) = (status_mib("VmHWM"), status_mib("VmRSS"));
+        let data_source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let ledger = Ledger::load(tempdir.path().to_path_buf(), "main.zhang".to_string(), data_source).unwrap();
+        assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
+        let (raised, kept) = (status_mib("VmHWM") - peak, status_mib("VmRSS").saturating_sub(resident));
+        pprintln!("compiling the Lua interpreter raised the peak by {} MiB and kept {} MiB", raised, kept);
+        assert!(raised > 20, "the ledger's load compiled the interpreter: {} MiB", raised);
+        assert!(raised < 120, "compiling the Lua interpreter raised the peak by {} MiB", raised);
+        assert!(kept < 50, "compiling the Lua interpreter kept {} MiB", kept);
+    }
+
     #[test]
     fn plugin_settings_read_the_limits_from_the_environment() {
         use zhang_core::plugin_policy::{PluginLevel, PluginPolicy, MIB};

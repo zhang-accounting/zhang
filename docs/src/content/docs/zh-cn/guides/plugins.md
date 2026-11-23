@@ -114,7 +114,7 @@ ZHANG_PLUGIN_ALLOWED_HOSTS=api.frankfurter.dev zhang serve /path/to/ledger
 
 ### 编译后的代码
 
-张记账在第一次运行插件前会把它编译成原生代码，[Lua 插件](/zh-cn/guides/lua-plugins/)需要几百毫秒；编译后的代码保存在缓存里，下次启动或重新加载时直接读回，不必再编译。缓存目录是 `ZHANG_PLUGIN_CACHE_DIR`，默认为 `$XDG_CACHE_HOME/zhang`，否则为 `~/.cache/zhang`。张记账把代码保存在其中的子目录 `zhang-wasmtime-cache` 里，这个子目录由张记账创建，不放其他任何东西：其中不属于缓存的内容会被删除，子目录之外的东西不会被动到。缓存最多保留约 128 MiB：超出后，最久未用的代码会被删除，最多每小时一次。把 `ZHANG_PLUGIN_CACHE_DIR` 设为空值（`ZHANG_PLUGIN_CACHE_DIR=`）会关闭缓存。
+张记账在第一次运行插件前会把它编译成原生代码，[Lua 插件](/zh-cn/guides/lua-plugins/)需要几百毫秒；编译后的代码保存在缓存里，下次启动或重新加载时直接读回，不必再编译。编译只用一个线程，因此一次编译占用的内存（Lua 插件约 60 MiB）在任何机器上都一样，插件编译完后即归还。缓存目录是 `ZHANG_PLUGIN_CACHE_DIR`，默认为 `$XDG_CACHE_HOME/zhang`，否则为 `~/.cache/zhang`。张记账把代码保存在其中的子目录 `zhang-wasmtime-cache` 里，这个子目录由张记账创建，不放其他任何东西：其中不属于缓存的内容会被删除，子目录之外的东西不会被动到。缓存最多保留约 128 MiB：超出后，最久未用的代码会被删除，最多每小时一次。把 `ZHANG_PLUGIN_CACHE_DIR` 设为空值（`ZHANG_PLUGIN_CACHE_DIR=`）会关闭缓存。
 
 缓存保存服务器会运行的原生代码，运行前不做校验，能写入它的人就能以服务器的身份运行代码。因此在 Linux 和 macOS 上，只有缓存目录和 `zhang-wasmtime-cache` 都属于运行张记账的用户、都不能被其所属组或其他用户写入，并且 `zhang-wasmtime-cache` 不是符号链接时，张记账才会使用缓存；张记账创建的目录只有该用户能读写。位于 `zhang serve` 所服务账本的文件夹中的缓存目录也会被拒绝，否则文件监视器会看到每一次编译。缓存被拒绝，或者目录无法创建或写入时（例如在只读文件系统上），插件仍会加载，只是每次启动都重新编译，`zhang serve` 会在启动时记录一条说明原因的警告。
 

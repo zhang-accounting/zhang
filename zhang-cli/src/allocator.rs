@@ -15,25 +15,27 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 /// The allocator the binary was built with, for the logs and the budget baseline.
 pub const NAME: &str = if cfg!(feature = "mimalloc") { "mimalloc" } else { "system" };
 
-/// Give up the free memory the calling thread's heap keeps: with mimalloc, `mi_collect(false)`, which hands the
-/// thread's free pages back to mimalloc's shared arenas, to be reused by any thread or returned to the system after the
-/// purge delay; nothing with the system's allocator. Set as zhang-core's hook at startup ([`install`]), which calls it
-/// at rare moments only, after a plugin is compiled (`zhang_core::memory`).
+/// Give the free memory mimalloc keeps back to the system, at once: `mi_collect(true)`, which collects the calling
+/// thread's heap and purges the free memory of every arena and of the heaps of threads that ended; nothing with the
+/// system's allocator. Set as zhang-core's hook at startup ([`install`]), which calls it on the thread a plugin compiles
+/// on, right before that thread ends, when it compiled rather than read the code back from the disk cache
+/// (`zhang_core::memory`).
 ///
-/// Not forced: `mi_collect(true)` also purges every arena at once and takes over the pages other threads left, which
-/// kept more resident, not less. Collecting after the compile of a load of 100,000 transactions that way left the
-/// load's resident memory 142 MiB higher, and the peak of the reload after it 42 MiB higher, where the collect without
-/// force changes neither, and takes 5 MiB off the peak through a reload with 10,000 transactions.
+/// Forced, as the thread ends right after: without force mimalloc returns what it freed only after its purge delay, at
+/// a later allocation that checks, and a cold start with one Lua plugin kept 108 MiB resident instead of 61. Forced
+/// more often, it keeps more: after every compilation, reading the code back too, as each load of a ledger does for its
+/// plugins, 230 MiB more stayed resident after a reload of 100,000 transactions; on the thread loading a ledger of
+/// 100,000 transactions, the load ended 142 MiB higher and the peak of the reload after it 42 MiB higher (#878).
 pub fn return_freed() {
     #[cfg(feature = "mimalloc")]
     // SAFETY: a function of mimalloc's C API, without arguments to check, on the allocator the binary links and uses
     unsafe {
-        mi_collect(false)
+        mi_collect(true)
     }
 }
 
-/// Register [`return_freed`] as zhang-core's way to give up a thread's free memory (`zhang_core::memory`): at startup,
-/// before the first load.
+/// Register [`return_freed`] as zhang-core's way to give the allocator's free memory back (`zhang_core::memory`): at
+/// startup, before the first load.
 pub fn install() {
     zhang_core::memory::set_return_freed(return_freed);
 }
