@@ -1,0 +1,37 @@
+; A posting as written, sold from two lots at costs in two currencies. A budget's account holds two bars of gold: one
+; at a cost in dollars, which the prices convert to the budget's yuan through the dollar, and one at a cost in pounds,
+; which nothing converts. Buying the second is an amount no price converts. Giving both away is one posting, which
+; booking splits into the two lots: it is checked whole, through the cost currency of its first lot, the dollar, so
+; it converts and is no error; its activity is that of each lot, the dollar one converted, the pound one left out.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity GBP
+1970-01-01 commodity GOLD
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Gifts
+2024-01-01 open Assets:Vault
+  booking_method: "FIFO"
+  budget: Gold
+
+2024-01-01 budget Gold CNY
+2024-01-01 budget-add Gold 5000 CNY
+
+2024-01-01 price USD 7.10 CNY
+2024-01-01 price GOLD 300 USD
+
+2024-01-02 * "Dealer" "a bar at a cost in dollars"
+  Assets:Vault 1 GOLD {300 USD}
+  Assets:Bank -300 USD
+
+2024-01-03 * "Dealer" "a bar at a cost in pounds, which nothing converts"
+  Assets:Vault 1 GOLD {250 GBP}
+  Assets:Bank -250 GBP
+
+2024-02-01 * "Friend" "both bars given away in one posting, booked from the two lots"
+  Assets:Vault -2 GOLD {}
+  Expenses:Gifts 300 USD
+  Expenses:Gifts 250 GBP

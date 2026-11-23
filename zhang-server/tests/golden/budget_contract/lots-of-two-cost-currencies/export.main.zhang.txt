@@ -1,0 +1,13 @@
+; the budget directives of main.zhang and the opens linking accounts to budgets, as written, file after file
+; ---- written as zhang
+2024-01-01 open Assets:Vault
+  booking_method: "FIFO"
+  budget: Gold
+2024-01-01 budget Gold CNY
+2024-01-01 budget-add Gold 5000 CNY
+; ---- written as beancount
+2024-01-01 open Assets:Vault
+  booking_method: "FIFO"
+  budget: "Gold"
+2024-01-01 custom "budget" "Gold" "CNY"
+2024-01-01 custom "budget-add" "Gold" 5000 CNY

@@ -861,6 +861,7 @@ cases! {
     budget_contract_months => "months",
     budget_contract_months_of_a_past_clock => "months-of-a-past-clock",
     budget_contract_months_and_a_date_typo => "months-and-a-date-typo",
+    budget_contract_lots_of_two_cost_currencies => "lots-of-two-cost-currencies",
 }
 
 /// Every case, with the budget analyzer of the SDK's examples computing the budgets instead of the native code: the

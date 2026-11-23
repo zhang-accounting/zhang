@@ -673,17 +673,32 @@ function M.analyze(input)
           .. " + posting_index) AS first WHERE " .. member .. " AND (" .. early .. ") GROUP BY kind, account", params).rows,
           function(row) return (row[1] == 1 or row[1] == true) and "BudgetDoesNotExist" or "BudgetClosed" end)
       end
-      -- the postings as written in another commodity that no price converts, once every price is known
+      -- the postings as written in another commodity that no price converts, once every price is known. A posting
+      -- as written is checked whole, its booked lots summed, through the cost currency of its first lot, as the native
+      -- check does; only one with a lot that does not convert can fail so, and zhang.convert decides
       if not budget.converts then
         local mismatches = zhang.query_params(
-          "SELECT seq, posting_index, account, currency, sum(number) AS units WHERE " .. member
-            .. " AND seq > :defined_seq" .. (closed and " AND NOT " .. closed or "")
-            .. " AND currency != :commodity AND currency(convert(position, :commodity, date)) != :commodity"
-            .. " GROUP BY seq, posting_index, account, currency", params).rows
+          "SELECT seq, posting_index, account, currency, sum(number) AS units, first(cost_currency) AS via, date WHERE "
+            .. member .. " AND seq > :defined_seq" .. (closed and " AND NOT " .. closed or "")
+            .. " AND currency != :commodity GROUP BY seq, posting_index, account, currency, date"
+            .. " HAVING count(CASE WHEN currency(convert(position, :commodity, date)) != :commodity THEN 1 END) > 0",
+          params).rows
+        local unconverted, whole = {}, {}
         for _, row in ipairs(mismatches) do
           if not d.is_zero(row[5]) then
-            after_fold[#after_fold + 1] = { seq = row[1], at = row[2], budget = name,
-              metas = { budget_name = name, commodity = row[4], budget_commodity = commodity, account_name = row[3] } }
+            unconverted[#unconverted + 1] = row
+            whole[#whole + 1] = { amount = { number = row[5], currency = row[4] }, target = commodity, date = row[7],
+              via = row[6] ~= null and row[6] or nil }
+          end
+        end
+        for start = 1, #whole, 10000 do
+          local batch = { table.unpack(whole, start, math.min(start + 9999, #whole)) }
+          for index, converted in ipairs(zhang.convert(batch)) do
+            if converted == null then
+              local row = unconverted[start + index - 1]
+              after_fold[#after_fold + 1] = { seq = row[1], at = row[2], budget = name,
+                metas = { budget_name = name, commodity = row[4], budget_commodity = commodity, account_name = row[3] } }
+            end
           end
         end
       end
