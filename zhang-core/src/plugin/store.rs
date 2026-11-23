@@ -95,10 +95,16 @@ impl PluginStore {
         let manifest = settings(&declaration, occurrence, options, script.as_ref(), &policy);
         // the compiled code of the module outlives the load, whatever the plugin's settings: the next load of the same
         // module, by any plugin, reuses it (the Lua interpreter, by every script). A default plugin's runtime, and what
-        // it declared, outlive the load too, for the next load of the same module with the same settings
+        // it declared, outlive the load too, for the next load of the same module with the same settings. A script runs
+        // on the interpreter, the server's module; a wasm module is the ledger's own, and its code is kept while a
+        // loaded ledger runs it
+        let owner = match script {
+            Some(_) => super::cache::Owner::Server,
+            None => super::cache::Owner::Ledger,
+        };
         let runtime = match shared {
             true => super::cache::runtime(module_bytes, &manifest),
-            false => Arc::new(PluginRuntime::of(super::cache::code(module_bytes))),
+            false => Arc::new(PluginRuntime::of(super::cache::code(module_bytes, owner))),
         };
 
         // what a default plugin declares is read once for its runtime, which is kept for its module and its settings
