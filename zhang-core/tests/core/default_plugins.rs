@@ -153,6 +153,69 @@ fn what_configures_nothing_of_zhang_budget_says_so() {
     assert_eq!(kinds, [ErrorKind::PluginsDisabled, ErrorKind::PluginsDisabled, ErrorKind::ExtensionUnavailable]);
 }
 
+/// `zhang:budget` has no options either when the embedder registers its bundled script (RFC #698's test switch, until
+/// P3.3): the directive naming it configures nothing, and says so as for the native provider, and the script runs as
+/// without its metas, while its errors go on that directive.
+#[cfg(feature = "plugin_runtime")]
+#[test]
+fn the_budget_script_has_no_options_either() {
+    use zhang_core::analysis::{DefaultPlugin, LoadOptions};
+
+    let dir = tempfile::tempdir().unwrap();
+    let header = "plugin \"zhang:budget\" \"monthly\"\n  timeout: \"5s\"\n  allowed_hosts: \"a.example\"\n  allowed_hosts: \"b.example\"\nplugin \"zhang:budget\"\n  timeout: \"9s\"\n";
+    std::fs::write(dir.path().join("main.zhang"), format!("{header}{LEDGER}")).unwrap();
+    let options = LoadOptions {
+        default_plugins: vec![DefaultPlugin::budget()],
+        ..LoadOptions::with_policy(Arc::new(PluginPolicy::default()))
+    };
+    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+    let ledger = Ledger::load_with_options(dir.path().to_path_buf(), "main.zhang".to_owned(), source, Clock::System, options).unwrap();
+    let native = load(dir.path(), &format!("{header}{LEDGER}"), PluginLevel::Read);
+    assert_eq!(configures_nothing(&ledger), configures_nothing(&native));
+    assert_eq!(configures_nothing(&ledger).len(), 4);
+    let (script, _) = &ledger.plugins.ordered[0];
+    assert!(script.is_default() && script.is_budget_provider() && script.script().is_some());
+    assert_eq!(
+        script.capabilities().timeout,
+        zhang_core::plugin::capabilities::PluginCapabilities::default().timeout,
+        "the directive's timeout does not apply"
+    );
+    assert_eq!(script.span().line, Some(1), "its errors go on the first directive naming it");
+}
+
+/// `ZHANG_PLUGINS=off` stops `zhang:budget` when the embedder registers its bundled script too: nothing registers, the
+/// fold runs no budget check, and the ledger says once that its budgets are not interpreted, exactly as with the native
+/// provider, whatever the ledger says about plugins.
+#[cfg(feature = "plugin_runtime")]
+#[test]
+fn plugins_off_stop_the_budget_script_as_they_stop_the_native_budgets() {
+    use zhang_core::analysis::{DefaultPlugin, LoadOptions};
+
+    let dir = tempfile::tempdir().unwrap();
+    for header in headers() {
+        let content = format!("{header}{LEDGER}");
+        std::fs::write(dir.path().join("main.zhang"), &content).unwrap();
+        let options = LoadOptions {
+            default_plugins: vec![DefaultPlugin::budget()],
+            ..LoadOptions::with_policy(Arc::new(PluginPolicy {
+                level: PluginLevel::Off,
+                ..PluginPolicy::default()
+            }))
+        };
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let script = Ledger::load_with_options(dir.path().to_path_buf(), "main.zhang".to_owned(), source, Clock::System, options).unwrap();
+        let native = load(dir.path(), &content, PluginLevel::Off);
+        assert!(script.plugins.ordered.is_empty(), "{header:?}");
+        assert_eq!(errors(&script, &header), errors(&native, &header), "{header:?}");
+        let unavailable = errors(&script, &header)
+            .into_iter()
+            .filter(|(kind, _)| *kind == ErrorKind::ExtensionUnavailable)
+            .count();
+        assert_eq!(unavailable, 1, "{header:?}");
+        assert_eq!(script.extensions.unavailable("zhang:budget"), native.extensions.unavailable("zhang:budget"));
+    }
+}
+
 #[test]
 fn a_ledger_without_budgets_has_nothing_to_say_with_plugins_off() {
     let dir = tempfile::tempdir().unwrap();
