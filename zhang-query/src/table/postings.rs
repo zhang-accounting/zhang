@@ -180,10 +180,9 @@ impl<'a> Dataset<'a> {
         // the cached entry of the last row
         let mut current: Option<u32> = None;
         let selection = (0..count).map(|idx| selected.as_ref().map_or(idx, |rows| rows[idx] as usize));
-        for idx in selection {
-            let cached: &'a CachedRow = &postings.rows[idx];
+        for (cached, cached_entry, heads) in postings.at(selection) {
+            let cached: &'a CachedRow = cached;
             if current != Some(cached.entry) {
-                let cached_entry = &postings.entries[cached.entry as usize];
                 // the cache keeps transaction directives only
                 let Directive::Transaction(parsed) = &ledger.directives[cached_entry.parsed as usize].data else {
                     continue;
@@ -192,7 +191,7 @@ impl<'a> Dataset<'a> {
                     id: cached_entry.id,
                     datetime: cached_entry.datetime,
                     parsed: MaybeOwned::Borrowed(parsed),
-                    heads: Cow::Borrowed(postings.heads_of(cached_entry)),
+                    heads: Cow::Borrowed(heads),
                     date: cached_entry.date,
                     seq: cached_entry.entry,
                     errors: cached_entry.entry.and_then(|seq| entry_errors[seq as usize].as_ref()),

@@ -642,8 +642,7 @@ fn activity<'a>(
                     *activity.entry((budget.name, month)).or_insert_with(BigDecimal::zero) += sum;
                 }
             };
-            for row in rows.iter().map(|idx| &postings.rows[*idx as usize]) {
-                let entry = &postings.entries[row.entry as usize];
+            for (row, entry, _) in postings.at(rows.iter().map(|idx| *idx as usize)) {
                 let posting = BudgetPosting {
                     account,
                     at: entry.date.and_time(entry.datetime.time()),
