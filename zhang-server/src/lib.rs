@@ -912,8 +912,13 @@ async fn run_app(app: ServerApp, stop: impl Future<Output = ()> + Send + 'static
     Ok(())
 }
 
-/// How long a stop waits for the requests in progress, below the 10 seconds `docker stop` waits before it kills
+/// How long a stop waits for the requests in progress. With [`EXIT_GRACE`], a stop takes at most 7 seconds, below the
+/// 10 seconds `docker stop` waits before it kills
 pub const STOP_GRACE: Duration = Duration::from_secs(5);
+
+/// How long the binary waits, once the server returned, for the blocking work still running (a reload with plugins,
+/// up to their timeout; a long query; a plugin call) before it exits and leaves it
+pub const EXIT_GRACE: Duration = Duration::from_secs(2);
 
 /// Serves `router` on `listener` until `stop` resolves, then stops gracefully: it accepts no new connection, lets the
 /// requests in progress finish, so that a write to the ledger's files is not cut off halfway, and returns once they

@@ -290,59 +290,104 @@ fn init_logger() {
     logger.init();
 }
 
-/// Resolves once the process is asked to stop: on SIGINT (Ctrl+C) and, on Unix, on SIGTERM, the signal `docker stop`,
-/// Kubernetes and systemd send. A signal that cannot be listened for is logged and never resolves.
-async fn stop_signal() {
-    let interrupt = async {
-        match tokio::signal::ctrl_c().await {
-            Ok(()) => "SIGINT",
-            Err(e) => {
-                log::warn!("cannot listen for SIGINT: {e}");
-                std::future::pending().await
-            }
-        }
-    };
+/// The stop signals: SIGINT (Ctrl+C) and, on Unix, SIGTERM, the signal `docker stop`, Kubernetes and systemd send.
+/// Each is listened for from [`StopSignals::listen`] on, so that none sent between two receptions is missed.
+struct StopSignals {
     #[cfg(unix)]
-    let terminate = async {
-        use tokio::signal::unix::{signal, SignalKind};
-        match signal(SignalKind::terminate()) {
-            Ok(mut terminate) => {
-                terminate.recv().await;
-                "SIGTERM"
-            }
-            Err(e) => {
-                log::warn!("cannot listen for SIGTERM: {e}");
-                std::future::pending().await
-            }
-        }
-    };
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<&str>();
-    let signal = tokio::select! {
-        signal = interrupt => signal,
-        signal = terminate => signal,
-    };
-    info!("received {signal}, stopping: no new connections, the requests in progress finish");
+    interrupt: Option<tokio::signal::unix::Signal>,
+    #[cfg(unix)]
+    terminate: Option<tokio::signal::unix::Signal>,
 }
 
-#[tokio::main]
-async fn main() -> ExitCode {
+impl StopSignals {
+    /// Listens for the stop signals; one that cannot be listened for is logged, and never received.
+    fn listen() -> Self {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let listen = |kind: SignalKind, name: &str| match signal(kind) {
+                Ok(signal) => Some(signal),
+                Err(e) => {
+                    log::warn!("cannot listen for {name}: {e}");
+                    None
+                }
+            };
+            StopSignals {
+                interrupt: listen(SignalKind::interrupt(), "SIGINT"),
+                terminate: listen(SignalKind::terminate(), "SIGTERM"),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            StopSignals {}
+        }
+    }
+
+    /// The next stop signal: its name, and the exit code of a process it ends (128 and its number).
+    async fn recv(&mut self) -> (&'static str, i32) {
+        #[cfg(unix)]
+        {
+            async fn next(signal: &mut Option<tokio::signal::unix::Signal>) {
+                match signal {
+                    Some(signal) => {
+                        signal.recv().await;
+                    }
+                    None => std::future::pending().await,
+                }
+            }
+            tokio::select! {
+                () = next(&mut self.interrupt) => ("SIGINT", 130),
+                () = next(&mut self.terminate) => ("SIGTERM", 143),
+            }
+        }
+        #[cfg(not(unix))]
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => ("Ctrl+C", 130),
+            Err(e) => {
+                log::warn!("cannot listen for Ctrl+C: {e}");
+                std::future::pending().await
+            }
+        }
+    }
+}
+
+/// Resolves once the process is asked to stop ([`StopSignals`]). A second signal while the stop is in progress exits at
+/// once, with the code of a process the signal ended (130 for SIGINT, 143 for SIGTERM).
+async fn stop_signal() {
+    let mut signals = StopSignals::listen();
+    let (signal, _) = signals.recv().await;
+    info!("received {signal}, stopping: no new connections, the requests in progress finish; send it again to exit at once");
+    tokio::spawn(async move {
+        let (signal, code) = signals.recv().await;
+        log::warn!("received {signal} again, exiting at once");
+        std::process::exit(code);
+    });
+}
+
+fn main() -> ExitCode {
     // console_subscriber::init();
     allocator::install();
     init_logger();
     let opts = Opts::parse();
 
-    match opts.run(stop_signal()).await {
-        Ok(()) => {
-            println!("operation completed");
-            ExitCode::SUCCESS
+    // the runtime `#[tokio::main]` builds, shut down with a deadline: dropped, it would wait for the blocking work still
+    // running however long it takes, past the grace of a stop
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().expect("the tokio runtime");
+    let code = runtime.block_on(async {
+        match opts.run(stop_signal()).await {
+            Ok(()) => {
+                println!("operation completed");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                // on stderr whatever the log filter is: a command that fails must say why (#491)
+                eprintln!("error: {e}");
+                ExitCode::FAILURE
+            }
         }
-        Err(e) => {
-            // on stderr whatever the log filter is: a command that fails must say why (#491)
-            eprintln!("error: {e}");
-            ExitCode::FAILURE
-        }
-    }
+    });
+    runtime.shutdown_timeout(zhang_server::EXIT_GRACE);
+    code
 }
 
 #[cfg(test)]
