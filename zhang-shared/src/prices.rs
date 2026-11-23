@@ -3,7 +3,7 @@
 //! A pair keeps the latest price on or before a date, or its latest price with no
 //! date. Same-day prices keep the last one. Opposite histories merge into the
 //! direction with more points (the first seen on a tie); the other direction reads
-//! their inverses, computed once when the map is built, skipping zero prices.
+//! their inverses, skipping zero prices, each computed the first time it is read.
 //! Decimal division and valuation products follow Python's 28 significant digits
 //! and half-even rounding.
 //!
@@ -11,8 +11,9 @@
 //! conversion policies.
 
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
-use bigdecimal::{BigDecimal, One};
+use bigdecimal::{BigDecimal, One, Zero};
 use chrono::NaiveDate;
 
 use crate::decimal::div;
@@ -22,11 +23,43 @@ type History = Vec<(NaiveDate, BigDecimal)>;
 /// Exchange rates between commodities, reconciled into one history per pair.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct PriceMap {
-    rates: HashMap<String, HashMap<String, History>>,
-    /// the inverse of every history of `rates`, by quote then base: each non-zero rate inverted once, here, rather
-    /// than at every lookup of the opposite pair (a division of 28 digits per posting a query converts)
-    inverted: HashMap<String, HashMap<String, History>>,
+    rates: HashMap<String, HashMap<String, Pair>>,
 }
+
+/// The history of one pair, and the inverses of its rates, each computed the first time the opposite pair reads it and
+/// kept: a division of 28 digits, which a query converting every posting through the opposite pair would otherwise
+/// repeat for each one. Nothing is inverted for a pair never read the other way, so a map of many prices costs no more
+/// to build than its history.
+#[derive(Debug, Clone, Default)]
+struct Pair {
+    history: History,
+    /// `1 / rate` of each point of `history`, `None` for a zero rate; the cells are made at the first such read
+    inverses: OnceLock<Box<[OnceLock<Option<BigDecimal>>]>>,
+}
+
+impl Pair {
+    fn new(history: History) -> Pair {
+        Pair {
+            history,
+            inverses: OnceLock::new(),
+        }
+    }
+
+    /// the inverse of the rate at `at` of the history
+    fn inverse(&self, at: usize) -> Option<&BigDecimal> {
+        let inverses = self.inverses.get_or_init(|| self.history.iter().map(|_| OnceLock::new()).collect());
+        inverses[at].get_or_init(|| invert(&self.history[at].1)).as_ref()
+    }
+}
+
+/// Two pairs are equal by their history: the inverses are a function of it, whichever were read.
+impl PartialEq for Pair {
+    fn eq(&self, other: &Pair) -> bool {
+        self.history == other.history
+    }
+}
+
+impl Eq for Pair {}
 
 impl PriceMap {
     /// build from `(date, base, quote, rate)` points in stream order
@@ -43,7 +76,7 @@ impl PriceMap {
 
         // a pair quoted in both directions keeps the direction with more prices (the first seen on a tie), and the
         // other one is inverted into it, after the kept prices
-        let mut rates: HashMap<String, HashMap<String, History>> = HashMap::new();
+        let mut rates: HashMap<String, HashMap<String, Pair>> = HashMap::new();
         for key in first_seen {
             let Some(points) = forward.remove(&key) else {
                 continue;
@@ -70,16 +103,9 @@ impl PriceMap {
                     _ => deduped.push((date, rate)),
                 }
             }
-            rates.entry(base).or_default().insert(quote, deduped);
+            rates.entry(base).or_default().insert(quote, Pair::new(deduped));
         }
-        let mut inverted: HashMap<String, HashMap<String, History>> = HashMap::new();
-        for (base, quotes) in &rates {
-            for (quote, history) in quotes {
-                let inverse = history.iter().filter_map(|(date, rate)| Some((*date, invert(rate)?))).collect();
-                inverted.entry(quote.clone()).or_default().insert(base.clone(), inverse);
-            }
-        }
-        PriceMap { rates, inverted }
+        PriceMap { rates }
     }
 
     /// Whether the map has no prices.
@@ -93,12 +119,14 @@ impl PriceMap {
         if base == quote {
             return Some(BigDecimal::one());
         }
-        if let Some(history) = self.rates.get(base).and_then(|quotes| quotes.get(quote)) {
-            return latest(history, date).cloned();
+        if let Some(pair) = self.rates.get(base).and_then(|quotes| quotes.get(quote)) {
+            return latest(&pair.history, date).cloned();
         }
-        // the opposite pair's latest non-zero rate, inverted: the zero rates are not in the inverse history
-        let history = self.inverted.get(base).and_then(|bases| bases.get(quote))?;
-        latest(history, date).cloned()
+        // the opposite pair's latest non-zero rate, inverted (a zero rate has no inverse), the inverse computed once
+        let pair = self.rates.get(quote).and_then(|bases| bases.get(base))?;
+        let end = date.map_or(pair.history.len(), |date| pair.history.partition_point(|(day, _)| *day <= date));
+        let at = pair.history[..end].iter().rposition(|(_, rate)| !rate.is_zero())?;
+        pair.inverse(at).cloned()
     }
 
     /// The rates that convert `from` to `to` on `date` (the latest ones without a date), as beancount's
@@ -184,6 +212,25 @@ mod tests {
         assert_eq!(prices.rate("CNY", "USD", Some(date("2024-02-15"))), Some(d("0")));
         let only_zero = PriceMap::from_points(vec![(date("2024-01-01"), "CNY", "USD", d("0"))]);
         assert_eq!(only_zero.rate("USD", "CNY", None), None);
+    }
+
+    /// An inverse is computed the first time the opposite pair reads it, from whichever thread reads it first, and
+    /// kept; a map read that way equals one never read so.
+    #[test]
+    fn an_inverse_is_computed_once_for_every_reader() {
+        let points = || vec![(date("2024-01-01"), "CNY", "USD", d("0.14")), (date("2024-02-01"), "CNY", "USD", d("0.125"))];
+        let (read, unread) = (PriceMap::from_points(points()), PriceMap::from_points(points()));
+        let rates = std::thread::scope(|scope| {
+            let readers = (0..4)
+                .map(|_| scope.spawn(|| read.rate("USD", "CNY", Some(date("2024-02-15")))))
+                .collect::<Vec<_>>();
+            readers.into_iter().map(|it| it.join().unwrap()).collect::<Vec<_>>()
+        });
+        assert!(rates.iter().all(|it| *it == Some(d("8"))), "{rates:?}");
+        assert_eq!(read, unread);
+        let copy = read.clone();
+        assert_eq!(copy.rate("USD", "CNY", Some(date("2024-01-15"))), Some(d("7.142857142857142857142857143")));
+        assert_eq!(copy.rate("USD", "CNY", Some(date("2024-03-01"))).unwrap().to_string(), "8");
     }
 
     /// A conversion takes the pair's rate, else goes through the cost currency, and needs a price on or before
