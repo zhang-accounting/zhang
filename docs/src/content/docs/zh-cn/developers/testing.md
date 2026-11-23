@@ -70,6 +70,14 @@ sidebar:
 - `the_budget_script_answers_the_reference_figures_on_every_ledger` 在仓库的每个账本上，用 `budget_reference` 的独立计算检查脚本给出的预算页面，就像 `the_handlers_answer_the_reference_figures_on_every_ledger` 检查原生实现那样。设置 `ZHANG_BUDGET_IMPL=plugin`（或 `both`）时，`budget_commodity` 的每个测试（包括手算的小账本）都用脚本加载：`ZHANG_BUDGET_IMPL=plugin cargo nextest run -p zhang-server --test golden -E 'test(/budget_commodity/)'`。
 - `zhang_testkit::budget_parity` 就是 `both`：它用原生实现和脚本各加载一次账本，按服务器提供账本的方式提供，比较按 id 精确的错误、三张预算表、`#postings` 的 `budgets`、错误页以及预算页面的命名查询。`budget_parity::the_bench_ledgers_answer_alike_both_ways` 按需在预算基线的两个账本上运行它：`cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(the_bench_ledgers)'`。
 
+#### 差分模糊测试
+
+`budget_fuzz::budget_fuzz_finds_no_difference` 在按种子生成的账本（`zhang_testkit::budget_fuzz`）上比较两者：这些小账本完全由种子决定，用到每一种预算指令，并以原生代码会报告的每一种方式破坏预算。种子决定时区和时钟（包括过去的时钟）；预算定义得晚、定义两次或从未定义；用其他商品、零、负数或很多位数的金额追加和转移预算，转入或转出未定义的预算；在某个时刻关闭预算或关闭两次；各种类型的账户关联多个预算，并在同一天关闭再重新开启；价格正向或反向报价、从较晚的月份开始、为零或缺失；按批次卖出的持仓；一个 `pad`；恰好在某条预算指令的时刻记账的分录；几十年后或 9999 年的日期笔误（预算足够多，使 `#budgets` 的无界查询因过大而失败）；第二个文件；以及带有它并不具备的选项的 `plugin "zhang:budget"` 指令。每个账本比较按 id 精确的错误、三张表（完整读取和通配符读取）、按年份和截至某月的 `#budgets`、`#postings` 的 `budgets` 及其标签快速路径，以及每个月份和预算的五个命名查询。
+
+- 每次运行测试都会检查种子 1 到 40（debug 构建在 16 核上约 5 秒，在 CI 的 4 核上更久），并断言它们合起来覆盖了生成器能生成的一切，并报告了每一种预算错误。
+- 出现差异时，测试失败并给出种子、它覆盖的内容、第一个差异，以及仍然出现差异的最小账本（在差异仍然存在的前提下删除账本的块，最多三分钟），该账本也会写到 `target/tmp/budget-fuzz/seed-<seed>/`。
+- 其他种子按需运行，用 release 构建更快：`ZHANG_BUDGET_FUZZ_SEEDS=1..=2000 cargo nextest run --release -p zhang-server --test golden -E 'test(budget_fuzz)'`，或者只运行一个种子（`ZHANG_BUDGET_FUZZ_SEEDS=17`）。`ZHANG_BUDGET_FUZZ_KEEP=1` 会把每个种子的账本写到 `target/tmp/budget-fuzz/ledgers/`。
+
 ## 约定
 
 - 测试名是陈述事实的 `snake_case` 句子：`a_pad_books_the_difference_now`、`every_ledger_has_an_oracle`。

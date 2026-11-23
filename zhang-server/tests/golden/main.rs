@@ -3,12 +3,13 @@
 //! independent computation of the budgets gives (`budget_commodity`, with `budget_reference`), and the ids of
 //! transactions and assertions stay what the golden file holds (`transaction_ids`). `budget_contract` freezes what a
 //! client of the budget system sees on hand-written ledgers, the contract of the budget plugin (#698), which the bundled
-//! script `zhang:budget` answers too, and `budget_parity` compares the script with the native budgets on generated
-//! ledgers.
+//! script `zhang:budget` answers too, and `budget_parity` and `budget_fuzz` compare the script with the native budgets on
+//! generated ledgers.
 
 mod accounts;
 mod budget_commodity;
 mod budget_contract;
+mod budget_fuzz;
 mod budget_parity;
 mod budget_reference;
 mod journals;
