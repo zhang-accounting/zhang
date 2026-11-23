@@ -179,11 +179,13 @@ impl<'a> Dataset<'a> {
         let mut rows = Vec::with_capacity(count);
         // the cached entry of the last row
         let mut current: Option<u32> = None;
+        // the rows read part after part, and the transaction of a row when it changes, in the row's part
+        let mut walk = postings.walk();
         let selection = (0..count).map(|idx| selected.as_ref().map_or(idx, |rows| rows[idx] as usize));
         for idx in selection {
-            let cached: &'a CachedRow = &postings.rows[idx];
+            let cached: &'a CachedRow = walk.at(idx);
             if current != Some(cached.entry) {
-                let cached_entry = &postings.entries[cached.entry as usize];
+                let (cached_entry, heads) = walk.entry(cached);
                 // the cache keeps transaction directives only
                 let Directive::Transaction(parsed) = &ledger.directives[cached_entry.parsed as usize].data else {
                     continue;
@@ -192,7 +194,7 @@ impl<'a> Dataset<'a> {
                     id: cached_entry.id,
                     datetime: cached_entry.datetime,
                     parsed: MaybeOwned::Borrowed(parsed),
-                    heads: Cow::Borrowed(postings.heads_of(cached_entry)),
+                    heads: Cow::Borrowed(heads),
                     date: cached_entry.date,
                     seq: cached_entry.entry,
                     errors: cached_entry.entry.and_then(|seq| entry_errors[seq as usize].as_ref()),
