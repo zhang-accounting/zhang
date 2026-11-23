@@ -139,7 +139,7 @@ fn main() -> ExitCode {
     // what `zhang` sets up at startup: how zhang-core gives the allocator's free memory back
     allocator::install();
     // a mistyped mode or number of rounds would measure something else, silently
-    if let Err(error) = Mode::from_env().and_then(|_| rounds()) {
+    if let Err(error) = Mode::from_env().and_then(|_| rounds()).and_then(|_| burden_mib()) {
         eprintln!("{error}");
         return ExitCode::FAILURE;
     }
@@ -212,6 +212,33 @@ fn rounds() -> Result<usize, String> {
             _ => Err(format!("ZHANG_BUDGET_BASELINE_ROUNDS={text}: expect a number of rounds, at least 1")),
         },
     }
+}
+
+/// The synthetic burden of a calibration candidate, `ZHANG_BUDGET_BASELINE_BURDEN_MIB` (0, none, by default): each
+/// round of an end-to-end timer also writes that many MiB of fresh memory and reads them back, after its write, reload
+/// or start and before its page, on the clock. It stands for a candidate that adds memory-bound work to every load,
+/// as the budget plugin's analysis does, to check that the two sides of a pair run at the same time still show the
+/// difference that runs one after the other show (the "Budget Baseline" page, "Calibration").
+fn burden_mib() -> Result<usize, String> {
+    match std::env::var("ZHANG_BUDGET_BASELINE_BURDEN_MIB") {
+        Err(_) => Ok(0),
+        Ok(text) => text
+            .parse::<usize>()
+            .map_err(|_| format!("ZHANG_BUDGET_BASELINE_BURDEN_MIB={text}: expect a number of MiB")),
+    }
+}
+
+/// Write `mib` MiB of fresh memory and read them back: page faults, memory traffic and the caches evicted.
+fn burden(mib: usize) {
+    if mib == 0 {
+        return;
+    }
+    let mut buffer = vec![0_u8; mib << 20];
+    for (index, byte) in buffer.iter_mut().enumerate() {
+        *byte = index as u8;
+    }
+    let sum = buffer.iter().map(|byte| *byte as u64).sum::<u64>();
+    std::hint::black_box((sum, &buffer));
 }
 
 /// the CPUs a run is pinned to with `taskset -c`: `ZHANG_BUDGET_BASELINE_CPUS`, `8-15` by default; `none` pins nothing
@@ -697,6 +724,7 @@ fn identity() -> Value {
         "build": build,
         "commit": std::env::var("ZHANG_BUDGET_BASELINE_COMMIT").ok(),
         "plugins": format!("{:?}", plugin_policy().level).to_lowercase(),
+        "burden_mib": burden_mib().expect("checked at the start"),
     })
 }
 
@@ -1377,6 +1405,7 @@ impl Trigger {
 async fn end_to_end(router: &Router, spec: &Spec, reload_sender: &ReloadSender, dir: &Path, source: &Arc<dyn DataSource>) -> Value {
     // the reload listener logs a skipped reload at the debug level, the watcher its batches at the trace level
     log::set_max_level(log::LevelFilter::Trace);
+    let burden_mib = burden_mib().expect("checked at the start");
     let mut report = serde_json::Map::new();
     for trigger in [Trigger::Write, Trigger::Reload, Trigger::Start] {
         for page in [Page::Budgets, Page::Errors] {
@@ -1393,6 +1422,7 @@ async fn end_to_end(router: &Router, spec: &Spec, reload_sender: &ReloadSender, 
                         let started = Instant::now();
                         let answer = timed(router, json_request(Method::POST, "/api/transactions", &[], Some(&body))).await;
                         assert_eq!(answer.status, StatusCode::OK, "{}", String::from_utf8_lossy(&answer.bytes));
+                        burden(burden_mib);
                         let triggered = started.elapsed();
                         let page_answer = send(router, spec, page.scenario()).await;
                         (started, started.elapsed(), triggered, page_answer)
@@ -1401,6 +1431,7 @@ async fn end_to_end(router: &Router, spec: &Spec, reload_sender: &ReloadSender, 
                         edit(dir, &text);
                         let started = Instant::now();
                         reload_sender.reload_and_wait().await.unwrap_or_else(|failure| panic!("{}", failure.message));
+                        burden(burden_mib);
                         let triggered = started.elapsed();
                         let page_answer = send(router, spec, page.scenario()).await;
                         (started, started.elapsed(), triggered, page_answer)
@@ -1412,6 +1443,7 @@ async fn end_to_end(router: &Router, spec: &Spec, reload_sender: &ReloadSender, 
                         let config = serve_config(dir, MAIN, source.clone(), &Settings::default());
                         let app = create_server_app(config, ledger.clone(), Broadcaster::create(), Arc::new(ReloadSender::new(sender)));
                         let started_router = router_of(app).await;
+                        burden(burden_mib);
                         let triggered = started.elapsed();
                         let page_answer = send(&started_router, spec, page.scenario()).await;
                         let total = started.elapsed();
