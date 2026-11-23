@@ -6,17 +6,26 @@
 //!
 //! - the timezone, the operating currency and the clock of the load: in the ledger's months, after them, or before
 //!   its last transaction;
+//! - on some seeds, a timezone with daylight-saving changes, and directives of every timed kind (postings, budget
+//!   definitions, adds, transfers and closes, account opens and closes) on its change days between 01:00 and 03:59:
+//!   at times the change skips, times it repeats, and the times around them;
 //! - budgets defined at a date or a time, some later than postings to their accounts, some twice (in the same or
 //!   another commodity), some never defined but named by accounts, adds and transfers;
 //! - `budget-add`s in the budget's commodity, in another one a price converts and in one none converts, zero,
 //!   negative, with many digits, at a time; `budget-transfer`s between defined and undefined budgets, in other
 //!   commodities, from a budget to itself; `budget-close`s with and without a time, twice, of an undefined budget;
 //! - accounts of the five types linked to up to three budgets, closed and opened again the same day (at a time or not)
-//!   or the next day with other budgets, and postings around the close;
+//!   or the next day with other budgets, and postings around the close; a budget only accounts of Income, Liabilities
+//!   or Equity (and maybe Assets) count toward, whose postings possign negates;
 //! - prices quoted either way, from a later date on, zero, or not at all (GBP and XAU never have one); shares held at
-//!   cost and sold from their lots; postings at a price, implicit postings, zero postings, two postings of an account
+//!   cost, maybe on a budget's account, and sold from their lots (maybe lots at costs in two currencies, one that
+//!   converts and one that does not, in one posting); postings at a price, implicit postings, zero postings, two postings of an account
 //!   in one transaction; a `pad` and a `balance` on an account of a budget;
-//! - postings at the very instant of a budget directive of their account's budget (a definition, an add, a close);
+//! - on some seeds, amounts and prices of 9 to 28 decimals;
+//! - postings at the very instant of a budget directive of their account's budget (a definition, an add, a close), and
+//!   on the very day a budget is defined or closed;
+//! - a month whose postings to a budget net to zero, on a budget with a posting no price converts (summed as an
+//!   inventory);
 //! - a date typo: a transaction or a budget directive decades ahead, maybe two directives of the budget that day, or
 //!   a transaction in 9999 with a dozen budgets more, so that the unbounded queries of `#budgets` have too many months;
 //! - a second file, and a `plugin "zhang:budget"` directive with options it does not have.
@@ -28,7 +37,8 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use chrono::{DateTime, Datelike, Months, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono::{DateTime, Datelike, LocalResult, Months, NaiveDate, NaiveTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use zhang_core::clock::Clock;
 
 use crate::ledger::Scratch;
@@ -42,6 +52,18 @@ pub const INCLUDED: &str = "more.zhang";
 /// the budget names the ledgers draw from: byte order and name order differ (`Zeta` and `alpha`), and `Ghost` is never
 /// defined
 const NAMES: &[&str] = &["Food", "Fun", "Rent", "Travel", "Zeta", "alpha", "Gifts-2024", "Ghost"];
+/// the budget that only accounts of other types than Expenses count toward, when the seed has one ([`ROOTED_SHAPES`])
+const ROOTED: &str = "Payback";
+/// the accounts the budget [`ROOTED`] may have: Income alone or with Assets (which a budget of debit-normal accounts
+/// only would sum unsigned, were Income debit-normal), Liabilities, Equity
+const ROOTED_SHAPES: &[&[&str]] = &[
+    &["Income:Refund"],
+    &["Income:Refund", "Assets:Cash"],
+    &["Liabilities:Card"],
+    &["Liabilities:Card", "Assets:Cash"],
+    &["Equity:Opening", "Income:Refund"],
+    &["Income:Refund", "Liabilities:Card", "Equity:Opening"],
+];
 /// the expense accounts
 const EXPENSES: &[&str] = &[
     "Expenses:Food",
@@ -56,28 +78,40 @@ const OTHERS: &[&str] = &["Assets:Cash", "Liabilities:Card", "Income:Refund", "E
 /// the commodities: CNY, USD, EUR and JPY have prices, GOLD is held at cost in USD, GBP and XAU never have a price
 const COMMODITIES: &[&str] = &["CNY", "USD", "EUR", "JPY", "GBP", "GOLD", "XAU"];
 const TIMEZONES: &[&str] = &["Asia/Shanghai", "UTC", "America/New_York", "Europe/Berlin", "Pacific/Auckland"];
+/// the timezones of [`TIMEZONES`] with daylight-saving changes, each skipping an hour in spring and repeating one in
+/// autumn between 01:00 and 03:00
+const DST_TIMEZONES: &[&str] = &["America/New_York", "Europe/Berlin", "Pacific/Auckland"];
 
 /// Everything a seed may exercise ([`FuzzLedger::exercised`]): the seeds of a run together exercise all of it.
 pub const FEATURES: &[&str] = &[
     "a budget closed at a time",
+    "a budget closed at a time a DST change skips",
     "a budget closed twice",
     "a budget defined after postings to its accounts",
     "a budget defined twice",
     "a budget named but never defined",
     "a budget of an account of another type than Expenses",
+    "a budget of no Expenses account, with Income, Liabilities or Equity ones",
     "a budget-add of an undefined budget",
     "a budget-close of an undefined budget",
     "a clock before the last transaction",
     "a commodity without prices",
     "a date typo",
     "a date typo in 9999, too many months for #budgets",
+    "a month whose postings net to zero, on a budget with a posting no price converts",
     "a negative amount",
     "a pad and a balance on an account of a budget",
     "a plugin directive naming zhang:budget",
     "a posting at the instant of a budget directive",
     "a posting at a price",
     "a posting no price converts",
+    "a posting on the day a budget closes",
+    "a posting on the day a budget is defined",
+    "a price of 9 to 28 decimals",
+    "a sale from lots at costs in two currencies",
     "a second file",
+    "a time a DST change repeats",
+    "a time a DST change skips",
     "a transfer between undefined budgets",
     "a transfer from a budget to itself",
     "a zero amount",
@@ -86,10 +120,12 @@ pub const FEATURES: &[&str] = &[
     "an account closed and opened again the same day",
     "an account opened later",
     "an amount in another commodity",
+    "an amount of 9 to 28 decimals",
     "an amount of many digits",
     "prices from a later month on",
     "shares held at cost and sold from their lots",
     "two directives of a budget at its last date",
+    "two directives of a budget at its last date, which a too large #budgets names",
     "two postings of an account in one transaction",
 ];
 
@@ -119,24 +155,42 @@ pub struct FuzzLedger {
     pub exercised: BTreeSet<&'static str>,
 }
 
-/// A date as zhang writes one, with its time when it has one.
-fn stamp(date: NaiveDate, time: Option<NaiveTime>) -> String {
-    match time {
-        Some(time) => format!("{date} {}", time.format("%H:%M:%S")),
-        None => date.to_string(),
+/// What a daylight-saving change does to a time of the day it happens on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Change {
+    /// the clocks jump over it: zhang reads it as the instant an hour later
+    Skipped,
+    /// the clocks go through it twice: zhang reads it as the earlier instant
+    Repeated,
+    /// a time around the change that happens once
+    Around,
+}
+
+/// What the timezone `timezone` does to the time `time` of `date`: `None` for a time of a day without a change.
+fn change_at(timezone: Tz, date: NaiveDate, time: NaiveTime) -> Option<Change> {
+    match timezone.from_local_datetime(&date.and_time(time)) {
+        LocalResult::None => Some(Change::Skipped),
+        LocalResult::Ambiguous(..) => Some(Change::Repeated),
+        LocalResult::Single(_) => None,
     }
 }
 
-/// A number of `units` hundredths written with 0 to 3 decimals, as the seed picks: `12`, `12.5`, `12.50`, `12.500`.
-fn number(random: &mut XorShift, hundredths: i64) -> String {
-    let (sign, magnitude) = if hundredths < 0 { ("-", -hundredths) } else { ("", hundredths) };
-    let (whole, cents) = (magnitude / 100, magnitude % 100);
-    match random.below(4) {
-        0 if cents == 0 => format!("{sign}{whole}"),
-        1 if cents % 10 == 0 => format!("{sign}{whole}.{}", cents / 10),
-        3 => format!("{sign}{whole}.{cents:02}0"),
-        _ => format!("{sign}{whole}.{cents:02}"),
+/// The times between 01:00 and 03:59 of the days from `first` to before `until` on which `timezone` changes its
+/// clocks, each with what the change does to it: every quarter of an hour, and the last second before 02:00 and 03:00.
+fn change_times(timezone: Tz, first: NaiveDate, until: NaiveDate) -> Vec<(NaiveDate, NaiveTime, Change)> {
+    let mut times = (1..4)
+        .flat_map(|hour| (0..4).map(move |quarter| NaiveTime::from_hms_opt(hour, 15 * quarter, 0).expect("a time")))
+        .collect::<Vec<_>>();
+    times.extend([1, 2].map(|hour| NaiveTime::from_hms_opt(hour, 59, 59).expect("a time")));
+    times.sort();
+    let mut found = vec![];
+    for date in first.iter_days().take_while(|date| *date < until) {
+        let changes = times.iter().map(|time| change_at(timezone, date, *time)).collect::<Vec<_>>();
+        if changes.iter().any(Option::is_some) {
+            found.extend(times.iter().zip(changes).map(|(time, change)| (date, *time, change.unwrap_or(Change::Around))));
+        }
     }
+    found
 }
 
 struct Generator {
@@ -153,8 +207,20 @@ struct Generator {
     links: Vec<(&'static str, &'static str)>,
     /// the instants of the budget directives, with their budget: where a posting is a tie
     instants: Vec<(NaiveDate, Option<NaiveTime>, &'static str)>,
+    /// the first definition and the first close of each budget: the days a posting is a boundary of
+    definition_days: Vec<(NaiveDate, Option<NaiveTime>, &'static str)>,
+    close_days: Vec<(NaiveDate, Option<NaiveTime>, &'static str)>,
     /// whether the ledger is split in two files
     split: bool,
+    /// the ledger's timezone
+    timezone: Tz,
+    /// on a seed of daylight-saving changes, the times of the change days of the ledger's months the timed directives
+    /// may take ([`change_times`]); empty on other seeds
+    changes: Vec<(NaiveDate, NaiveTime, Change)>,
+    /// whether amounts and prices may have 9 to 28 decimals
+    long_decimals: bool,
+    /// the accounts that count toward [`ROOTED`], when the seed has that budget
+    rooted: &'static [&'static str],
 }
 
 impl Generator {
@@ -186,6 +252,40 @@ impl Generator {
         })
     }
 
+    /// `date` and `time`, or `percent` times in a hundred on a seed of daylight-saving changes, a time of a change day
+    /// from `not_before` on: mostly one the change skips or repeats, else one around it
+    fn when(&mut self, date: NaiveDate, time: Option<NaiveTime>, percent: usize, not_before: NaiveDate) -> (NaiveDate, Option<NaiveTime>) {
+        if self.changes.is_empty() || !self.random.chance(percent) {
+            return (date, time);
+        }
+        let around = self.random.chance(25);
+        let candidates = self
+            .changes
+            .iter()
+            .filter(|(day, _, change)| *day >= not_before && (around || *change != Change::Around))
+            .map(|(day, time, _)| (*day, *time))
+            .collect::<Vec<_>>();
+        if candidates.is_empty() {
+            return (date, time);
+        }
+        let (day, time) = *self.random.pick(&candidates);
+        (day, Some(time))
+    }
+
+    /// A date as zhang writes one, with its time when it has one, noting a time a daylight-saving change skips or
+    /// repeats.
+    fn stamp(&mut self, date: NaiveDate, time: Option<NaiveTime>) -> String {
+        let Some(time) = time else {
+            return date.to_string();
+        };
+        match change_at(self.timezone, date, time) {
+            Some(Change::Skipped) => self.note("a time a DST change skips"),
+            Some(Change::Repeated) => self.note("a time a DST change repeats"),
+            _ => {}
+        }
+        format!("{date} {}", time.format("%H:%M:%S"))
+    }
+
     fn push(&mut self, date: NaiveDate, text: String) {
         let tie = self.random.next() >> 1;
         let file = usize::from(self.split && self.random.chance(30));
@@ -194,6 +294,41 @@ impl Generator {
 
     fn name(&mut self) -> &'static str {
         self.random.pick(NAMES)
+    }
+
+    /// `count` random digits
+    fn digits(&mut self, count: usize) -> String {
+        (0..count).map(|_| char::from(b'0' + self.random.below(10) as u8)).collect()
+    }
+
+    /// A number of `hundredths` written with 0 to 3 decimals, as the seed picks: `12`, `12.5`, `12.50`, `12.500`; or,
+    /// on a seed of long decimals, with 9 to 28 (more digits than the hundredths, unless they are zero).
+    fn number(&mut self, hundredths: i64) -> String {
+        let (sign, magnitude) = if hundredths < 0 { ("-", -hundredths) } else { ("", hundredths) };
+        let (whole, cents) = (magnitude / 100, magnitude % 100);
+        if self.long_decimals && self.random.chance(30) {
+            self.note("an amount of 9 to 28 decimals");
+            let count = 7 + self.random.below(20);
+            let more = if magnitude == 0 { "0".repeat(count) } else { self.digits(count) };
+            return format!("{sign}{whole}.{cents:02}{more}");
+        }
+        match self.random.below(4) {
+            0 if cents == 0 => format!("{sign}{whole}"),
+            1 if cents % 10 == 0 => format!("{sign}{whole}.{}", cents / 10),
+            3 => format!("{sign}{whole}.{cents:02}0"),
+            _ => format!("{sign}{whole}.{cents:02}"),
+        }
+    }
+
+    /// A price of `hundredths`: `7.10`, or on a seed of long decimals, maybe with 9 to 28 decimals.
+    fn price(&mut self, hundredths: i64) -> String {
+        let text = format!("{}.{:02}", hundredths / 100, hundredths % 100);
+        if self.long_decimals && self.random.chance(40) {
+            self.note("a price of 9 to 28 decimals");
+            let count = 7 + self.random.below(20);
+            return format!("{text}{}", self.digits(count));
+        }
+        text
     }
 
     /// an amount for a budget in `commodity`: mostly in it, else in another commodity, maybe one no price converts
@@ -226,13 +361,19 @@ impl Generator {
         let text = if currency == "JPY" {
             (hundredths / 100).to_string()
         } else {
-            number(&mut self.random, hundredths)
+            self.number(hundredths)
         };
         format!("{text} {currency}")
     }
 
     fn options(&mut self, now: &mut DateTime<Utc>) -> String {
-        let timezone = *self.random.pick(TIMEZONES);
+        // a seed of daylight-saving changes: a timezone that has them, and the timed directives on its change days
+        let changes = self.random.chance(30);
+        let timezone = *self.random.pick(if changes { DST_TIMEZONES } else { TIMEZONES });
+        self.timezone = timezone.parse().expect("a timezone");
+        if changes {
+            self.changes = change_times(self.timezone, self.first, self.first + Months::new(self.months));
+        }
         let operating = *self.random.pick(&["CNY", "USD"]);
         let mut header = format!("option \"operating_currency\" \"{operating}\"\noption \"timezone\" \"{timezone}\"\n");
         for commodity in COMMODITIES {
@@ -288,7 +429,7 @@ impl Generator {
                     "0".to_owned()
                 } else {
                     let wobble = rate * (95 + self.random.below(11) as i64) / 100;
-                    format!("{}.{:02}", wobble / 100, wobble % 100)
+                    self.price(wobble)
                 };
                 self.push(date, format!("{date} price {base} {rate} {quote}\n"));
             }
@@ -320,41 +461,88 @@ impl Generator {
             let mut text = format!("{before} open {account}\n");
             if account == "Assets:Broker" {
                 text.push_str("  booking_method: \"FIFO\"\n");
+                // the account of the shares held at cost, sometimes a budget's
+                if self.random.chance(50) {
+                    let metas = self.budget_metas(account, 2);
+                    text.push_str(&metas);
+                }
             }
             self.push(before, text);
         }
         for account in EXPENSES.iter().chain(OTHERS).copied() {
+            let rooted = self.rooted.contains(&account);
             let linked = EXPENSES.contains(&account) || self.random.chance(35);
-            if linked && !EXPENSES.contains(&account) {
+            if (linked || rooted) && !EXPENSES.contains(&account) {
                 self.note("a budget of an account of another type than Expenses");
             }
-            // most accounts are open from the start; some from a later day
-            let opened = if self.random.chance(15) {
+            // most accounts are open from the start; some from a later day, maybe at a time of a daylight-saving change
+            let (opened, open_time) = if self.random.chance(15) {
                 self.note("an account opened later");
-                self.any_day()
+                let day = self.any_day();
+                self.when(day, None, 30, day)
             } else {
-                before
+                (before, None)
             };
-            let metas = if linked { self.budget_metas(account, 3) } else { String::new() };
-            self.push(opened, format!("{opened} open {account}\n{metas}"));
+            let mut metas = if linked { self.budget_metas(account, 3) } else { String::new() };
+            if rooted {
+                self.links.push((account, ROOTED));
+                writeln!(metas, "  budget: \"{ROOTED}\"").expect("a string");
+            }
+            let open = self.stamp(opened, open_time);
+            self.push(opened, format!("{open} open {account}\n{metas}"));
             // closed, and opened again with other budgets the same day or the next
             if linked && self.random.chance(25) {
-                let close = self.any_day().max(opened);
+                let day = self.any_day().max(opened);
                 let time = self.time(40);
+                let (close, time) = self.when(day, time, 30, opened.succ_opt().expect("a date"));
                 let again = if self.random.chance(70) {
                     self.note("an account closed and opened again the same day");
                     close
                 } else {
                     close.succ_opt().expect("a date")
                 };
-                self.push(close, format!("{} close {account}\n", stamp(close, time)));
+                let text = format!("{} close {account}\n", self.stamp(close, time));
+                self.push(close, text);
                 let metas = self.budget_metas(account, 3);
                 let reopen_time = if again == close { time.or(self.time(30)) } else { None };
                 // after the close, in its file, among the blocks of its day
                 let file = self.blocks.last().map_or(0, |(_, _, block)| block.file);
-                let text = format!("{} open {account}\n{metas}", stamp(again, reopen_time));
+                let text = format!("{} open {account}\n{metas}", self.stamp(again, reopen_time));
                 self.blocks.push((again, u64::MAX, Block { file, text }));
             }
+        }
+    }
+
+    /// the `budget` directive of `name`, and maybe a second one
+    fn define(&mut self, name: &'static str) {
+        let commodity = *self.random.pick(&["CNY", "CNY", "USD", "EUR", "JPY", "GBP"]);
+        let date = if self.random.chance(70) {
+            self.first
+        } else {
+            self.note("a budget defined after postings to its accounts");
+            self.any_day()
+        };
+        let time = self.time(20);
+        let (date, time) = self.when(date, time, 10, self.first);
+        self.instants.push((date, time, name));
+        self.definition_days.push((date, time, name));
+        let mut text = format!("{} budget {name} {commodity}\n", self.stamp(date, time));
+        if self.random.chance(40) {
+            writeln!(text, "  alias: \"The {name}\"").expect("a string");
+        }
+        if self.random.chance(40) {
+            writeln!(text, "  category: \"{}\"", self.random.pick(&["Home", "Leisure"])).expect("a string");
+        }
+        if self.random.chance(20) {
+            text.push_str("  note: \"kept\"\n");
+        }
+        self.push(date, text);
+        self.defined.push((name, commodity));
+        if self.random.chance(12) {
+            self.note("a budget defined twice");
+            let again = self.any_day();
+            let other = *self.random.pick(&["CNY", "USD", commodity]);
+            self.push(again, format!("{again} budget {name} {other}\n"));
         }
     }
 
@@ -364,33 +552,11 @@ impl Generator {
                 self.note("a budget named but never defined");
                 continue;
             }
-            let commodity = *self.random.pick(&["CNY", "CNY", "USD", "EUR", "JPY", "GBP"]);
-            let date = if self.random.chance(70) {
-                self.first
-            } else {
-                self.note("a budget defined after postings to its accounts");
-                self.any_day()
-            };
-            let time = self.time(20);
-            self.instants.push((date, time, name));
-            let mut text = format!("{} budget {name} {commodity}\n", stamp(date, time));
-            if self.random.chance(40) {
-                writeln!(text, "  alias: \"The {name}\"").expect("a string");
-            }
-            if self.random.chance(40) {
-                writeln!(text, "  category: \"{}\"", self.random.pick(&["Home", "Leisure"])).expect("a string");
-            }
-            if self.random.chance(20) {
-                text.push_str("  note: \"kept\"\n");
-            }
-            self.push(date, text);
-            self.defined.push((name, commodity));
-            if self.random.chance(12) {
-                self.note("a budget defined twice");
-                let again = self.any_day();
-                let other = *self.random.pick(&["CNY", "USD", commodity]);
-                self.push(again, format!("{again} budget {name} {other}\n"));
-            }
+            self.define(name);
+        }
+        if !self.rooted.is_empty() {
+            self.note("a budget of no Expenses account, with Income, Liabilities or Equity ones");
+            self.define(ROOTED);
         }
     }
 
@@ -399,11 +565,12 @@ impl Generator {
         for month in 0..self.months {
             for (name, commodity) in &defined {
                 if self.random.chance(60) {
-                    let date = self.day_of(month);
-                    let time = self.time(15);
+                    let (day, time) = (self.day_of(month), self.time(15));
+                    let (date, time) = self.when(day, time, 12, self.first);
                     self.instants.push((date, time, name));
                     let amount = self.amount(commodity);
-                    self.push(date, format!("{} budget-add {name} {amount}\n", stamp(date, time)));
+                    let text = format!("{} budget-add {name} {amount}\n", self.stamp(date, time));
+                    self.push(date, text);
                 }
             }
             if self.random.chance(10) {
@@ -420,21 +587,29 @@ impl Generator {
                     self.note("a transfer between undefined budgets");
                 }
                 let commodity = defined.iter().find(|(name, _)| *name == from).map_or("CNY", |(_, commodity)| commodity);
-                let date = self.day_of(month);
-                let time = self.time(15);
+                let (day, time) = (self.day_of(month), self.time(15));
+                let (date, time) = self.when(day, time, 12, self.first);
                 let amount = self.amount(commodity);
-                self.push(date, format!("{} budget-transfer {from} {to} {amount}\n", stamp(date, time)));
+                let text = format!("{} budget-transfer {from} {to} {amount}\n", self.stamp(date, time));
+                self.push(date, text);
             }
         }
+        // on a seed of daylight-saving changes, more closes, most of them at a time of a change day
+        let (closing, at_a_change) = if self.changes.is_empty() { (30, 0) } else { (45, 60) };
         for (name, _) in &defined {
-            if self.random.chance(30) {
-                let date = self.any_day();
-                let time = self.time(50);
-                if time.is_some() {
+            if self.random.chance(closing) {
+                let (day, time) = (self.any_day(), self.time(50));
+                let (date, time) = self.when(day, time, at_a_change, self.first);
+                if let Some(time) = time {
                     self.note("a budget closed at a time");
+                    if change_at(self.timezone, date, time) == Some(Change::Skipped) {
+                        self.note("a budget closed at a time a DST change skips");
+                    }
                 }
                 self.instants.push((date, time, name));
-                self.push(date, format!("{} budget-close {name}\n", stamp(date, time)));
+                self.close_days.push((date, time, name));
+                let text = format!("{} budget-close {name}\n", self.stamp(date, time));
+                self.push(date, text);
                 if self.random.chance(25) {
                     self.note("a budget closed twice");
                     let later = self.any_day();
@@ -453,46 +628,49 @@ impl Generator {
     fn posting(&mut self, account: &str, hundredths: i64, kind: Option<usize>) -> String {
         let kind = kind.unwrap_or_else(|| self.random.below(20));
         match kind {
-            0..=10 => format!("  {account} {} CNY", number(&mut self.random, hundredths)),
-            11..=13 => format!("  {account} {} USD", number(&mut self.random, hundredths)),
-            14 => format!("  {account} {} EUR", number(&mut self.random, hundredths)),
+            0..=10 => format!("  {account} {} CNY", self.number(hundredths)),
+            11..=13 => format!("  {account} {} USD", self.number(hundredths)),
+            14 => format!("  {account} {} EUR", self.number(hundredths)),
             15 => format!("  {account} {} JPY", hundredths),
             16 => {
                 self.note("a posting no price converts");
-                format!("  {account} {} {}", number(&mut self.random, hundredths), self.random.pick(&["GBP", "XAU"]))
+                let currency = *self.random.pick(&["GBP", "XAU"]);
+                format!("  {account} {} {currency}", self.number(hundredths))
             }
             17 => {
                 self.note("a posting at a price");
-                format!("  {account} {} GBP @ 9.10 CNY", number(&mut self.random, hundredths))
+                let units = self.number(hundredths);
+                format!("  {account} {units} GBP @ {} CNY", self.price(910))
             }
             18 => {
                 self.note("a zero posting");
                 format!("  {account} 0 CNY")
             }
-            _ => format!("  {account} {} USD", number(&mut self.random, -hundredths)),
+            _ => format!("  {account} {} USD", self.number(-hundredths)),
         }
+    }
+
+    /// the accounts an `open` links to the budget `name`
+    fn accounts_of(&self, name: &str) -> Vec<&'static str> {
+        self.links.iter().filter(|(_, it)| *it == name).map(|(account, _)| *account).collect()
     }
 
     fn transactions(&mut self) {
         let count = 20 + self.random.below(80);
         let accounts = EXPENSES.iter().chain(OTHERS).copied().collect::<Vec<_>>();
         for index in 0..count {
-            let (mut date, mut time) = (self.any_day(), self.time(30));
+            let (day, time) = (self.any_day(), self.time(30));
+            let (mut date, mut time) = self.when(day, time, 12, self.first);
             // a few at the very instant of a budget directive, to an account of its budget: the ties of a day
             let mut tied = None;
             if !self.instants.is_empty() && self.random.chance(15) {
                 self.note("a posting at the instant of a budget directive");
                 let (at, at_time, budget) = *self.random.pick(&self.instants);
                 (date, time) = (at, at_time);
-                let linked = self
-                    .links
-                    .iter()
-                    .filter(|(_, name)| *name == budget)
-                    .map(|(account, _)| *account)
-                    .collect::<Vec<_>>();
+                let linked = self.accounts_of(budget);
                 tied = (!linked.is_empty()).then(|| *self.random.pick(&linked));
             }
-            let mut text = format!("{} * \"Shop {index}\" \"purchase {index}\"\n", stamp(date, time));
+            let mut text = format!("{} * \"Shop {index}\" \"purchase {index}\"\n", self.stamp(date, time));
             // the postings of a transaction share a commodity, so that the implicit one balances them; a few mix
             let shared = self.random.below(20);
             for _ in 0..1 + self.random.below(3) {
@@ -509,13 +687,29 @@ impl Generator {
             text.push_str("  Assets:Bank\n");
             self.push(date, text);
         }
+        self.boundary_postings();
+        self.zero_month();
         // shares bought at cost, then sold from their lots into an expense: the implicit posting gets the booked cost
         if self.random.chance(40) {
             self.note("shares held at cost and sold from their lots");
             let (buy, sell) = (self.day_of(0), self.day_of(self.months - 1));
-            self.push(buy, format!("{buy} * \"Broker\" \"buy\"\n  Assets:Broker 3 GOLD {{300 USD}}\n  Assets:Bank\n"));
             let gift = *self.random.pick(EXPENSES);
-            self.push(sell, format!("{sell} * \"Friend\" \"gift\"\n  Assets:Broker -2 GOLD {{}}\n  {gift}\n"));
+            if self.random.chance(50) {
+                self.push(buy, format!("{buy} * \"Broker\" \"buy\"\n  Assets:Broker 3 GOLD {{300 USD}}\n  Assets:Bank\n"));
+                self.push(sell, format!("{sell} * \"Friend\" \"gift\"\n  Assets:Broker -2 GOLD {{}}\n  {gift}\n"));
+            } else {
+                // one lot at a cost in dollars, which converts, and one in pounds, which does not: the posting that
+                // sells both is checked whole, through its first lot's cost currency
+                self.note("a sale from lots at costs in two currencies");
+                self.push(buy, format!("{buy} * \"Broker\" \"buy\"\n  Assets:Broker 1 GOLD {{300 USD}}\n  Assets:Bank\n"));
+                let next = buy.succ_opt().expect("a date");
+                self.push(
+                    next,
+                    format!("{next} * \"Broker\" \"buy\"\n  Assets:Broker 1 GOLD {{250 GBP}}\n  Assets:Bank\n"),
+                );
+                let text = format!("{sell} * \"Friend\" \"gift\"\n  Assets:Broker -2 GOLD {{}}\n  {gift} 300 USD\n  {gift} 250 GBP\n");
+                self.push(sell, text);
+            }
         }
         if self.random.chance(15) {
             self.note("a pad and a balance on an account of a budget");
@@ -524,9 +718,9 @@ impl Generator {
             self.push(date, format!("{date} pad Assets:Cash Equity:Opening\n"));
             self.push(next, format!("{next} balance Assets:Cash 100 CNY\n"));
         }
-        if self.random.chance(15) {
+        if self.random.chance(20) {
             self.note("a date typo");
-            if self.random.chance(25) {
+            if self.random.chance(60) {
                 // in the year 9999: a transaction then ends every budget's months there, and with a dozen budgets more
                 // their months are more than a query may generate, so the unbounded queries of #budgets fail with an
                 // error that names the longest series and the directive that ends it, here a budget's own later one
@@ -539,29 +733,108 @@ impl Generator {
                 let date = NaiveDate::from_ymd_opt(9999, month, 1 + self.random.below(28) as u32).expect("a date");
                 self.push(date, format!("{date} * \"Typo\" \"a date typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n"));
                 let later = NaiveDate::from_ymd_opt(9999, month + 6, 1 + self.random.below(28) as u32).expect("a date");
-                self.typo_budget_directives(later);
+                if self.typo_budget_directives(later, 80) {
+                    self.note("two directives of a budget at its last date, which a too large #budgets names");
+                }
             } else {
                 let date = self.any_day() + Months::new(12 * (10 + self.random.below(30) as u32));
                 if self.random.chance(50) {
                     self.push(date, format!("{date} * \"Typo\" \"a date typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n"));
                 } else {
-                    self.typo_budget_directives(date);
+                    self.typo_budget_directives(date, 50);
                 }
             }
         }
     }
 
-    /// a `budget-add` of the first budget at the date typo `date`, and maybe its `budget-close` that day: which of the
-    /// two ends its months is the one folded later
-    fn typo_budget_directives(&mut self, date: NaiveDate) {
-        let Some((name, commodity)) = self.defined.first().copied() else {
+    /// Postings on the very day a budget is defined or closed, to an account of the budget: before or after the
+    /// directive, at no time (the start of the day, which a close at a date only lasts through) or at one, maybe its.
+    fn boundary_postings(&mut self) {
+        let days = (self.definition_days.iter().map(|it| (*it, "a posting on the day a budget is defined", 50)))
+            .chain(self.close_days.iter().map(|it| (*it, "a posting on the day a budget closes", 80)))
+            .collect::<Vec<_>>();
+        for ((date, at, name), what, percent) in days {
+            let linked = self.accounts_of(name);
+            if linked.is_empty() || !self.random.chance(percent) {
+                continue;
+            }
+            self.note(what);
+            for index in 0..1 + self.random.below(2) {
+                let time = match self.random.below(4) {
+                    0 | 1 => None,
+                    2 => at,
+                    _ => self.time(100),
+                };
+                let account = *self.random.pick(&linked);
+                let hundredths = 100 + self.random.below(30_000) as i64;
+                let posting = self.posting(account, hundredths, None);
+                let text = format!(
+                    "{} * \"Shop\" \"on the day of {name} {index}\"\n{posting}\n  Assets:Bank\n",
+                    self.stamp(date, time)
+                );
+                self.push(date, text);
+            }
+        }
+    }
+
+    /// A month whose postings to an account of a budget net to zero, the month after the ledger's (no other posting
+    /// is in it), on a budget that also has a posting no price converts: its activity is then summed as an inventory,
+    /// where a sum of zero has no position.
+    fn zero_month(&mut self) {
+        let candidates = self
+            .defined
+            .clone()
+            .into_iter()
+            .filter(|(name, _)| !self.accounts_of(name).is_empty())
+            .collect::<Vec<_>>();
+        if candidates.is_empty() || !self.random.chance(35) {
             return;
+        }
+        self.note("a month whose postings net to zero, on a budget with a posting no price converts");
+        let (name, commodity) = *self.random.pick(&candidates);
+        let linked = self.accounts_of(name);
+        let account = *self.random.pick(&linked);
+        // in the budget's commodity, or in one a price converts into it (at one rate: on one day)
+        let currency = if self.random.chance(30) {
+            commodity
+        } else if commodity == "CNY" {
+            *self.random.pick(&["USD", "EUR"])
+        } else {
+            "CNY"
+        };
+        let month = self.first + Months::new(self.months);
+        let date = month + chrono::Days::new(self.random.below(28) as u64);
+        let hundredths = 100 + self.random.below(30_000) as i64;
+        let units = if currency == "JPY" {
+            (hundredths / 100).to_string()
+        } else {
+            self.number(hundredths)
+        };
+        for (index, units) in [units.clone(), format!("-{units}")].into_iter().enumerate() {
+            let time = self.time(30);
+            let text = format!(
+                "{} * \"Shop\" \"back and forth {index}\"\n  {account} {units} {currency}\n  Assets:Bank\n",
+                self.stamp(date, time)
+            );
+            self.push(date, text);
+        }
+        let other = self.any_day();
+        self.push(other, format!("{other} * \"Shop\" \"no price\"\n  {account} 1 XAU\n  Assets:Bank\n"));
+    }
+
+    /// a `budget-add` of the first budget at the date typo `date`, and `percent` times in a hundred its `budget-close`
+    /// that day: which of the two ends its months is the one folded later; whether there are two
+    fn typo_budget_directives(&mut self, date: NaiveDate, percent: usize) -> bool {
+        let Some((name, commodity)) = self.defined.first().copied() else {
+            return false;
         };
         self.push(date, format!("{date} budget-add {name} 1 {commodity}\n"));
-        if self.random.chance(50) {
-            self.note("two directives of a budget at its last date");
-            self.push(date, format!("{date} budget-close {name}\n"));
+        if !self.random.chance(percent) {
+            return false;
         }
+        self.note("two directives of a budget at its last date");
+        self.push(date, format!("{date} budget-close {name}\n"));
+        true
     }
 }
 
@@ -572,6 +845,8 @@ impl FuzzLedger {
         let first = NaiveDate::from_ymd_opt(2023 + random.below(2) as i32, 1 + random.below(12) as u32, 1).expect("a date");
         let months = 4 + random.below(15) as u32;
         let split = random.chance(40);
+        let long_decimals = random.chance(25);
+        let rooted: &'static [&'static str] = if random.chance(45) { random.pick(ROOTED_SHAPES) } else { &[] };
         let mut generator = Generator {
             random,
             seed,
@@ -582,7 +857,13 @@ impl FuzzLedger {
             defined: vec![],
             links: vec![],
             instants: vec![],
+            definition_days: vec![],
+            close_days: vec![],
             split,
+            timezone: Tz::UTC,
+            changes: vec![],
+            long_decimals,
+            rooted,
         };
         let mut now = Utc::now();
         let header = generator.options(&mut now);
@@ -592,11 +873,18 @@ impl FuzzLedger {
         generator.budget_directives();
         generator.transactions();
         let Generator {
-            seed, mut blocks, exercised, ..
+            seed,
+            mut blocks,
+            exercised,
+            rooted,
+            ..
         } = generator;
         // in date order, ties in the order the seed picked: zhang orders a day by time and then as written
         blocks.sort_by_key(|(date, tie, _)| (*date, *tie));
         let mut budgets = NAMES.iter().map(|it| (*it).to_owned()).collect::<Vec<_>>();
+        if !rooted.is_empty() {
+            budgets.push(ROOTED.to_owned());
+        }
         budgets.push("Nobody".to_owned());
         let last = (first + Months::new(months)).max(now.date_naive().with_day(1).expect("a first day"));
         let months = (0..)

@@ -6735,6 +6735,7 @@ dependencies = [
  "bigdecimal",
  "bytes",
  "chrono",
+ "chrono-tz",
  "gotcha",
  "serde_json",
  "sha2 0.11.0",

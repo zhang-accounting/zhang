@@ -22,6 +22,8 @@ zhang-core = { path = "../zhang-core" }
 beancount = { path = "../extensions/beancount" }
 bigdecimal = { workspace = true }
 chrono = "0.4"
+# the daylight-saving changes of a generated ledger's timezone (`budget_fuzz`)
+chrono-tz = { workspace = true }
 tempfile = "3.20"
 serde_json = { workspace = true }
 # the digest of a generated ledger (`budget_ledger`), which the budget baseline records

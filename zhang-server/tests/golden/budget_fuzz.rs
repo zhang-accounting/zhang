@@ -4,15 +4,18 @@
 //! the `budgets` of the postings and the budget pages' named queries.
 //!
 //! A difference fails the test with the seed, the first difference, and the smallest ledger found that still shows one,
-//! also written to `<target>/tmp/budget-fuzz/seed-<seed>/`. The test runs the seeds [`DEFAULT_SEEDS`]; another range
-//! runs on demand, in release for speed:
+//! also written to `<target>/tmp/budget-fuzz/seed-<seed>/`. Every test run checks the seeds [`DEFAULT_SEEDS`]; the long
+//! run, [`LONG_SEEDS`], is an ignored test that runs every night (`.github/workflows/budget-fuzz.yml`) and on demand
+//! through the cargo alias `budget-fuzz` (`.cargo/config.toml`), in release for speed; another range runs on demand:
 //!
 //! ```sh
+//! cargo budget-fuzz                                                                                  # seeds 1 to 10,000
 //! ZHANG_BUDGET_FUZZ_SEEDS=1..=2000 cargo nextest run --release -p zhang-server --test golden -E 'test(budget_fuzz)'
 //! ZHANG_BUDGET_FUZZ_SEEDS=17 cargo nextest run -p zhang-server --test golden -E 'test(budget_fuzz)'   # one seed
 //! ```
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::ops::RangeInclusive;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
@@ -20,7 +23,9 @@ use std::time::Instant;
 use zhang_testkit::budget_fuzz::{check, seeds, FuzzLedger, FEATURES};
 
 /// The seeds of every test run.
-const DEFAULT_SEEDS: std::ops::RangeInclusive<u64> = 1..=40;
+const DEFAULT_SEEDS: RangeInclusive<u64> = 1..=40;
+/// The seeds of the long run: every night, and `cargo budget-fuzz`.
+const LONG_SEEDS: RangeInclusive<u64> = 1..=10_000;
 
 /// How many seeds run at once.
 fn parallel() -> usize {
@@ -40,7 +45,21 @@ fn write(ledger: &FuzzLedger, name: &str) -> String {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn budget_fuzz_finds_no_difference() {
-    let range = seeds(DEFAULT_SEEDS).unwrap_or_else(|error| panic!("{error}"));
+    run(DEFAULT_SEEDS).await;
+}
+
+/// The long run, every night (in four shards) and on demand (`cargo budget-fuzz`): about 7 minutes on 4 cores in
+/// release, after the build.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "the long run: every night, and `cargo budget-fuzz`"]
+async fn budget_fuzz_long_run_finds_no_difference() {
+    run(LONG_SEEDS).await;
+}
+
+/// The seeds `ZHANG_BUDGET_FUZZ_SEEDS` names, or `default`, each checked; the default seeds of every run must exercise
+/// everything the generator can.
+async fn run(default: RangeInclusive<u64>) {
+    let range = seeds(default).unwrap_or_else(|error| panic!("{error}"));
     let started = Instant::now();
     // a few workers, each taking the next seed
     let next = Arc::new(Mutex::new(range.clone()));
@@ -63,6 +82,7 @@ async fn budget_fuzz_finds_no_difference() {
     }
     let (mut findings, mut errors, mut requests) = (vec![], 0, 0);
     let mut kinds = BTreeSet::new();
+    let mut allowed = BTreeMap::<&str, usize>::new();
     let mut exercised = BTreeSet::new();
     for (seed, outcome) in outcomes {
         let ledger = FuzzLedger::generate(seed);
@@ -76,17 +96,21 @@ async fn budget_fuzz_finds_no_difference() {
                 errors += report.errors;
                 requests += report.requests;
                 kinds.extend(report.kinds);
+                for why in report.differences.iter().filter_map(|it| it.allowed) {
+                    *allowed.entry(why).or_default() += 1;
+                }
             }
             Err(finding) => findings.push(finding),
         }
     }
     eprintln!(
-        "budget fuzz: seeds {}..={} in {:.1?}: {errors} errors and {requests} requests compared, {} seeds differ; error kinds: {}",
+        "budget fuzz: seeds {}..={} in {:.1?}: {errors} errors and {requests} requests compared, {} seeds differ; error kinds: {}; allowed differences: {}",
         range.start(),
         range.end(),
         started.elapsed(),
         findings.len(),
-        kinds.iter().cloned().collect::<Vec<_>>().join(", ")
+        kinds.iter().cloned().collect::<Vec<_>>().join(", "),
+        allowed.iter().map(|(why, count)| format!("{count} ({why})")).collect::<Vec<_>>().join(", ")
     );
     findings.sort_by_key(|finding| finding.seed);
     if let Some(first) = findings.first() {

@@ -1,0 +1,63 @@
+name: Budget fuzz
+
+# RFC #698's differential fuzzer of the budgets (testing.md, "The differential fuzzer") on its long range: the native
+# budgets against the bundled script zhang:budget on the seeds 1 to 10,000, every night. Every test run checks the
+# seeds 1 to 40; this run finds what they miss. It is the ignored test `budget_fuzz_long_run_finds_no_difference`, run
+# by the cargo alias `budget-fuzz` (.cargo/config.toml) in release with the `budget-switch` feature, in four shards of
+# 2,500 seeds: a shard takes under 2 minutes on 4 cores of the build pod, so at most about 9 minutes here after the
+# build (the default seeds take 2.5 s there and 12 to 14 s on this runner). Run it by hand on a branch
+# (workflow_dispatch), with other seeds if needed. A difference fails its shard with the seed and the smallest ledger
+# found, kept as an artifact.
+on:
+  schedule:
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: "other seeds, as ZHANG_BUDGET_FUZZ_SEEDS reads them (17, 1..500 or 1..=500), in one job; empty for the four shards of 1..=10000"
+        required: false
+        default: ""
+
+# a run builds and runs the branch's code and its dependencies' build scripts: it gets a read-only token, and checkout
+# does not leave it in .git/config
+permissions:
+  contents: read
+
+# a manual run waits for a running one of the same ref (the nightly on main) instead of cancelling it
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  long-run:
+    name: long run (${{ matrix.seeds }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        seeds: ${{ fromJSON(inputs.seeds && format('["{0}"]', inputs.seeds) || '["1..=2500", "2501..=5000", "5001..=7500", "7501..=10000"]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      # the shards build the same artifacts and share one cache (rust-cache keys it by the job id), saved on main
+      - name: Install stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          cache-save-if: ${{ github.ref == 'refs/heads/main' && strategy.job-index == 0 }}
+      # the alias passes its arguments to the test binary: check the lock file first, as the test workflow does
+      - name: Cargo.lock is up to date
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - name: The budget fuzzer, seeds ${{ matrix.seeds }}
+        env:
+          ZHANG_BUDGET_FUZZ_SEEDS: ${{ matrix.seeds }}
+        run: cargo budget-fuzz
+      - name: Keep the reproductions
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: budget-fuzz-reproductions-${{ strategy.job-index }}
+          path: target/tmp/budget-fuzz/
+          if-no-files-found: ignore

@@ -1,0 +1,5 @@
+[alias]
+# RFC #698's differential fuzzer of the budgets on its long range, the seeds 1 to 10,000 (or those
+# ZHANG_BUDGET_FUZZ_SEEDS names), in release: the native budgets against the bundled script zhang:budget. The nightly
+# `Budget fuzz` workflow runs it; see docs/src/content/docs/developers/testing.md, "The differential fuzzer".
+budget-fuzz = "test --release -p zhang-server --features budget-switch --test golden budget_fuzz_long_run -- --ignored --nocapture"
