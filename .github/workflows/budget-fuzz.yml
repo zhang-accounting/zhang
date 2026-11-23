@@ -18,9 +18,15 @@ on:
         required: false
         default: ""
 
+# a run builds and runs the branch's code and its dependencies' build scripts: it gets a read-only token, and checkout
+# does not leave it in .git/config
+permissions:
+  contents: read
+
+# a manual run waits for a running one of the same ref (the nightly on main) instead of cancelling it
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   long-run:
@@ -33,6 +39,8 @@ jobs:
         seeds: ${{ fromJSON(inputs.seeds && format('["{0}"]', inputs.seeds) || '["1..=2500", "2501..=5000", "5001..=7500", "7501..=10000"]') }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       # the shards build the same artifacts and share one cache (rust-cache keys it by the job id), saved on main
       - name: Install stable
         uses: actions-rust-lang/setup-rust-toolchain@v1
