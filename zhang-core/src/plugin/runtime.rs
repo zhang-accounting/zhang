@@ -62,6 +62,7 @@ use uuid::Uuid;
 
 use crate::plugin::disk_cache;
 use crate::plugin::host::PluginHost;
+use crate::plugin_policy::{Size, MAX_MEMORY_ENV, WASM_PAGE};
 
 /// the name of the thread a compilation runs on ([`ModuleCode::compile`])
 const COMPILE_THREAD: &str = "zhang-compile";
@@ -403,14 +404,21 @@ impl PluginRuntime {
                 self.code.compile()?
             }
         };
-        // this runs the module's start function and a reactor's `_initialize`, if it has them, before the context below
-        // exists, within the timeout of `manifest`: an instance whose initialisation runs out of it fails, saying so
+        // this instantiates the module, which runs its start function and its initialisation (`_initialize`), if it has
+        // them, before the context below exists, within the timeout and the memory limit of `manifest`: an instance
+        // whose initialisation runs out of either fails, saying so
+        let memory_limit = manifest.memory.max_pages.map(|pages| u64::from(pages) * WASM_PAGE);
         let started = Instant::now();
         let plugin = Plugin::new_from_compiled_with_manifest(&compiled, manifest).map_err(|error| match error.to_string().as_str() {
             // extism reports wasm it interrupted at the timeout as exactly "timeout"
             "timeout" => extism::Error::msg(format!(
                 "its start function or initialisation (`_initialize`) ran longer than its timeout of {:?}",
                 timeout.unwrap_or_default()
+            )),
+            // and memory that would grow past the limit as exactly "oom"
+            "oom" => extism::Error::msg(format!(
+                "its start function or initialisation (`_initialize`) needed more than the {} the server allows a plugin ({MAX_MEMORY_ENV})",
+                Size(memory_limit.unwrap_or_default())
             )),
             _ => error,
         })?;
@@ -933,13 +941,15 @@ mod tests {
         receiver.recv_timeout(Duration::from_secs(10)).ok()
     }
 
-    /// A start function or a reactor's `_initialize` runs while the instance is built, before any call: one that never
-    /// ends is stopped at the instance's timeout, and fails it saying so (it ran with no timer, and hung its host)
+    /// A start function, a reactor's `_initialize` or a WASI module's constructors run while the instance is built,
+    /// before any call: one that never ends is stopped at the instance's timeout, and fails it saying so (it ran with no
+    /// timer, and hung its host)
     #[test]
     fn an_initialisation_that_never_ends_fails_the_instance_at_its_timeout() {
         let fixtures = [
             ("start_loop.wat", include_bytes!("../../tests/plugins/start_loop.wat").as_slice()),
             ("initialize_loop.wat", include_bytes!("../../tests/plugins/initialize_loop.wat").as_slice()),
+            ("ctors_loop.wat", include_bytes!("../../tests/plugins/ctors_loop.wat").as_slice()),
         ];
         for (fixture, bytes) in fixtures {
             let runtime = Arc::new(PluginRuntime::new(bytes.to_vec()));
@@ -952,17 +962,6 @@ mod tests {
             assert!(took >= Duration::from_millis(200) && took < Duration::from_secs(5), "{fixture}: {took:?}");
             assert_eq!(runtime.idle(), 0, "{fixture}: compiled code whose epoch was bumped is not reused");
         }
-    }
-
-    /// extism runs a WASI module's constructors (`__wasm_call_ctors`) when the first call instantiates the module,
-    /// before the export: within the call's timeout
-    #[test]
-    fn constructors_that_never_end_fail_the_first_call_at_its_timeout() {
-        let runtime = Arc::new(PluginRuntime::new(include_bytes!("../../tests/plugins/ctors_loop.wat").to_vec()));
-        let (outcome, took) = built_and_called(runtime.clone(), Duration::from_millis(200)).expect("the call still runs after 10 s");
-        assert_eq!(outcome, Err("call: timeout".to_owned()));
-        assert!(took >= Duration::from_millis(200) && took < Duration::from_secs(5), "{took:?}");
-        assert_eq!(runtime.idle(), 0);
     }
 
     /// an instance built near its timeout does not return its compiled plugin, as a call ending near it does not: the
@@ -983,6 +982,74 @@ mod tests {
                 .unwrap(),
         );
         assert_eq!(runtime.idle(), 1);
+    }
+
+    /// The memory a start function or `_initialize` grows counts toward the instance's memory limit, as a call's does: the
+    /// limiter was attached once they had run, and they grew past it unseen
+    #[test]
+    fn an_initialisation_growing_past_the_memory_limit_fails_the_instance() {
+        let initialize_hog = br#"(module
+            (memory 1)
+            (func (export "_initialize") (drop (memory.grow (i32.const 2000))))
+            (func (export "name") (result i32) (i32.const 0)))"#;
+        let fixtures = [
+            ("start_memory_hog.wat", include_bytes!("../../tests/plugins/start_memory_hog.wat").as_slice()),
+            ("_initialize", initialize_hog.as_slice()),
+        ];
+        for (fixture, bytes) in fixtures {
+            let runtime = PluginRuntime::new(bytes.to_vec());
+            // 32 MiB
+            let small = Manifest::default().with_memory_max(512).with_timeout(Duration::from_secs(30));
+            let started = Instant::now();
+            let error = runtime.instantiate(small, host("2026-10-05T00:00:00Z")).err().expect(fixture);
+            assert_eq!(
+                format!("{error:#}"),
+                "its start function or initialisation (`_initialize`) needed more than the 32 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)",
+                "{fixture}"
+            );
+            assert!(started.elapsed() < Duration::from_secs(5), "{fixture}: {:?}", started.elapsed());
+            // 256 MiB hold its 125 MiB
+            let mut plugin = runtime
+                .instantiate(Manifest::default().with_memory_max(4096), host("2026-10-05T00:00:00Z"))
+                .unwrap_or_else(|error| panic!("{fixture}: {error:#}"));
+            plugin.call::<&str, String>("name", "").unwrap();
+        }
+    }
+
+    /// The memory a module starts with counts toward its limit once, the extism kernel's (1 MiB) with it: the module was
+    /// instantiated twice, once outside the limiter
+    #[test]
+    fn the_memory_a_module_starts_with_counts_once() {
+        let runtime = PluginRuntime::new(br#"(module (memory 100) (func (export "name") (result i32) (i32.const 0)))"#.to_vec());
+        // its 100 pages and the kernel's 16 fit in 130, not in 110
+        let mut plugin = runtime
+            .instantiate(Manifest::default().with_memory_max(130), host("2026-10-05T00:00:00Z"))
+            .unwrap_or_else(|error| panic!("{error:#}"));
+        plugin.call::<&str, String>("name", "").unwrap();
+        let error = runtime
+            .instantiate(Manifest::default().with_memory_max(110), host("2026-10-05T00:00:00Z"))
+            .err()
+            .expect("110 pages are not enough");
+        assert!(format!("{error:#}").contains("needed more than the 7040 KiB"), "{error:#}");
+    }
+
+    /// The Lua interpreter starts within a small memory limit, and runs a script
+    #[test]
+    fn the_lua_interpreter_starts_and_runs_within_a_small_memory_limit() {
+        let runtime = PluginRuntime::new(crate::plugin::lua::INTERPRETER.to_vec());
+        let script = crate::plugin::lua::LuaScript {
+            name: "small.lua".to_owned(),
+            source: "return { name = \"small\", version = \"0.1.0\", types = { \"Router\" } }".to_owned(),
+        };
+        // the default 256 MiB, and 32 MiB
+        for pages in [4096, 512] {
+            let manifest = Manifest::default().with_config(script.config().into_iter()).with_memory_max(pages);
+            let mut plugin = runtime
+                .instantiate(manifest, host("2026-10-05T00:00:00Z"))
+                .unwrap_or_else(|error| panic!("{pages} pages: {error:#}"));
+            let name: String = plugin.call("name", "").unwrap_or_else(|error| panic!("{pages} pages: {error:#}"));
+            assert_eq!(name, "\"small\"", "{pages} pages");
+        }
     }
 
     #[test]

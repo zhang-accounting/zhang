@@ -301,7 +301,7 @@ let usd_cost = broker.cost.get("USD").cloned().unwrap_or_default();
 - 用 `zhang_emit_error`（`errors::emit_error` / `emit_error_at`）**报告**。问题会成为账本错误列表中的一个 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror)，挂在你传入其 span 的指令上（或者插件自己的指令上），带有元数据 `plugin`、`message` 以及你自己的元数据。账本仍然会加载。校验类插件就是这样工作的。
 - 让调用**失败**：从处理函数返回错误（或者 trap、panic）。processor 或 mapper 失败会中止整个加载，调用运行超过它的 `timeout` 也一样。这种方式用于用户必须先修复、否则账本就没有意义的问题，例如无效的插件配置。
 
-`timeout` 同样限制模块的初始化代码，它们在每次创建实例时运行：模块的 start 函数、reactor 的 `_initialize` 和 WASI 模块的构造函数。初始化运行超过 `timeout` 的模块会让加载失败，并给出说明原因的错误（``plugin ... cannot be loaded: its start function or initialisation (`_initialize`) ran longer than its timeout of 10s``），而不会拖住之后的每一次加载和每一次写入。
+`timeout` 同样限制模块的初始化代码，它们在每次创建实例时运行：模块的 start 函数、reactor 的 `_initialize` 和 WASI 模块的构造函数。初始化运行超过 `timeout` 的模块会让加载失败，并给出说明原因的错误（``plugin ... cannot be loaded: its start function or initialisation (`_initialize`) ran longer than its timeout of 10s``），而不会拖住之后的每一次加载和每一次写入。初始化占用的内存与调用一样计入插件的内存上限（`ZHANG_PLUGIN_MAX_MEMORY`），模块的初始内存和 Extism 内核的 1 MiB 也一并计入：初始化时内存增长超过上限的模块同样会让加载失败（``... needed more than the 256 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)``）。
 
 ## Router 插件
 

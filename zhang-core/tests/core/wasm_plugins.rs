@@ -757,6 +757,51 @@ fn the_memory_a_plugin_starts_with_counts_toward_the_limit() {
     );
 }
 
+/// A module whose start function grows its memory past the limit fails the load at once, saying so: the memory limiter
+/// was attached once the start function had run, and the 125 MiB it grew went uncounted
+#[test]
+fn a_start_function_growing_past_the_memory_limit_fails_the_load() {
+    let dir = ledger_dir(&["start_memory_hog.wat"]);
+    let module = dir.path().join("start_memory_hog.wat").display().to_string();
+    let policy = PluginPolicy {
+        max_memory: 32 * MIB,
+        ..PluginPolicy::default()
+    };
+    let started = Instant::now();
+
+    let error = load_with_policy(&dir, &with_plugins(&plugin(&dir, "start_memory_hog.wat")), policy)
+        .err()
+        .expect("the load fails");
+
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "custom error: plugin {module} cannot be loaded: its start function or initialisation (`_initialize`) needed more than the 32 MiB the server allows a plugin (ZHANG_PLUGIN_MAX_MEMORY)"
+        )
+    );
+    assert!(started.elapsed() < Duration::from_secs(10), "{:?}", started.elapsed());
+}
+
+/// A Lua script and a wasm module load and answer within the default memory limit and within a small one: the memory
+/// they start with, the interpreter's 8 MiB and the extism kernel's 1 MiB, counts once
+#[test]
+fn plugins_load_and_run_within_the_default_memory_limit_and_a_small_one() {
+    for fixture in ["router_echo.lua", "router.wat"] {
+        let dir = ledger_dir(&[fixture]);
+        for max_memory in [PluginPolicy::default().max_memory, 32 * MIB] {
+            let policy = PluginPolicy {
+                max_memory,
+                ..PluginPolicy::default()
+            };
+            let ledger = load_with_policy(&dir, &with_plugins(&plugin(&dir, fixture)), policy)
+                .unwrap_or_else(|error| panic!("{fixture} loads within {max_memory} bytes: {error}"));
+            let response = call(&ledger, "router-echo", &PluginRequest::new("GET", "/", vec![], vec![], vec![]))
+                .unwrap_or_else(|error| panic!("{fixture} answers within {max_memory} bytes: {error:?}"));
+            assert!(response.status().is_success(), "{fixture}: {}", response.status());
+        }
+    }
+}
+
 #[test]
 fn a_router_growing_past_the_memory_limit_fails_cleanly() {
     let dir = ledger_dir(&["memory_hog.wat"]);

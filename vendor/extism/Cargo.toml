@@ -17,6 +17,12 @@
 #   guest runtime's initialisation, run when the modules are linked and when a call instantiates the main module) runs
 #   within the manifest's timeout, as a call does, and fails with "timeout" when it runs out of it: upstream ran it with
 #   no timer, so a start function that never ended hung `Plugin::new` and the first call
+# - src/plugin.rs: a store's memory limiter is attached when the store is created, before any module code runs, and the
+#   main module is instantiated once per store, by `Plugin::new_from_compiled_with_manifest` (and by a call after a
+#   reset store): upstream attached the limiter once the modules were linked, and linking also instantiated the main
+#   module as a reactor, so its start function and `_initialize` ran twice, the first time on an instance no call used,
+#   outside the limiter. The memory every instance starts with or grows to, the kernel's included, now counts toward
+#   `memory.max_pages`, once; an initialisation the limiter stops fails with "oom"
 # - src/plugin_builder.rs, src/plugin.rs, src/lib.rs: `PluginBuilder::with_cache` compiles with a wasmtime `Cache` the
 #   host configured once (re-exported with `CacheConfig`), in place of the one extism sets up from a configuration file
 #   at every compilation, which fails the compilation when wasmtime's default directory cannot be created
