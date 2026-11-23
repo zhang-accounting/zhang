@@ -28,7 +28,13 @@ description: 把张记账从 0.2 升级到 0.3 时，账本、插件和调用 AP
 
 **`ZHANG_PLUGINS=off` 也会关闭预算。** 预算由官方插件 `zhang:budget` 解释：每个账本都有它，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响，而运维者的开关会像停止其他插件一样停止它。以 `--plugins off` 或 `ZHANG_PLUGINS=off` 运行的服务器会在启动时记录预算已关闭；预算页面和查询会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。查询函数 `account_budgets()` 仍然会返回结果，因为它只读取账户 `open` 指令的 `budget` 元数据。预算需要 `ZHANG_PLUGINS` 为 `read`（默认值）或 `write`。
 
+<!-- PENDING #905 (draft, RFC #698 P3.3): this paragraph is the text of #905's body. Keep it if #905 merges before the release; remove it otherwise. -->
+
+**预算是一个插件。** `zhang:budget` 是张记账内置的 Lua 脚本，是预算唯一的实现：每个账本都会运行它，每次加载时都会运行，所以每次写入后也会运行。预算页面、预算表、查询和错误的回答与上文所述一致。运维者会看到的变化：第一次启动会编译插件运行时（大约半秒，期间会多占用一些内存，编译完后归还），编译后的代码缓存会在之后的启动中保留它，所以请为容器挂载缓存卷；服务器会多占用一些内存，10,000 笔交易的账本约多 10 到 20 MiB，100,000 笔约多 40 到 60 MiB；每次加载都会记录 `analyzer zhang:budget analysed the ledger in …`；**设置**页面会列出 `zhang:budget`；预算所需时间或内存超过 `ZHANG_PLUGIN_MAX_TIMEOUT` 或 `ZHANG_PLUGIN_MAX_MEMORY` 的账本加载时没有预算页面，也没有预算错误，并带有一个说明应调大哪个限制的 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误。默认的 256 MiB 中，脚本的 Lua 内存为 224 MiB；45 个类别十年间每个类别每月一个预算约需 100 MiB。
+
 **插件编译后的代码保存在张记账自己的缓存中**：放在 `~/.cache/zhang`（或 [`ZHANG_PLUGIN_CACHE_DIR`](/zh-cn/guides/plugins/#编译后的代码) 指定的目录）的子目录 `zhang-wasmtime-cache` 里，最多约 128 MiB。wasmtime 默认目录（Linux 上为 `~/.cache/wasmtime`）中的缓存不再使用，如果没有其他程序使用 wasmtime，可以删除它；`EXTISM_CACHE_CONFIG` 和 wasmtime 的配置文件也不再读取。由于缓存保存服务器会运行的代码，张记账只在属于运行它的用户、其他用户不能写入的目录中使用缓存，并且从不在账本文件夹中使用。张记账无法写入或拒绝使用的目录（例如在只读文件系统上）不会再让所有插件都无法加载：张记账会在没有缓存的情况下运行它们，并在启动时记录一条警告。如果你曾用 `EXTISM_CACHE_CONFIG` 改变 wasmtime 缓存的位置，请改为设置 `ZHANG_PLUGIN_CACHE_DIR`；缓存的大小固定为约 128 MiB。
+
+**哪些内存计入插件的限制。** `ZHANG_PLUGIN_MAX_MEMORY`（默认 256 MiB）限制插件的一个实例从创建起占用的全部内存：它的内存和表，以及它的启动函数或初始化所占用的内存；启动函数和初始化也要在插件的 `timeout` 之内完成。需要更多内存的模块会加载失败，错误信息会指出这个设置。[Lua 脚本](/zh-cn/guides/lua-plugins/#限制)可用的内存是这个限制减去张记账为宿主保留的 32 MiB，默认为 224 MiB；调大 `ZHANG_PLUGIN_MAX_MEMORY` 也会调大它。一次运行中报告超过 1000 个错误的插件会多得到一个错误，说明丢弃了多少个。
 
 插件指令本身也有变化：
 
@@ -82,9 +88,16 @@ description: 把张记账从 0.2 升级到 0.3 时，账本、插件和调用 AP
 
 浏览器的密码弹窗被登录页面取代，并且可以使用通行密钥。登录状态保持 30 天；设置 `ZHANG_SESSION_SECRET`，登录状态才能在服务器重启后保留。移动端通过网页界面登录，见[移动端登录](/zh-cn/deployment/authentication/#移动端登录)；`ZHANG_APP_RETURN_SCHEMES` 会忽略 `https` 等网页协议。
 
+## 停止服务器与日志
+
+- **`zhang serve` 收到 SIGTERM 时会正常停止**，与按 Ctrl+C 时一样；`docker stop`、Podman、Kubernetes 和 systemd 发送的都是 SIGTERM。它不再接受新连接，让进行中的请求完成（写入不会中途被打断），然后以退出码 0 退出，整个过程最多约 7 秒。`docker stop` 不再等满 10 秒、再以退出码 137 杀掉容器。如果你曾为此设置 `--stop-signal SIGINT` 或 `KillSignal=`，现在可以去掉。第二次收到信号时会立即退出，SIGINT 的退出码为 130，SIGTERM 为 143。
+- **日志更安静了。** 在 `info` 级别下，日志不再包含依赖库的内部信息（`wasmtime_wasi`、`gotcha`、`tracing::span`）：除非过滤器点名它们（例如 `RUST_LOG=info,wasmtime_wasi=trace`），它们只显示警告和错误。`ZHANG_LOG` 现在作用于每一行日志。只有输出是终端时日志才带颜色，所以 `docker logs` 和 journald 得到的是纯文本；`RUST_LOG_STYLE=always` 可以恢复颜色。
+
 ## 内存
 
 0.3 的 `zhang` 程序使用 [mimalloc](https://github.com/microsoft/mimalloc) 而不是系统的内存分配器。每次写入和每次账本文件的修改都会触发重新加载；重新加载之后，被替换的账本占用的内存会还给系统，而不是留在服务器进程中，所以经常写入的服务器占用的内存比使用系统分配器时少得多；刚加载完一个小账本时，它可能会多占用几十 MiB。如果你为张记账设置了内存上限（例如容器的内存上限），请先在 0.3 上进行几次写入、观察它的内存，再决定是否调整上限。使用 `--no-default-features` 从源码构建的程序使用系统的分配器。
+
+插件在自己的一个线程上编译，所以它的第一次编译（缓存里还没有它的代码时）对 Lua 插件约需 60 MiB，与 CPU 的数量无关，编译完后归还；容器的内存上限不需要随主机的 CPU 数量增大。
 
 ## 升级之后
 
