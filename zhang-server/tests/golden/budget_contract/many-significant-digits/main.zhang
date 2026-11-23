@@ -1,0 +1,28 @@
+; RFC #698's differential fuzzer, seed 17, reduced to its four directives (with the commodities and the bank account
+; they need). The budget's account has a posting no price converts, in pounds at a price in yuan, before the budget's
+; definition that day: the budget is summed as an inventory. Its other posting is in the budget's own commodity, with
+; 29 significant digits, and the budget's activity of May 2025 is that number, every digit of it, as the native code
+; adds it. The script once summed it through convert(), which multiplies by 1 in a 28-digit context, and lost the
+; last digit: 160.8171646815248029004976406.
+option "operating_currency" "USD"
+option "timezone" "Pacific/Auckland"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity GBP
+
+2024-07-31 open Assets:Bank
+2024-07-31 open Expenses:Misc
+  budget: "Food"
+  budget: "Gifts-2024"
+
+2024-08-01 * "Shop" "in pounds, before the budget's definition"
+  Expenses:Misc 33.800 GBP @ 9.10 CNY
+  Assets:Bank
+
+2024-08-01 budget Gifts-2024 CNY
+  alias: "The Gifts-2024"
+
+2025-05-16 * "Shop" "29 significant digits in the budget's commodity"
+  Expenses:Misc 160.81716468152480290049764055 CNY
+  Assets:Bank

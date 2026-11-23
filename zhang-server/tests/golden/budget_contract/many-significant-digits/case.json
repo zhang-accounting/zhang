@@ -1,0 +1,8 @@
+{
+  "description": "A posting of 29 significant digits in the budget's commodity, on a budget summed as an inventory (see main.zhang): its activity keeps every digit. Found by RFC #698's differential fuzzer (seed 17).",
+  "now": "2025-06-01T00:00:00Z",
+  "pages": {
+    "months": ["2024-08-01", "2025-05-01"],
+    "budgets": ["Gifts-2024"]
+  }
+}
