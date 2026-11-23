@@ -183,6 +183,14 @@ pub struct LoadOptions {
     /// plugins registered for every ledger before its own, without a `plugin` directive and whether or not the ledger
     /// turns plugins on, within the operator's policy: an official plugin such as `zhang:budget`
     pub default_plugins: Vec<DefaultPlugin>,
+    /// RFC #698's test switch, until P5 deletes the native budget code: zhang's native budget code (the native provider
+    /// of the budget tables and the fold's budget checks) interprets the budgets of a load that does not run the bundled
+    /// script `zhang:budget` ([`DefaultPlugin::budget`]), as before the script was the only implementation of budgets.
+    /// Only tests and benches set it, to compare the two (`zhang_server::analysis::BudgetImpl::Native`). Without it,
+    /// such a load says once that its budgets are not interpreted ([`crate::extensions::unavailable`]), as the
+    /// playground's does.
+    // TODO(P5): goes with the native budget code
+    pub native_budgets: bool,
 }
 
 impl LoadOptions {
@@ -193,6 +201,13 @@ impl LoadOptions {
             ..LoadOptions::default()
         }
     }
+
+    /// These options with RFC #698's test switch on: zhang's native budget code interprets the budgets of a load that
+    /// does not run the bundled script ([`LoadOptions::native_budgets`]). For tests and benches only.
+    // TODO(P5): goes with the native budget code
+    pub fn with_native_budgets(self) -> LoadOptions {
+        LoadOptions { native_budgets: true, ..self }
+    }
 }
 
 impl fmt::Debug for LoadOptions {
@@ -201,6 +216,7 @@ impl fmt::Debug for LoadOptions {
             .field("plugin_policy", &self.plugin_policy)
             .field("analysis", &self.analysis.is_some())
             .field("default_plugins", &self.default_plugins)
+            .field("native_budgets", &self.native_budgets)
             .finish()
     }
 }
@@ -216,9 +232,11 @@ pub struct DefaultPlugin {
 }
 
 impl DefaultPlugin {
-    /// `zhang:budget` as its bundled Lua script (`plugins/budget/budget.lua`, RFC #698): registered, it publishes the
-    /// budget tables and reports the budget errors in place of the native provider and the native checks. Until P3.3
-    /// only the test switch registers it (`zhang_server::analysis::BudgetImpl`).
+    /// `zhang:budget` as its bundled Lua script (`plugins/budget/budget.lua`, RFC #698), the only implementation of
+    /// budgets: registered, it publishes the budget tables and reports the budget errors. The server registers it for
+    /// every ledger it loads (`zhang_server::analysis::load_options`); a load that does not run it says that its budgets
+    /// are not interpreted, unless RFC #698's test switch has the native code interpret them
+    /// ([`LoadOptions::native_budgets`]).
     #[cfg(feature = "plugin_runtime")]
     pub fn budget() -> DefaultPlugin {
         let script = &crate::plugin::bundled::BUDGET;

@@ -1062,15 +1062,16 @@ mod ledger_catalog_test {
                     2024-01-01 query \"items\" \"SELECT item FROM #shop_items\"\n\
                     2024-01-01 query \"typo\" \"SELECT nope FROM #shop_items\"\n";
         let directives = ZhangDataType {}.transform(text.to_owned(), None).unwrap();
-        let mut ledger = Ledger::process(LedgerProcessContext {
+        let context = LedgerProcessContext {
             directives,
             entry: (PathBuf::from("."), "main.zhang".to_owned()),
             dialect: zhang_core::data_type::Dialect::Zhang,
             visited_files: vec![],
             data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
             clock: Clock::System,
-        })
-        .unwrap();
+        };
+        // the native budget tables, through RFC #698's test switch: a bare load runs no budget code
+        let mut ledger = Ledger::process_with_options(context, zhang_core::analysis::LoadOptions::default().with_native_budgets()).unwrap();
         let manifest = serde_json::from_value(json!({
             "analysis_abi": 1,
             "tables": [{"name": "items", "kind": "records", "columns": [{"name": "item", "type": "str"}]}],

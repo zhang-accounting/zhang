@@ -1594,6 +1594,17 @@ mod test {
         Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
     }
 
+    /// [`load_from_temp_str`] with the budgets interpreted by the native code, through RFC #698's test switch
+    /// ([`crate::analysis::LoadOptions::native_budgets`]): a bare load runs no budget code
+    // TODO(P5): goes with the native budget code
+    fn load_natively_from_temp_str(content: &str) -> Ledger {
+        let temp_dir = tempdir().unwrap().keep().canonicalize().unwrap();
+        std::fs::write(temp_dir.join("example.zhang"), content).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let options = crate::analysis::LoadOptions::default().with_native_budgets();
+        Ledger::load_with_options(temp_dir, "example.zhang".to_string(), source, crate::clock::Clock::System, options).unwrap()
+    }
+
     /// Every error at a transaction names it in `txn_id`, those the fold reports included (an account that does not
     /// exist, or is closed), which carried none: before, their id was the transaction's, which linked them to it
     #[test]
@@ -3327,7 +3338,7 @@ mod test {
         use itertools::Itertools;
         use zhang_ast::error::ErrorKind;
 
-        use crate::ledger::test::load_from_temp_str;
+        use crate::ledger::test::load_natively_from_temp_str;
         use crate::ledger::Ledger;
 
         const ACCOUNTS: &str = indoc! {r#"
@@ -3338,8 +3349,9 @@ mod test {
               budget: "Food"
         "#};
 
+        /// the native budget checks, which these tests read until P5 deletes them
         fn load(body: &str) -> Ledger {
-            load_from_temp_str(&format!("{ACCOUNTS}{body}"))
+            load_natively_from_temp_str(&format!("{ACCOUNTS}{body}"))
         }
 
         /// reported errors in store order, with the first line of their span and their metas

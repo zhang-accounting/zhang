@@ -162,6 +162,17 @@ fn load(scratch: &Scratch) -> Ledger {
     load_with(scratch, load_options(Arc::new(PluginPolicy::default())), Clock::System)
 }
 
+/// The slot of the ledger's own analyzer: the first one but `zhang:budget`, the bundled script the server registers for
+/// every ledger, which analyses first.
+fn own_analyzer(ledger: &Ledger) -> &zhang_core::extensions::AnalyzerSlot {
+    ledger
+        .extensions
+        .analyzers
+        .iter()
+        .find(|slot| slot.provider != "zhang:budget")
+        .expect("the ledger's own analyzer")
+}
+
 /// The rows of `sql` on `ledger`, compiled against its catalog, each cell as text; or the error.
 fn query(ledger: &Ledger, sql: &str) -> Result<Vec<Vec<String>>, String> {
     let query = Query::compile_in(&Catalog::of_ledger(ledger), sql, &ParamTypes::default()).map_err(|err| err.message)?;
@@ -242,7 +253,7 @@ fn an_analyzers_diagnostics_go_where_the_folds_errors_of_their_directives_go() {
     assert_eq!(ledger.errors[errors[0]].metas["txn_id"], id.to_string());
     // its table
     assert_eq!(query(&ledger, "SELECT item, price FROM #shop_items").unwrap(), [["apple", "1.50 CNY"]]);
-    assert_eq!(ledger.extensions.analyzers[0].snapshot.get().unwrap().status, SnapshotStatus::Ok);
+    assert_eq!(own_analyzer(&ledger).snapshot.get().unwrap().status, SnapshotStatus::Ok);
     assert!(!ledger.extensions.analysing);
     // the query cache the analysis may have built is not the ledger's: the errors are read as placed
     assert_eq!(
@@ -258,7 +269,7 @@ fn an_analyzer_without_anything_to_read_does_not_run() {
     scratch.write("main.zhang", &scratch.read("main.zhang").replace("2024-01-02 custom \"shop\" \"apple\"\n", ""));
     let ledger = load(&scratch);
     assert_eq!(failures(&ledger), []);
-    assert_eq!(ledger.extensions.analyzers[0].snapshot.get().unwrap().status, SnapshotStatus::Skipped);
+    assert_eq!(own_analyzer(&ledger).snapshot.get().unwrap().status, SnapshotStatus::Skipped);
     assert_eq!(query(&ledger, "SELECT count(*) FROM #shop_items").unwrap(), [["0"]]);
 }
 
@@ -411,7 +422,8 @@ fn of_two_analyzers_naming_a_table_alike_the_first_has_it_and_the_later_is_repor
         [("manifest".to_owned(), "second: table 'shop_items' is already a table".to_owned())]
     );
     assert_eq!(query(&ledger, "SELECT item FROM #shop_items").unwrap(), [["first"]]);
-    assert_eq!(ledger.extensions.analyzers.len(), 1, "the later one does not run");
+    let own = ledger.extensions.analyzers.iter().filter(|slot| slot.provider != "zhang:budget").count();
+    assert_eq!(own, 1, "the later one does not run");
 }
 
 /// zhang's own built-in queries keep their names, and an analyzer naming a query in one of their namespaces, as one
@@ -648,10 +660,12 @@ fn budget_manifest() -> Value {
     })
 }
 
-/// [`LEDGER`], analysed by `zhang:budget` as the default plugin, written as `analyze` says.
+/// [`LEDGER`], analysed by `zhang:budget` as the default plugin, written as `analyze` says, in place of the bundled
+/// script the server registers.
 fn with_default_budget(analyze: Analyze, manifest: Value) -> Ledger {
     let scratch = scratch(&[]);
     let mut options = load_options(Arc::new(PluginPolicy::default()));
+    options.default_plugins.retain(|plugin| plugin.module != "zhang:budget");
     options.default_plugins.push(zhang_core::analysis::DefaultPlugin {
         module: "zhang:budget".to_owned(),
         file: "budget.wat".to_owned(),
@@ -665,7 +679,8 @@ fn with_default_budget(analyze: Analyze, manifest: Value) -> Ledger {
 #[test]
 fn the_native_budget_checks_stand_in_when_zhang_budget_fails() {
     let kinds = |ledger: &Ledger| ledger.errors.iter().map(|it| it.error_type.to_string()).collect::<Vec<_>>();
-    let native = load(&scratch(&[]));
+    let natively = zhang_server::analysis::load_options_for(Arc::new(PluginPolicy::default()), zhang_server::analysis::BudgetImpl::Native);
+    let native = load_with(&scratch(&[]), natively, Clock::System);
     assert_eq!(kinds(&native), ["BudgetDoesNotExist", "BudgetDoesNotExist"]);
     let ids = |ledger: &Ledger| {
         ledger

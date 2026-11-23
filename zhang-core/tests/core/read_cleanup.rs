@@ -121,10 +121,13 @@ fn budget_validation_starts_fresh_on_reload() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("main.zhang");
     std::fs::write(&path, "2024-01-01 budget food CNY\n2024-01-02 budget-add food 10 CNY\n").unwrap();
-    let mut ledger = Ledger::load_with_data_source(
-        dir.path().to_owned(),
+    // the native budget checks, through RFC #698's test switch, which a reload keeps
+    let mut ledger = Ledger::load_with_options(
+        dir.path().canonicalize().unwrap(),
         "main.zhang".to_owned(),
         Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
+        zhang_core::clock::Clock::System,
+        zhang_core::analysis::LoadOptions::default().with_native_budgets(),
     )
     .unwrap();
     ledger.reload().unwrap();

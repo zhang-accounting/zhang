@@ -2,6 +2,7 @@
 //!
 //! These are the helpers `zhang-query/tests/common/mod.rs` used to hold, with the same behaviour, plus
 //! [`Scratch`], a directory the test owns, and [`XorShift`], the reproducible random source of the property tests.
+//! Their ledgers' budgets are interpreted natively, through RFC #698's test switch ([`fixtures::native_budgets`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -20,10 +21,12 @@ use crate::fixtures::{self, FixtureLedger};
 /// Load the ledger at `dir/entry` **with the zhang parser**, whatever the entry's extension; the ledger's dialect
 /// still follows the entry name (a `main.bean` entry gives a beancount-dialect ledger parsed as zhang text, which is
 /// what some document-path tests rely on). For a ledger parsed in the format of its entry use
-/// [`fixtures::load_dir`]. Panics when the ledger does not load.
+/// [`fixtures::load_dir`]. Its budgets are interpreted natively, as by every loader of the kit
+/// ([`fixtures::native_budgets`]). Panics when the ledger does not load.
 pub fn load_ledger(dir: PathBuf, entry: &str) -> Ledger {
     let source = LocalFileSystemDataSource::new(ZhangDataType {});
-    Ledger::load_with_data_source(dir, entry.to_owned(), Arc::new(source)).expect("cannot load ledger")
+    let dir = dir.canonicalize().expect("the ledger's directory");
+    Ledger::load_with_options(dir, entry.to_owned(), Arc::new(source), Clock::System, fixtures::native_budgets()).expect("cannot load ledger")
 }
 
 /// Load a ledger from zhang text written as `main.zhang` to a temporary directory. The directory is kept for the
@@ -37,7 +40,9 @@ pub fn load_text(content: &str) -> Ledger {
 pub fn try_load_text(content: &str) -> ZhangResult<Ledger> {
     let dir = tempfile::tempdir().expect("tempdir").keep();
     std::fs::write(dir.join("main.zhang"), content).expect("write ledger");
-    Ledger::load_with_data_source(dir, "main.zhang".to_owned(), Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})))
+    let dir = dir.canonicalize().expect("the ledger's directory");
+    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+    Ledger::load_with_options(dir, "main.zhang".to_owned(), source, Clock::System, fixtures::native_budgets())
 }
 
 /// Load a ledger from zhang text, with the current time read from `clock` (what a plugin calling `zhang_now`
@@ -48,15 +53,15 @@ pub fn load_text_at(content: &str, clock: Clock) -> Ledger {
     let directives = ZhangDataType {}
         .transform(content.to_owned(), Some("main.zhang".to_owned()))
         .expect("parse ledger");
-    Ledger::process(LedgerProcessContext {
+    let context = LedgerProcessContext {
         directives,
         entry: (dir, "main.zhang".to_owned()),
         dialect: Dialect::Zhang,
         visited_files: vec![],
         data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
         clock,
-    })
-    .expect("cannot load ledger")
+    };
+    Ledger::process_with_options(context, fixtures::native_budgets()).expect("cannot load ledger")
 }
 
 /// Load a ledger from zhang text, with `transform` changing its parsed directives first, as a plugin changes the
@@ -68,15 +73,15 @@ pub fn load_transformed(content: &str, transform: impl FnOnce(Vec<Spanned<Direct
     let loaded = source
         .load(dir.to_string_lossy().into_owned(), "main.zhang".to_owned())
         .expect("cannot read ledger");
-    Ledger::process(LedgerProcessContext {
+    let context = LedgerProcessContext {
         directives: transform(loaded.directives),
         entry: (dir, "main.zhang".to_owned()),
         dialect: Dialect::Zhang,
         visited_files: loaded.visited_files,
         data_source: source,
         clock: Clock::System,
-    })
-    .expect("cannot process ledger")
+    };
+    Ledger::process_with_options(context, fixtures::native_budgets()).expect("cannot process ledger")
 }
 
 /// Load a ledger from `content` written as `main` (`main.zhang`, `main.bean`, ...) to a temporary directory, read
@@ -186,7 +191,8 @@ impl Scratch {
 
     /// The ledger loaded from the files as they are now, with the current time read from `clock`.
     pub fn ledger_at(&self, clock: Clock) -> ZhangResult<Ledger> {
-        Ledger::load_with_clock(self.path.clone(), self.main.clone(), fixtures::data_source_for(&self.main), clock)
+        let source = fixtures::data_source_for(&self.main);
+        Ledger::load_with_options(self.path.clone(), self.main.clone(), source, clock, fixtures::native_budgets())
     }
 
     /// Keep the directory after the test (to look at what was written) and return its path.

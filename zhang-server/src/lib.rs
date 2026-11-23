@@ -1458,6 +1458,66 @@ mod generation_test {
         assert_eq!(reloaded().await, 4, "and reloaded as it is now");
     }
 
+    /// The bundled script `zhang:budget`, which the server registers for every ledger (RFC #698 P3.3), counts in the
+    /// fingerprint by its code, as a ledger's own plugin does (#847): other bytes of the script, a binary with another
+    /// version of it, give another fingerprint, with budgets in the ledger or none. A reload of the same files with the
+    /// same script keeps the generation, its analysis published again, and compiles nothing: the code of the interpreter
+    /// it runs on is kept for the process.
+    #[tokio::test]
+    async fn the_budget_scripts_code_counts_and_a_reload_compiles_nothing() {
+        use zhang_core::analysis::LoadOptions;
+        use zhang_core::extensions::SnapshotStatus;
+        use zhang_core::plugin_policy::PluginPolicy;
+
+        let budgets = format!("{LEDGER}1970-01-01 open Expenses:Food\n  budget: \"Food\"\n2024-06-01 budget Food CNY\n");
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let options = || crate::analysis::load_options(Arc::new(PluginPolicy::default()));
+        let edited = || {
+            let mut options = options();
+            let budget = options.default_plugins.iter_mut().find(|it| it.module == "zhang:budget").expect("the script");
+            budget.content = Arc::from([&budget.content[..], b"\n-- a comment\n"].concat());
+            options
+        };
+        let load = |content: &str, options: LoadOptions| {
+            std::fs::write(root.join("main.zhang"), content).unwrap();
+            let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+            Ledger::load_with_options(root.clone(), "main.zhang".to_owned(), source, zhang_core::clock::Clock::System, options).expect("load ledger")
+        };
+        for content in [LEDGER, budgets.as_str()] {
+            let ledger = load(content, options());
+            let (script, _) = &ledger.plugins.ordered[0];
+            assert!(
+                script.is_budget_provider() && script.script().is_some(),
+                "the server's zhang:budget is the script"
+            );
+            let fingerprint = ledger_fingerprint(&ledger);
+            assert_eq!(ledger_fingerprint(&load(content, options())), fingerprint, "the same script");
+            assert_ne!(ledger_fingerprint(&load(content, edited())), fingerprint, "a comment added to the script");
+            let native = zhang_core::analysis::LoadOptions::with_policy(Arc::new(PluginPolicy::default())).with_native_budgets();
+            assert_ne!(ledger_fingerprint(&load(content, native)), fingerprint, "no script");
+        }
+
+        // a reload: the same generation, the analysis published again, nothing compiled (the count of the script's
+        // compilations, kept with its runtime across loads, does not grow)
+        let loaded = load(&budgets, options());
+        let compiled = loaded.plugins.ordered[0].0.compilations();
+        assert!(compiled <= 1, "the interpreter was compiled at most once for the script: {compiled}");
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender::new(sender));
+        start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+        for _ in 0..2 {
+            reload_sender.reload_and_wait().await.expect("the reload succeeds");
+            assert_eq!(reload_sender.generation(), 1, "the same files and script");
+            let reloaded = ledger.read().await;
+            let (script, _) = &reloaded.plugins.ordered[0];
+            assert_eq!(script.compilations(), compiled, "the reload compiled nothing");
+            let slot = reloaded.extensions.analyzer("zhang:budget").expect("its tables");
+            assert_eq!(slot.snapshot.get().map(|it| &it.status), Some(&SnapshotStatus::Ok), "published again");
+        }
+    }
+
     /// The options count in the fingerprint apart from the directives that set them: an option set otherwise, with
     /// every directive as it was, gives another fingerprint; the same ledger always gives the same one
     #[test]

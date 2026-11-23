@@ -666,7 +666,16 @@ mod test {
                 .await
                 .expect("a known ledger format");
                 let data_source = Arc::new(data_source);
-                let ledger = Ledger::load(test_temp_folder.to_path_buf(), main_file.to_string(), data_source.clone()).expect("cannot load ledger");
+                // loaded as `zhang serve` loads it: its budgets computed by the bundled script zhang:budget
+                let options = zhang_server::analysis::load_options(Arc::new(zhang_core::plugin_policy::PluginPolicy::default()));
+                let ledger = Ledger::load_with_options(
+                    test_temp_folder.to_path_buf(),
+                    main_file.to_string(),
+                    data_source.clone(),
+                    zhang_core::clock::Clock::System,
+                    options,
+                )
+                .expect("cannot load ledger");
                 let ledger_data = Arc::new(RwLock::new(ledger));
                 let broadcaster = Broadcaster::create();
                 let (tx, _) = mpsc::channel(1);

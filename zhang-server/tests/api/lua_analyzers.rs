@@ -68,6 +68,17 @@ fn load(scratch: &Scratch) -> Ledger {
         .unwrap_or_else(|error| panic!("the ledger loads: {error}"))
 }
 
+/// The slot of the ledger's own analyzer: the first one but `zhang:budget`, the bundled script the server registers for
+/// every ledger, which analyses first.
+fn own_analyzer(ledger: &Ledger) -> &zhang_core::extensions::AnalyzerSlot {
+    ledger
+        .extensions
+        .analyzers
+        .iter()
+        .find(|slot| slot.provider != "zhang:budget")
+        .expect("the ledger's own analyzer")
+}
+
 /// The rows of `sql` on `ledger`, compiled against its catalog, each cell as text.
 fn query(ledger: &Ledger, sql: &str) -> Vec<Vec<String>> {
     let query = Query::compile_in(&Catalog::of_ledger(ledger), sql, &ParamTypes::default()).unwrap_or_else(|err| panic!("{sql}: {}", err.message));
@@ -106,7 +117,7 @@ fn errors(ledger: &Ledger) -> Vec<String> {
 #[test]
 fn a_lua_analyzer_publishes_a_record_table_a_series_table_and_a_label_column() {
     let ledger = load(&scratch("envelopes.lua", ENVELOPES));
-    let snapshot = ledger.extensions.analyzers[0].snapshot.get().unwrap();
+    let snapshot = own_analyzer(&ledger).snapshot.get().unwrap();
     assert_eq!(snapshot.status, SnapshotStatus::Ok, "{:?}", ledger.errors);
 
     // the record table: every envelope by name, its amount written as zhang.decimal wrote it, and its metadata
@@ -230,7 +241,7 @@ fn a_lua_analysis_that_fails_loads_the_ledger_with_one_error() {
         // the cause, without the script's stack trace, which only the log has
         assert!(!failed[0].1.contains("stack traceback"), "{}", failed[0].1);
         assert_eq!(
-            ledger.extensions.analyzers[0].snapshot.get().unwrap().status,
+            own_analyzer(&ledger).snapshot.get().unwrap().status,
             SnapshotStatus::Failed { reason: reason.to_owned() }
         );
         let unavailable = Query::compile_in(&Catalog::of_ledger(&ledger), "SELECT * FROM #env_funds", &ParamTypes::default())
@@ -279,7 +290,7 @@ end
 return M
 "#;
     let ledger = load(&scratch("short.lua", SHORT));
-    let snapshot = ledger.extensions.analyzers[0].snapshot.get().unwrap();
+    let snapshot = own_analyzer(&ledger).snapshot.get().unwrap();
     assert_eq!(snapshot.status, SnapshotStatus::Ok, "{:?}", ledger.errors);
     let last = query(&ledger, "SELECT date, seq FROM #transactions ORDER BY date DESC, seq DESC LIMIT 1");
     assert_eq!(last[0][0], "2024-03-02");

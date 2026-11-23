@@ -200,9 +200,10 @@ pub async fn router_of(app: ServerApp) -> Router {
 /// The router of a server on the ledger `dir/entry`, loaded through `data_source` (see [`RootedFileSystem`] and
 /// [`crate::fixtures::data_source_for`]), and the ledger it serves. Panics when the ledger does not load.
 pub async fn app_and_ledger(dir: &Path, entry: &str, data_source: Arc<dyn DataSource>, settings: &Settings) -> (ServerApp, Arc<RwLock<Ledger>>) {
-    // the plugins run under the settings' policy, as `zhang serve` loads them
-    let policy = Arc::new(settings.plugins.policy.clone());
-    let ledger = Ledger::load_with_policy(dir.to_path_buf(), entry.to_owned(), data_source.clone(), Clock::System, policy)
+    // loaded as `zhang serve` loads it: the plugins under the settings' policy, and the server's default plugins, the
+    // bundled script zhang:budget computing the budgets
+    let options = zhang_server::analysis::load_options(Arc::new(settings.plugins.policy.clone()));
+    let ledger = Ledger::load_with_options(dir.to_path_buf(), entry.to_owned(), data_source.clone(), Clock::System, options)
         .unwrap_or_else(|error| panic!("ledger should load: {error}"));
     let ledger = Arc::new(RwLock::new(ledger));
     (app(serve_config(dir, entry, data_source, settings), ledger.clone()), ledger)

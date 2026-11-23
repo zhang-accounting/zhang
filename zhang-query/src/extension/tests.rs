@@ -17,12 +17,15 @@ use crate::table::{Dataset, RowRef};
 use crate::value::Value;
 use crate::{ParamTypes, Query, QueryErrorKind};
 
-/// A ledger of `text`, its main file.
+/// A ledger of `text`, its main file, its budgets interpreted by the native code through RFC #698's test switch (a bare
+/// load runs no budget code): the native provider of the budget tables these tests read.
+// TODO(P5): the native provider goes, and with it its tests
 pub(crate) fn ledger(text: &str) -> Ledger {
-    let dir = tempfile::tempdir().expect("tempdir").keep();
+    let dir = tempfile::tempdir().expect("tempdir").keep().canonicalize().expect("tempdir");
     std::fs::write(dir.join("main.zhang"), text).expect("write ledger");
-    let source = LocalFileSystemDataSource::new(ZhangDataType {});
-    Ledger::load_with_data_source(dir, "main.zhang".to_owned(), Arc::new(source)).expect("cannot load ledger")
+    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+    let options = zhang_core::analysis::LoadOptions::default().with_native_budgets();
+    Ledger::load_with_options(dir, "main.zhang".to_owned(), source, zhang_core::clock::Clock::System, options).expect("cannot load ledger")
 }
 
 fn column(name: &str, ty: DataType, fill: Option<Fill>) -> ColumnDecl {

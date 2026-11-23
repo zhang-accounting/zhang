@@ -348,9 +348,13 @@ mod tests {
     use crate::value::DataType;
     use crate::Query;
 
+    /// the ledger in `dir`, its budgets interpreted by the native code through RFC #698's test switch (a bare load runs
+    /// no budget code)
     fn load(dir: PathBuf) -> Ledger {
-        let source = LocalFileSystemDataSource::new(ZhangDataType {});
-        Ledger::load_with_data_source(dir, "main.zhang".to_owned(), Arc::new(source)).expect("cannot load ledger")
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let options = zhang_core::analysis::LoadOptions::default().with_native_budgets();
+        let dir = dir.canonicalize().expect("the ledger's directory");
+        Ledger::load_with_options(dir, "main.zhang".to_owned(), source, zhang_core::clock::Clock::System, options).expect("cannot load ledger")
     }
 
     fn fava_demo_ledger() -> Ledger {

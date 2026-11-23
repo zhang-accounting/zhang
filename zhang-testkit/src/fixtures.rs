@@ -13,6 +13,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use beancount::Beancount;
+use zhang_core::analysis::LoadOptions;
+use zhang_core::clock::Clock;
 use zhang_core::data_source::{DataSource, LocalFileSystemDataSource};
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::Dialect;
@@ -117,9 +119,19 @@ pub fn data_source_for(entry: &str) -> Arc<dyn DataSource> {
     }
 }
 
-/// Load the ledger at `dir/entry` in the format of `entry`.
+/// Load the ledger at `dir/entry` in the format of `entry`, its budgets interpreted natively ([`native_budgets`]).
 pub fn load_dir(dir: impl Into<PathBuf>, entry: &str) -> ZhangResult<Ledger> {
-    Ledger::load(dir.into(), entry.to_owned(), data_source_for(entry))
+    Ledger::load_with_options(dir.into(), entry.to_owned(), data_source_for(entry), Clock::System, native_budgets())
+}
+
+/// The options the kit's loaders load a ledger with: zhang-core's own, with RFC #698's test switch on, so that zhang's
+/// native budget code interprets the budgets ([`LoadOptions::native_budgets`]). The bundled script `zhang:budget`, the
+/// only implementation of budgets a server runs, needs the plugin runtime and the query engine, which zhang-core's
+/// and zhang-query's tests do not have; the kit's HTTP harness ([`crate::http`], feature `server`) loads as the server
+/// does, with the script.
+// TODO(P5): the native budget code goes, and with it the budget tests of zhang-core and zhang-query that read it
+pub fn native_budgets() -> LoadOptions {
+    LoadOptions::default().with_native_budgets()
 }
 
 /// Every ledger of `integration-tests/` (each case in each format it has, in name order) and `examples/main.zhang`.
