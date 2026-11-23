@@ -5,7 +5,8 @@
 //!
 //! ```sh
 //! cargo run --release -p zhang --example budget_compare -- <native-dir> <candidate-dir> \
-//!     [--expect-analyzer zhang:budget] [--include-invalid] [--summary <file>]
+//!     [--expect-analyzer zhang:budget] [--include-invalid] [--summary <file>] [--p95-rule difference|ratio] \
+//!     [--p95-floor-ms 1]
 //! ```
 //!
 //! Each directory holds the JSON reports of runs (what `ZHANG_BUDGET_BASELINE_OUT` writes, one directory per run:
@@ -36,13 +37,21 @@
 //! **The memory**, on the same pairs: for each figure of [`MEMORY`], the median of the candidate's runs against the
 //! median of the native runs may grow by at most max(10%, 40 MiB).
 //!
-//! **The named-query p95.** For every kind of warm request, the ratio of the two runs' p95 in every pair (candidate /
-//! native), and the same order-statistic interval of the median ratio: it **passes** when the interval's upper end is
-//! at most [`P95_BAR`], 1.1, **fails** when its lower end is above it, and is inconclusive otherwise. It is judged on
-//! [`P95_PAIRS`] pairs, 60, run before it is judged. The ratio of the medians of the runs' p95, G1's reading, is printed
-//! beside it.
+//! **The named-query p95.** For every kind of warm request, the difference of the two runs' p95 in every pair
+//! (candidate − native), and the same order-statistic interval of the median difference: it **passes** when the
+//! interval's upper end is at most max(10% of the median native p95, `--p95-floor-ms`, 1 ms by default), **fails**
+//! when its lower end is above it, and is inconclusive otherwise. `--p95-rule ratio` judges the ratio of the two p95s
+//! instead, against [`P95_BAR`], 1.1. Either way the other figures are printed for information, with G1's reading, the
+//! ratio of the medians of the runs' p95. It is judged on [`P95_PAIRS`] pairs, 60, run before it is judged.
 //!
-//! `--summary <file>` writes every verdict as JSON too, for `budget_pairs`, which adds pairs while one is inconclusive.
+//! **To confirm.** When the two runs of the pairs ran at the same time (their reports' wall clocks overlap), a PASS
+//! whose interval's upper end is past [`CONFIRM_SHARE`], 70%, of what is allowed is reported `CONFIRM`: the two sides
+//! share the memory bandwidth and the caches, which can narrow a difference, so it is to be confirmed with pairs run one
+//! after the other (`budget_pairs` runs them). The native runs must show no snapshot of the budget analyzer
+//! (`--expect-analyzer`, or `zhang:budget`): a plugin compared with a plugin is refused.
+//!
+//! `--summary <file>` writes every verdict as JSON too, for `budget_pairs`, which adds pairs while one is inconclusive
+//! and confirms the `CONFIRM`s.
 //! The tool exits with a failure when a timer, a memory figure or a p95 fails, or a comparison is refused.
 
 use std::collections::BTreeMap;
@@ -71,8 +80,18 @@ const MEMORY_SHARE: f64 = 0.10;
 const MEMORY_FLOOR_MIB: f64 = 40.0;
 /// the kinds of warm request, in the order the baseline lists them
 const REQUESTS: [&str; 6] = ["month", "month_first", "detail", "interval", "bql_year", "errors"];
-/// the most the candidate's p95 of a request may be, as a multiple of the native p95
+/// the most the candidate's p95 of a request may be, as a multiple of the native p95 (the ratio rule), or what it may
+/// grow by as a share of the native p95 (the difference rule, with a floor)
 const P95_BAR: f64 = 1.1;
+/// the floor of what the difference rule allows a p95 to grow by, in milliseconds, unless `--p95-floor-ms` says
+/// otherwise: the bar is max(+10%, +1 ms) (RFC #698, decision 16, revised 2026-11-23)
+const P95_FLOOR_MS: f64 = 1.0;
+/// A PASS from pairs whose two runs ran at the same time is to be confirmed with pairs run one after the other when
+/// the upper end of its interval is past this share of what is allowed: the two sides share the memory bandwidth and
+/// the caches, so a candidate that moves more memory also slows the native side and narrows the difference.
+const CONFIRM_SHARE: f64 = 0.7;
+/// the budget analyzer, which the native runs must not show publishing anything
+const BUDGET_ANALYZER: &str = "zhang:budget";
 /// The pairs the named-query p95 is judged on, all run before it is judged (no optional stopping). A `requests` run
 /// costs a few seconds, and the p95 of a request of a fraction of a millisecond moves by 10 to 50% from process to
 /// process, so the interval of the median ratio needs many pairs to be narrower than the bar.
@@ -82,6 +101,19 @@ struct Options {
     expect_analyzer: Option<String>,
     include_invalid: bool,
     summary: Option<PathBuf>,
+    p95_rule: P95Rule,
+    /// the floor of what the difference rule allows the p95 to grow by, in milliseconds
+    p95_floor_ms: f64,
+}
+
+/// How the named-query p95 is judged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum P95Rule {
+    /// the interval of the median of the pairs' differences (candidate − native) against max(10% of the median
+    /// native p95, the floor): the default
+    Difference,
+    /// the interval of the median of the pairs' ratios (candidate / native) against 1.1
+    Ratio,
 }
 
 /// What a run measured that a criterion reads: the end-to-end timers (and the memory of those runs), or the warm
@@ -111,7 +143,8 @@ impl Section {
 
 /// A verdict, as `--summary` writes it: the ledger, the criterion (`end_to_end`, `memory`, `named_query_p95`), the
 /// section of the reports it read, the timer, figure or request, the pairs, the verdict (`PASS`, `FAIL`,
-/// `INCONCLUSIVE`, `REFUSED`) and how many more pairs an inconclusive one needs at least (0 when no pair would help).
+/// `INCONCLUSIVE`, `REFUSED`, or `CONFIRM`: a PASS to confirm with pairs run one after the other) and how many more
+/// pairs an inconclusive one needs at least (0 when no pair would help).
 struct Verdict {
     ledger: String,
     criterion: &'static str,
@@ -128,6 +161,8 @@ fn main() -> ExitCode {
         expect_analyzer: None,
         include_invalid: false,
         summary: None,
+        p95_rule: P95Rule::Difference,
+        p95_floor_ms: P95_FLOOR_MS,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -141,6 +176,15 @@ fn main() -> ExitCode {
                 None => return usage(),
             },
             "--include-invalid" => options.include_invalid = true,
+            "--p95-rule" => match args.next().as_deref() {
+                Some("difference") => options.p95_rule = P95Rule::Difference,
+                Some("ratio") => options.p95_rule = P95Rule::Ratio,
+                _ => return usage(),
+            },
+            "--p95-floor-ms" => match args.next().and_then(|it| it.parse::<f64>().ok()).filter(|it| *it >= 0.0) {
+                Some(floor) => options.p95_floor_ms = floor,
+                None => return usage(),
+            },
             _ if arg.starts_with("--") => return usage(),
             _ => dirs.push(PathBuf::from(arg)),
         }
@@ -203,7 +247,10 @@ fn main() -> ExitCode {
 }
 
 fn usage() -> ExitCode {
-    eprintln!("usage: budget_compare <native-dir> <candidate-dir> [--expect-analyzer <provider>] [--include-invalid] [--summary <file>]");
+    eprintln!(
+        "usage: budget_compare <native-dir> <candidate-dir> [--expect-analyzer <provider>] [--include-invalid] [--summary <file>] \
+         [--p95-rule difference|ratio] [--p95-floor-ms {P95_FLOOR_MS}]"
+    );
     ExitCode::FAILURE
 }
 
@@ -373,6 +420,22 @@ fn refusals(natives: &[Run], candidates: &[Run], options: &Options) -> Vec<Strin
             refusals.push(format!("the native and the candidate runs differ in the {what}"));
         }
     }
+    // the native side must be native: no snapshot of the budget analyzer (or of the one expected of the candidate),
+    // or a plugin would be compared with a plugin
+    let analyzer = options.expect_analyzer.as_deref().unwrap_or(BUDGET_ANALYZER);
+    for (path, report) in natives {
+        for when in ["after_load", "at_end"] {
+            let snapshot = report["analyzers"][when].as_array().and_then(|analyzers| {
+                analyzers
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .find(|it| it.starts_with(&format!("{analyzer}: ")) && !it.ends_with(": not published"))
+            });
+            if let Some(snapshot) = snapshot {
+                refusals.push(format!("{} is not native: it shows the analyzer {snapshot} ({when})", path.display()));
+            }
+        }
+    }
     if let Some(expected) = &options.expect_analyzer {
         let published = format!("{expected}: ok");
         for (path, report) in candidates {
@@ -437,7 +500,9 @@ fn compare(ledger: &str, section: Section, natives: &[Run], candidates: &[Run], 
             candidates.len()
         );
     }
+    let concurrent = pairs.iter().any(|((_, native), (_, candidate))| overlap(native, candidate));
     println!("   {} pairs{}", pairs.len(), apart(&pairs));
+    println!("   {}", cpu_sets(&pairs));
     if pairs.is_empty() {
         println!("   nothing to compare");
         return false;
@@ -454,8 +519,56 @@ fn compare(ledger: &str, section: Section, natives: &[Run], candidates: &[Run], 
         });
     };
     match section {
-        Section::EndToEnd => timers(ledger, &pairs, &mut verdict) | memory(&pairs, &mut verdict),
-        Section::Requests => p95(&pairs, &mut verdict),
+        Section::EndToEnd => timers(ledger, &pairs, concurrent, &mut verdict) | memory(&pairs, &mut verdict),
+        Section::Requests => p95(&pairs, concurrent, options, &mut verdict),
+    }
+}
+
+/// Whether the two runs of a pair ran at the same time, at least in part, by the wall clock their reports record (a
+/// report without it is taken for a run one after the other).
+fn overlap(native: &Value, candidate: &Value) -> bool {
+    let at = |report: &Value, key: &str| report["validity"][key].as_u64();
+    match (
+        at(native, "started_unix_ms"),
+        at(native, "ended_unix_ms"),
+        at(candidate, "started_unix_ms"),
+        at(candidate, "ended_unix_ms"),
+    ) {
+        (Some(native_start), Some(native_end), Some(candidate_start), Some(candidate_end)) => native_start < candidate_end && candidate_start < native_end,
+        _ => false,
+    }
+}
+
+/// The CPU sets each side's runs were pinned to, with how many pairs used each: `budget_pairs` gives each set of a
+/// slot to either side in turn.
+fn cpu_sets(pairs: &[Pair]) -> String {
+    let mut sides = vec![];
+    for (side, at) in [("native", 0), ("candidate", 1)] {
+        let mut sets = BTreeMap::<String, usize>::new();
+        for pair in pairs {
+            let report = if at == 0 { &pair.0 .1 } else { &pair.1 .1 };
+            let set = report["validity"]["cpus_allowed"].as_str().unwrap_or("-").to_owned();
+            *sets.entry(set).or_default() += 1;
+        }
+        let sets = sets.iter().map(|(set, count)| format!("{set} x{count}")).collect::<Vec<_>>();
+        sides.push(format!("{side} {}", sets.join(", ")));
+    }
+    format!("CPU sets: {}", sides.join("; "))
+}
+
+/// A PASS of pairs run at the same time whose interval's upper end is past [`CONFIRM_SHARE`] of what is allowed
+/// (`share`) is to be confirmed with pairs run one after the other: `CONFIRM`.
+fn confirm(decided: (&'static str, usize, String), share: f64, concurrent: bool) -> (&'static str, usize, String) {
+    match decided {
+        ("PASS", needs, _) if concurrent && share > CONFIRM_SHARE => (
+            "CONFIRM",
+            needs,
+            format!(
+                "PASS, to CONFIRM with pairs one after the other (upper end at {:.0}% of the allowance)",
+                100.0 * share
+            ),
+        ),
+        other => other,
     }
 }
 
@@ -494,7 +607,7 @@ fn decide(interval: Option<(f64, f64, f64)>, bar: f64, at_most: bool, n: usize, 
 }
 
 /// The end-to-end timers of the pairs, a line each; whether one failed or was refused.
-fn timers(ledger: &str, pairs: &[Pair], verdict: &mut impl FnMut(&'static str, &str, usize, &'static str, usize)) -> bool {
+fn timers(ledger: &str, pairs: &[Pair], concurrent: bool, verdict: &mut impl FnMut(&'static str, &str, usize, &'static str, usize)) -> bool {
     println!(
         "{:<20} {:>5} {:>10} {:>11} {:>25} {:>8} {:>11} {:>11}  verdict",
         "timer", "pairs", "native p50", "median diff", "interval of the median", "allowed", "excluded", "during"
@@ -544,7 +657,10 @@ fn timers(ledger: &str, pairs: &[Pair], verdict: &mut impl FnMut(&'static str, &
             .map(|(low, high, coverage)| format!("[{low:+.1}, {high:+.1}] {:.1}%", 100.0 * coverage))
             .unwrap_or_else(|| "-".to_owned());
         let (outcome, needs, text) = match short.is_empty() {
-            true => decide(interval, allowance, false, n, needed, MOST_PAIRS),
+            true => {
+                let share = interval.map(|(_, high, _)| high / allowance).unwrap_or(0.0);
+                confirm(decide(interval, allowance, false, n, needed, MOST_PAIRS), share, concurrent)
+            }
             false => ("REFUSED", 0, format!("REFUSED: fewer than 20 clean rounds ({})", short.join(", "))),
         };
         failed |= matches!(outcome, "FAIL" | "REFUSED");
@@ -596,13 +712,23 @@ fn memory(pairs: &[Pair], verdict: &mut impl FnMut(&'static str, &str, usize, &'
     failed
 }
 
-/// The named-query p95 of the pairs, a line per kind of warm request: the ratio of the two runs' p95 in each pair,
-/// the interval of its median against [`P95_BAR`], and G1's reading, the ratio of the medians of the runs' p95;
-/// whether one failed.
-fn p95(pairs: &[Pair], verdict: &mut impl FnMut(&'static str, &str, usize, &'static str, usize)) -> bool {
+/// The named-query p95 of the pairs, a line per kind of warm request. By the difference rule (the default), the
+/// difference of the two runs' p95 in each pair and the interval of its median against max(10% of the median native
+/// p95, `--p95-floor-ms`); by the ratio rule, the ratio of the two runs' p95 and the interval of its median against
+/// [`P95_BAR`]. The other figures are printed for information, with G1's reading, the ratio of the medians of the
+/// runs' p95. Whether one failed.
+fn p95(pairs: &[Pair], concurrent: bool, options: &Options, verdict: &mut impl FnMut(&'static str, &str, usize, &'static str, usize)) -> bool {
+    match options.p95_rule {
+        P95Rule::Difference => println!(
+            "   rule: the median difference, allowed max({:.0}% of the native p95, {} ms); ratios for information",
+            100.0 * (P95_BAR - 1.0),
+            options.p95_floor_ms
+        ),
+        P95Rule::Ratio => println!("   rule: the median ratio, allowed {P95_BAR}; differences for information"),
+    }
     println!(
-        "{:<12} {:>5} {:>10} {:>10} {:>14} {:>12} {:>25}  verdict",
-        "request", "pairs", "native p95", "cand. p95", "G1's ratio", "median ratio", "interval of the median"
+        "{:<12} {:>5} {:>10} {:>10} {:>10} {:>12} {:>12} {:>27} {:>8}  verdict",
+        "request", "pairs", "native p95", "cand. p95", "G1's ratio", "median ratio", "median diff", "interval of the median", "allowed"
     );
     let mut kinds = REQUESTS.map(str::to_owned).to_vec();
     if let Some(requests) = pairs[0].0 .1["requests"].as_object() {
@@ -623,18 +749,36 @@ fn p95(pairs: &[Pair], verdict: &mut impl FnMut(&'static str, &str, usize, &'sta
         let candidate = median(&values.iter().map(|it| it.1).collect::<Vec<_>>());
         let mut ratios = values.iter().map(|(native, candidate)| candidate / native).collect::<Vec<_>>();
         ratios.sort_by(f64::total_cmp);
+        let mut differences = values.iter().map(|(native, candidate)| candidate - native).collect::<Vec<_>>();
+        differences.sort_by(f64::total_cmp);
         let n = ratios.len();
-        let interval = interval(&ratios);
-        let shown = interval
-            .map(|(low, high, coverage)| format!("[{low:.2}, {high:.2}] {:.1}%", 100.0 * coverage))
+        let (judged, bar, allowed) = match options.p95_rule {
+            P95Rule::Difference => {
+                let allowed = ((P95_BAR - 1.0) * native).max(options.p95_floor_ms);
+                (interval(&differences), allowed, format!("{allowed:.3}"))
+            }
+            P95Rule::Ratio => (interval(&ratios), P95_BAR, format!("x{P95_BAR}")),
+        };
+        let shown = judged
+            .map(|(low, high, coverage)| match options.p95_rule {
+                P95Rule::Difference => format!("[{low:+.3}, {high:+.3}] {:.1}%", 100.0 * coverage),
+                P95Rule::Ratio => format!("[{low:.2}, {high:.2}] {:.1}%", 100.0 * coverage),
+            })
             .unwrap_or_else(|| "-".to_owned());
-        let (outcome, needs, text) = decide(interval, P95_BAR, true, n, P95_PAIRS, P95_PAIRS);
+        let share = judged
+            .map(|(_, high, _)| match options.p95_rule {
+                P95Rule::Difference => high / bar,
+                P95Rule::Ratio => (high - 1.0) / (bar - 1.0),
+            })
+            .unwrap_or(0.0);
+        let (outcome, needs, text) = confirm(decide(judged, bar, true, n, P95_PAIRS, P95_PAIRS), share, concurrent);
         failed |= outcome == "FAIL";
         verdict("named_query_p95", kind, n, outcome, needs);
         println!(
-            "{kind:<12} {n:>5} {native:>10.3} {candidate:>10.3} {:>14.2} {:>12.2} {shown:>25}  {text}",
+            "{kind:<12} {n:>5} {native:>10.3} {candidate:>10.3} {:>10.2} {:>12.2} {:>+12.3} {shown:>27} {allowed:>8}  {text}",
             candidate / native,
-            median(&ratios)
+            median(&ratios),
+            median(&differences)
         );
     }
     failed
