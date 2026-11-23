@@ -1,0 +1,114 @@
+name: Docker image smoke test
+
+# Builds the x86_64 release binary and the Docker image of the checked-out commit as `release.yml` does for a version
+# tag, then runs the image on a small ledger with `.github/scripts/docker-smoke.sh`. Nothing is published: no registry
+# login, no push. It runs every night on main, after the nightly release binaries (18:00), and by hand on any branch.
+on:
+  schedule:
+    - cron: "30 19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# `bash -eo pipefail`: a failing command of a pipe fails its step
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # the same job as `build-frontend` of release.yml
+  build-frontend:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: frontend install
+        run: pnpm install
+        working-directory: ./frontend
+
+      - name: frontend build
+        run: pnpm build
+        working-directory: ./frontend
+
+      - uses: actions/upload-artifact@v4
+        name: Save frontend build artifact
+        with:
+          name: frontend-build
+          if-no-files-found: error
+          retention-days: 1
+          path: ./frontend/dist
+
+  smoke:
+    name: Image linux/amd64
+    needs: build-frontend
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      # the binary: the steps of release.yml's `publish` job for x86_64-unknown-linux-gnu
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: ./frontend/dist
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: x86_64-unknown-linux-gnu
+          save-if: false
+
+      - run: sudo apt install musl-tools
+
+      - name: Install openssl
+        run: sudo apt install pkg-config libssl-dev
+
+      - name: cargo build
+        uses: houseabsolute/actions-rust-cross@v0
+        with:
+          command: build
+          args: --release --locked --bin zhang --features frontend
+          target: x86_64-unknown-linux-gnu
+
+      # the image: the command of release.yml's `docker-image-release` job, which adds the image to the manifest list
+      # `zhang` it pushes; nothing is pushed here. The last line podman prints is the id of the image built, which the
+      # next step runs (`--iidfile` names the manifest list instead with recent podman)
+      - name: podman build linux/amd64
+        run: |
+          podman build --format docker --platform linux/amd64 --manifest zhang -f Dockerfile target/x86_64-unknown-linux-gnu/release | tee podman-build.log
+          tail -n 1 podman-build.log > image-id
+          podman image inspect --format '{{.Os}}/{{.Architecture}}' "$(cat image-id)"
+
+      # the checks run under Docker, which applies the memory limit and sends SIGTERM on `docker stop` as a user's
+      # Docker does; the image is the one podman built
+      - name: Load the image into Docker
+        run: |
+          podman tag "$(cat image-id)" localhost/zhang:smoke
+          podman save --format docker-archive -o zhang-image.tar localhost/zhang:smoke
+          docker load -i zhang-image.tar
+
+      # Expected to fail until the fix of the memory used to compile plugins lands: under `--memory 512m` the
+      # container is OOM-killed while it compiles the plugin runtime, and the step fails on its memory check. The
+      # `docker stop` check needs `zhang serve` to shut down on SIGTERM; without it the stop takes 10 s, exit 137
+      - name: Smoke test (--memory 512m, a declared plugin, docker stop within 5 s)
+        run: .github/scripts/docker-smoke.sh localhost/zhang:smoke
+        env:
+          CONTAINER_ENGINE: docker
