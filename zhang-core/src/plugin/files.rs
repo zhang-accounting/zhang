@@ -262,6 +262,11 @@ impl FileAccess {
         }
     }
 
+    /// the granted paths, relative to the ledger root (empty for the whole root)
+    pub(crate) fn grants(&self) -> &[PathBuf] {
+        &self.grants
+    }
+
     /// the broadest grant holding `path` (rule 2): the path starts with it, compared component by component, and
     /// no component below it starts with `.`
     fn grant_for(&self, path: &Path) -> Option<&Path> {

@@ -38,6 +38,7 @@ use chrono::{DateTime, SecondsFormat};
 use chrono_tz::Tz;
 use extism::convert::MemoryHandle;
 use extism::{CurrentPlugin, Function, UserData, Val, ValType, EXTISM_ENV_MODULE, PTR};
+use indexmap::IndexSet;
 use log::warn;
 use serde::{Deserialize, Serialize};
 use zhang_ast::error::ErrorKind;
@@ -64,6 +65,24 @@ pub const MESSAGE_META: &str = "message";
 /// payload is a small JSON object (a message, an optional span and a few metas), so one mebibyte is
 /// far more than a real caller needs while still being a hard ceiling against a runaway allocation.
 const EMIT_ERROR_MAX_LEN: usize = 1024 * 1024;
+
+/// the most errors one instance keeps of those it reports with `zhang_emit_error`. They become diagnostics in the
+/// ledger's error list (or warnings in the log, for a router, an analyzer or a registration), one per problem: a
+/// thousand are pages of them, and a plugin reporting more reports the same problem over and over. The errors past it
+/// are dropped and counted, and one more error says how many were ([`PluginHost::take_errors`])
+const MAX_EMITTED_ERRORS: usize = 1000;
+
+/// the most bytes of errors one instance keeps (their messages, metas and spans, [`stored_size`]): a typical error takes
+/// a few hundred bytes, so this holds [`MAX_EMITTED_ERRORS`] of them. Kept in the host, outside the plugin's memory
+/// limit: without a bound, 200 errors of a mebibyte held 200 MiB of the server's memory under a plugin limit of 32 MiB
+const MAX_EMITTED_ERROR_BYTES: usize = 1024 * 1024;
+
+/// the most inputs (the files and directories its file calls read) one instance records, and the most bytes of their
+/// paths: a plugin reads a few files, while one calling `zhang_read_file` on ever new names held a path of up to 4 KiB
+/// per call in the host. Past either, the instance records each of its grants as a directory instead, which any change
+/// under it makes stale: coarser, and as correct ([`PluginHost::take_inputs`])
+const MAX_INPUTS: usize = 10_000;
+const MAX_INPUT_BYTES: usize = 1024 * 1024;
 
 // --- reading plugin memory safely -------------------------------------------------------------
 //
@@ -210,8 +229,12 @@ pub(super) struct HostState {
     pub(super) plugin: String,
     /// the span of the plugin's directive, where an error without a usable span of its own is reported
     directive_span: SpanInfo,
-    /// the errors the plugin reported, in call order
+    /// the errors the plugin reported, in call order, at most [`MAX_EMITTED_ERRORS`] and [`MAX_EMITTED_ERROR_BYTES`]
     errors: Vec<StageError>,
+    /// the bytes of `errors` ([`stored_size`])
+    error_bytes: usize,
+    /// how many errors the plugin reported past the bounds of `errors`, which were dropped
+    dropped_errors: usize,
     /// the clock of the load, which `zhang_now` reads
     clock: LoadClock,
     /// the ledger timezone
@@ -228,8 +251,13 @@ pub(super) struct HostState {
     /// what the plugin may read; `None` while it registers or handles a request as a router, when every
     /// file call is denied
     access: Option<FileAccess>,
-    /// the inputs its file calls recorded, in call order
-    inputs: Vec<ExtraInput>,
+    /// the inputs its file calls recorded, in call order, each once, at most [`MAX_INPUTS`] and [`MAX_INPUT_BYTES`] of
+    /// paths
+    inputs: IndexSet<ExtraInput>,
+    /// the bytes of the paths of `inputs`
+    input_bytes: usize,
+    /// whether a file call read past the bounds of `inputs`, which then stand for every grant of `access`
+    inputs_overflowed: bool,
     /// what the router host functions reach, the server's query host and the ledger's info; `None` outside
     /// a router call, when they answer that they are unavailable
     pub(super) router: Option<(Arc<dyn RouterHost>, LedgerInfo)>,
@@ -237,6 +265,25 @@ pub(super) struct HostState {
     pub(super) http_status: u16,
     /// what the plugin may write through the write host functions; `None` outside a router call
     pub(super) writes: Option<WriteAccess>,
+}
+
+impl HostState {
+    /// record `input`, once, within [`MAX_INPUTS`] and [`MAX_INPUT_BYTES`]; past them, the grants stand for it
+    fn record_input(&mut self, input: ExtraInput) {
+        if self.inputs_overflowed || self.inputs.contains(&input) {
+            return;
+        }
+        let bytes = match &input {
+            ExtraInput::File(path) | ExtraInput::Dir(path) => path.as_os_str().len(),
+            ExtraInput::Clock => 0,
+        };
+        if self.inputs.len() >= MAX_INPUTS || self.input_bytes + bytes > MAX_INPUT_BYTES {
+            self.inputs_overflowed = true;
+            return;
+        }
+        self.input_bytes += bytes;
+        self.inputs.insert(input);
+    }
 }
 
 /// the host side of one plugin instance: what its host functions reach and what they collected
@@ -289,6 +336,8 @@ impl PluginHost {
             plugin,
             directive_span,
             errors: vec![],
+            error_bytes: 0,
+            dropped_errors: 0,
             clock,
             timezone,
             record,
@@ -296,7 +345,9 @@ impl PluginHost {
             analysing: false,
             read: false,
             access: None,
-            inputs: vec![],
+            inputs: IndexSet::new(),
+            input_bytes: 0,
+            inputs_overflowed: false,
             router: None,
             http_status: 0,
             writes: None,
@@ -357,9 +408,27 @@ impl PluginHost {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// take the errors the plugin reported so far
+    /// take the errors the plugin reported so far: those it kept, and one more saying how many it dropped past its bounds
+    /// ([`MAX_EMITTED_ERRORS`], [`MAX_EMITTED_ERROR_BYTES`]), if it dropped any
     pub fn take_errors(&self) -> Vec<StageError> {
-        std::mem::take(&mut self.lock().errors)
+        let mut state = self.lock();
+        let mut errors = std::mem::take(&mut state.errors);
+        state.error_bytes = 0;
+        let dropped = std::mem::take(&mut state.dropped_errors);
+        if dropped > 0 {
+            let message = format!(
+                "the plugin reported {dropped} more error(s), which were dropped: a plugin keeps at most {MAX_EMITTED_ERRORS} errors, {} in all, of a run",
+                crate::plugin_policy::Size(MAX_EMITTED_ERROR_BYTES as u64)
+            );
+            warn!("plugin {}: {message}", log_safe(&state.plugin));
+            let metas = HashMap::from([(PLUGIN_META.to_owned(), state.plugin.clone()), (MESSAGE_META.to_owned(), message)]);
+            errors.push(StageError {
+                kind: ErrorKind::PluginError,
+                span: state.directive_span.clone(),
+                metas,
+            });
+        }
+        errors
     }
 
     /// whether the plugin read the time since the last call; a host that is registering the plugin never records it
@@ -367,9 +436,17 @@ impl PluginHost {
         std::mem::take(&mut self.lock().read)
     }
 
-    /// take the inputs the plugin's file calls recorded so far
+    /// take the inputs the plugin's file calls recorded so far: each once, and every grant of the plugin as a directory
+    /// when its calls read past the bounds of what is recorded ([`MAX_INPUTS`], [`MAX_INPUT_BYTES`])
     pub fn take_inputs(&self) -> Vec<ExtraInput> {
-        std::mem::take(&mut self.lock().inputs)
+        let mut state = self.lock();
+        let mut inputs = std::mem::take(&mut state.inputs);
+        state.input_bytes = 0;
+        if std::mem::take(&mut state.inputs_overflowed) {
+            let grants = state.access.as_ref().map(FileAccess::grants).unwrap_or_default();
+            inputs.extend(grants.iter().cloned().map(ExtraInput::Dir));
+        }
+        inputs.into_iter().collect()
     }
 
     /// hand what the plugin reported and read so far to the pipeline: its errors, the date if it read the time,
@@ -404,9 +481,26 @@ fn emit_error(plugin: &mut CurrentPlugin, inputs: &[Val], _outputs: &mut [Val], 
     let payload = inputs.first().and_then(|offset| read_input(plugin, offset, EMIT_ERROR_MAX_LEN).ok());
     let state = state.get()?;
     let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+    if state.errors.len() >= MAX_EMITTED_ERRORS {
+        state.dropped_errors += 1;
+        return Ok(());
+    }
     let error = plugin_error(&state.plugin, &state.directive_span, payload.as_deref());
+    let size = stored_size(&error);
+    if state.error_bytes + size > MAX_EMITTED_ERROR_BYTES {
+        state.dropped_errors += 1;
+        return Ok(());
+    }
+    state.error_bytes += size;
     state.errors.push(error);
     Ok(())
+}
+
+/// the bytes an error keeps in the host, about: its metas (its message among them) and its span's text and file name
+fn stored_size(error: &StageError) -> usize {
+    let metas: usize = error.metas.iter().map(|(key, value)| key.len() + value.len()).sum();
+    let filename = error.span.filename.as_ref().map_or(0, |it| it.as_os_str().len());
+    metas + error.span.content.len() + filename
 }
 
 /// the [`ErrorKind::PluginError`] a `zhang_emit_error` payload reports; `payload` is `None` when the plugin
@@ -533,7 +627,9 @@ fn file_call<T: Serialize>(
         let state = state.get()?;
         let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
         let call = run_file_call(state.access.as_ref(), path, call);
-        state.inputs.extend(call.input);
+        if let Some(input) = call.input {
+            state.record_input(input);
+        }
         serde_json::to_vec(&call.result).expect("file results always serialize to JSON")
     };
     let output = outputs.first_mut().ok_or_else(|| extism::Error::msg("a file function returns one value"))?;
@@ -570,6 +666,101 @@ mod test {
     /// a plausible data-region size: one page minus the `MemoryRoot`, the value a freshly started
     /// kernel reports
     const DATA_LEN: u64 = 65536 - 64;
+
+    /// the errors `export` of `emit_error_flood.wat` leaves in its host, and the bytes the process's resident memory grew
+    /// by in the call, where the system says
+    fn flood(export: &str) -> (Vec<super::StageError>, Option<u64>) {
+        use std::time::Duration;
+
+        use chrono::{DateTime, Utc};
+        use extism::Manifest;
+
+        use crate::clock::{Clock, LoadClock};
+        use crate::plugin::runtime::PluginRuntime;
+
+        fn resident() -> Option<u64> {
+            let status = std::fs::read_to_string("/proc/self/status").ok()?;
+            let kib = status
+                .lines()
+                .find(|line| line.starts_with("VmRSS:"))?
+                .split_whitespace()
+                .nth(1)?
+                .parse::<u64>()
+                .ok()?;
+            Some(kib * 1024)
+        }
+        let instant = DateTime::parse_from_rfc3339("2026-10-05T00:00:00Z").unwrap().with_timezone(&Utc);
+        let host = super::PluginHost::new("flood", SpanInfo::default(), LoadClock::new(Clock::Fixed(instant)), chrono_tz::UTC);
+        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/emit_error_flood.wat").to_vec());
+        // 32 MiB
+        let manifest = Manifest::default().with_memory_max(512).with_timeout(Duration::from_secs(30));
+        let mut plugin = runtime.instantiate(manifest, host.clone()).unwrap();
+        let before = resident();
+        plugin.call::<&str, &str>(export, "").unwrap();
+        let grown = before.zip(resident()).map(|(before, after)| after.saturating_sub(before));
+        (host.take_errors(), grown)
+    }
+
+    /// The errors a plugin reports are bounded in the host, which holds them outside the plugin's memory limit: 200 of a
+    /// mebibyte held 200 MiB under a limit of 32 MiB. Past the bounds they are dropped, and one more error says how many
+    #[test]
+    fn the_errors_a_plugin_reports_are_bounded() {
+        let dropped =
+            |count: usize| format!("the plugin reported {count} more error(s), which were dropped: a plugin keeps at most 1000 errors, 1 MiB in all, of a run");
+        let (errors, grown) = flood("flood_large");
+        // each of a mebibyte and its metas: past the bytes kept
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].metas["message"], dropped(200));
+        assert_eq!(errors[0].metas["plugin"], "flood");
+        if let Some(grown) = grown {
+            assert!(grown < 64 * 1024 * 1024, "the process grew by {} MiB", grown / 1024 / 1024);
+        }
+
+        let (errors, _) = flood("flood_small");
+        assert_eq!(errors.len(), 1001, "the first thousand, and the count of the rest");
+        assert!(errors[..1000].iter().all(|error| error.metas["message"] == "payee is missing"));
+        assert_eq!(errors[1000].metas["message"], dropped(500));
+        assert_eq!(errors[1000].kind, ErrorKind::PluginError);
+    }
+
+    /// The inputs a plugin's file calls record are bounded in the host: each once, and past the bounds every grant of the
+    /// plugin as a directory, which a change under it makes stale as the files it stands for did
+    #[test]
+    fn the_inputs_a_plugin_records_are_bounded() {
+        use crate::clock::{Clock, LoadClock};
+        use crate::inputs::ExtraInput;
+
+        let dir = tempfile::tempdir().unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let access = FileAccess::new(vec![PathBuf::from("documents"), PathBuf::from("prices.csv")], source, dir.path());
+        let host = super::PluginHost::new("reader", SpanInfo::default(), LoadClock::new(Clock::System), chrono_tz::UTC).with_files(access);
+        let file = |name: &str| ExtraInput::File(PathBuf::from(format!("documents/{name}")));
+
+        // read twice, recorded once
+        for _ in 0..2 {
+            host.lock().record_input(file("receipt.pdf"));
+        }
+        assert_eq!(host.take_inputs(), vec![file("receipt.pdf")]);
+
+        // ever new names: past the count, the grants stand for them
+        for index in 0..super::MAX_INPUTS + 5 {
+            host.lock().record_input(file(&index.to_string()));
+        }
+        let inputs = host.take_inputs();
+        assert_eq!(inputs.len(), super::MAX_INPUTS + 2);
+        assert_eq!(
+            inputs[super::MAX_INPUTS..],
+            [ExtraInput::Dir(PathBuf::from("documents")), ExtraInput::Dir(PathBuf::from("prices.csv"))]
+        );
+        // and past the bytes of their paths: 4 KiB names
+        for index in 0..300 {
+            host.lock().record_input(file(&format!("{index:0>4000}")));
+        }
+        let inputs = host.take_inputs();
+        assert!(inputs.len() < 300, "{}", inputs.len());
+        assert!(inputs.contains(&ExtraInput::Dir(PathBuf::from("documents"))));
+        assert!(host.take_inputs().is_empty(), "taken");
+    }
 
     #[test]
     fn check_bounds_accepts_a_block_inside_the_data_region() {
