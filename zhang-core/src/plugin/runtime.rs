@@ -19,8 +19,16 @@
 //! Calls running at the same time never share compiled code. A `CompiledPlugin` owns the wasmtime
 //! engine, and extism enforces a call's timeout by bumping that engine's epoch, which interrupts
 //! every instance on the engine: shared code would let one request's timeout fail a concurrent
-//! request of the same plugin. So a compiled plugin is leased to exactly one instance at a time, a
-//! call finding none idle compiles another, and at most [`IDLE_LIMIT`] are kept idle per module.
+//! request of the same plugin. So a compiled plugin is leased to exactly one instance at a time, and a
+//! call finding none idle compiles another.
+//!
+//! What is kept idle is bounded, as each copy holds the module's native code: about 1.8 MiB for the Lua interpreter,
+//! 3 MiB for a plugin of about 800 KiB built with the SDK, 0.1 MiB for a small hand-written module. A module keeps one
+//! copy idle, which every load and every call after another reuses. Only calls running at the same time need more,
+//! and only the server's own modules keep more for them ([`ModuleCode::keep_spares`]: the Lua interpreter every script
+//! runs on, a default plugin's module), at most [`SPARE_LIMIT`] over all of them; a ledger's own module keeps none.
+//! A burst past that compiles afresh (or reads the code back from the disk cache) and drops the extra copies when it
+//! ends.
 //!
 //! The host functions are linked once, when the module is compiled, so they cannot capture the host
 //! of one call. They resolve the host of the instance calling them through [`InstanceBindings`], a
@@ -45,7 +53,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::time::{Duration, Instant};
 
 use extism::{Cache, CompiledPlugin, CurrentPlugin, Function, Manifest, Plugin, PluginBuilder, UserData, Val, ValType, Wasm, EXTISM_USER_MODULE};
@@ -67,10 +75,51 @@ fn compile_config() -> wasmtime::Config {
     config
 }
 
-/// the most compiled plugins a module keeps idle. Concurrent calls each lease their own, so a
-/// burst past this count compiles afresh and drops the extra when it ends: a module never holds
-/// more than this many engines once the burst is over
-const IDLE_LIMIT: usize = 4;
+/// the most spare compiled plugins kept idle over every module that keeps spares ([`SPARES`]): copies beyond a module's
+/// first idle one, which only calls running at the same time use. With the one every module keeps, the Lua interpreter
+/// keeps at most 4 idle, about 7 MiB, as many as it kept before every module's were bounded together
+pub(crate) const SPARE_LIMIT: usize = 3;
+
+/// A count of the spare compiled plugins kept idle by the modules sharing it, at most `limit`: a module's idle copies
+/// beyond its first
+pub(crate) struct Spares {
+    kept: Mutex<usize>,
+    limit: usize,
+}
+
+impl Spares {
+    pub(crate) const fn new(limit: usize) -> Self {
+        Self { kept: Mutex::new(0), limit }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, usize> {
+        self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// count one more spare, unless `limit` are kept already: whether it may be kept
+    fn take(&self) -> bool {
+        let mut kept = self.lock();
+        let taken = *kept < self.limit;
+        if taken {
+            *kept += 1;
+        }
+        taken
+    }
+
+    /// count `count` spares fewer, leased again or dropped
+    fn release(&self, count: usize) {
+        *self.lock() -= count;
+    }
+
+    /// how many spares are kept
+    #[cfg(test)]
+    pub(crate) fn kept(&self) -> usize {
+        *self.lock()
+    }
+}
+
+/// the spares of the server's own modules ([`ModuleCode::keep_spares`])
+pub(crate) static SPARES: Spares = Spares::new(SPARE_LIMIT);
 
 /// the least margin before its timeout a call must end with to return its compiled plugin to the
 /// pool; see [`near_timeout`]
@@ -131,20 +180,67 @@ impl InstanceBindings {
 pub(crate) struct ModuleCode {
     module_bytes: Vec<u8>,
     bindings: InstanceBindings,
-    /// the compiled plugins no instance is using, at most [`IDLE_LIMIT`]
+    /// the compiled plugins no instance is using: one, and the spares [`ModuleCode::spares`] lets the module keep
     idle: Mutex<Vec<CompiledPlugin>>,
+    /// where the module's spare idle copies are counted, once it keeps spares ([`ModuleCode::keep_spares`])
+    spares: OnceLock<&'static Spares>,
     /// the disk cache compiling reads and writes, [`disk_cache::shared`]; none compiles without one
     disk_cache: Option<Cache>,
 }
 
 impl ModuleCode {
-    /// the module `module_bytes`, compiled on first use
+    /// the module `module_bytes`, compiled on first use, keeping no spare copy idle
     pub(crate) fn new(module_bytes: Vec<u8>) -> Self {
+        Self::with_disk_cache(module_bytes, disk_cache::shared().cloned())
+    }
+
+    /// the module `module_bytes`, compiled on first use with the disk cache `disk_cache`, or none
+    fn with_disk_cache(module_bytes: Vec<u8>, disk_cache: Option<Cache>) -> Self {
         Self {
             module_bytes,
             bindings: InstanceBindings::default(),
             idle: Mutex::default(),
-            disk_cache: disk_cache::shared().cloned(),
+            spares: OnceLock::new(),
+            disk_cache,
+        }
+    }
+
+    /// Let the module keep spare idle copies, counted in `spares` with those of the other modules counted there: the
+    /// server's own modules, whose calls run at the same time (the Lua interpreter's scripts serve requests). A module
+    /// keeps spares from the first call on: later ones change nothing
+    pub(crate) fn keep_spares(&self, spares: &'static Spares) {
+        let _ = self.spares.set(spares);
+    }
+
+    /// whether the module keeps spare idle copies, counted in `spares`
+    #[cfg(test)]
+    pub(crate) fn keeps_spares_in(&self, spares: &'static Spares) -> bool {
+        self.spares.get().is_some_and(|it| std::ptr::eq(*it, spares))
+    }
+
+    /// an idle compiled plugin of the module, if any, now leased: a spare no longer
+    fn lease_idle(&self) -> Option<CompiledPlugin> {
+        let mut idle = self.idle();
+        let compiled = idle.pop()?;
+        // one is still idle: the one leased was a spare
+        if !idle.is_empty() {
+            self.release_spares(1);
+        }
+        Some(compiled)
+    }
+
+    /// keep `compiled`, whose instance is gone, idle: as the module's first idle copy, or as a spare while it keeps
+    /// spares and fewer than their limit are kept. Dropped otherwise
+    fn return_idle(&self, compiled: CompiledPlugin) {
+        let mut idle = self.idle();
+        if idle.is_empty() || self.spares.get().is_some_and(|spares| spares.take()) {
+            idle.push(compiled);
+        }
+    }
+
+    fn release_spares(&self, count: usize) {
+        if let Some(spares) = self.spares.get() {
+            spares.release(count);
         }
     }
 
@@ -188,6 +284,14 @@ impl ModuleCode {
             }
             compiled
         })
+    }
+}
+
+impl Drop for ModuleCode {
+    fn drop(&mut self) {
+        // its spares go with it
+        let spares = self.idle.get_mut().unwrap_or_else(PoisonError::into_inner).len().saturating_sub(1);
+        self.release_spares(spares);
     }
 }
 
@@ -239,10 +343,14 @@ impl PluginRuntime {
     /// its own
     #[cfg(test)]
     pub(crate) fn with_disk_cache(mut self, cache: Option<Cache>) -> Self {
-        self.code = Arc::new(ModuleCode {
-            disk_cache: cache,
-            ..ModuleCode::new(self.code.module_bytes.clone())
-        });
+        self.code = Arc::new(ModuleCode::with_disk_cache(self.code.module_bytes.clone(), cache));
+        self
+    }
+
+    /// the runtime whose module keeps spare idle copies, at most `limit`, counted for it alone
+    #[cfg(test)]
+    pub(crate) fn keeping_spares(self, limit: usize) -> Self {
+        self.code.keep_spares(Box::leak(Box::new(Spares::new(limit))));
         self
     }
 
@@ -285,7 +393,7 @@ impl PluginRuntime {
     pub fn instantiate(&self, manifest: Manifest, host: PluginHost) -> Result<PluginInstance, extism::Error> {
         debug_assert!(manifest.wasm.is_empty(), "the runtime owns the module bytes");
         let timeout = manifest.timeout_ms.map(Duration::from_millis);
-        let idle = self.code.idle().pop();
+        let idle = self.code.lease_idle();
         // compiling happens outside the lock: a call never waits for another's compilation
         let compiled = match idle {
             Some(compiled) => compiled,
@@ -342,11 +450,7 @@ impl Drop for Lease {
         if self.in_call || self.spent {
             return;
         }
-        let mut idle = self.code.idle();
-        // enough are idle already: drop it
-        if idle.len() < IDLE_LIMIT {
-            idle.push(compiled);
-        }
+        self.code.return_idle(compiled);
     }
 }
 
@@ -415,7 +519,7 @@ mod tests {
 
     #[test]
     fn compiled_code_is_reused_by_later_calls_whatever_their_settings() {
-        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/config_echo.wat").to_vec());
+        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/config_echo.wat").to_vec()).keeping_spares(SPARE_LIMIT);
         let first = Manifest::default().with_config([("zhang.plugin", "first")].into_iter());
         let mut plugin = runtime.instantiate(first.clone(), host("2026-10-05T00:00:00Z")).unwrap();
         assert_eq!(idle(&runtime), 0, "a live instance holds its compiled plugin");
@@ -667,19 +771,63 @@ mod tests {
         );
     }
 
-    #[test]
-    fn concurrent_instances_get_their_own_compiled_code_and_the_pool_stays_bounded() {
-        let runtime = PluginRuntime::new(include_bytes!("../../tests/plugins/router_now.wat").to_vec());
-        let instances: Vec<_> = (0..IDLE_LIMIT + 2)
+    /// `count` instances of `runtime` at the same time
+    fn burst(runtime: &PluginRuntime, count: usize) -> Vec<PluginInstance> {
+        (0..count)
             .map(|_| runtime.instantiate(Manifest::default(), host("2026-10-05T00:00:00Z")).unwrap())
-            .collect();
+            .collect()
+    }
+
+    /// `router_now.wat` as bytes of their own, with the comment `tag`: compiled code no other test shares
+    fn module(tag: &str) -> Vec<u8> {
+        [
+            include_bytes!("../../tests/plugins/router_now.wat").as_slice(),
+            format!("\n;; {tag}\n").as_bytes(),
+        ]
+        .concat()
+    }
+
+    #[test]
+    fn a_module_keeps_one_compiled_plugin_idle_whatever_the_burst() {
+        let runtime = PluginRuntime::new(module("one idle"));
+        let instances = burst(&runtime, 3);
         assert_eq!(idle(&runtime), 0, "every live instance leases its own compiled plugin");
+        assert_eq!(runtime.compilations(), 3);
         drop(instances);
-        assert_eq!(idle(&runtime), IDLE_LIMIT, "a burst leaves at most the limit idle");
-        let one = runtime.instantiate(Manifest::default(), host("2026-10-05T00:00:00Z")).unwrap();
-        assert_eq!(idle(&runtime), IDLE_LIMIT - 1);
+        assert_eq!(idle(&runtime), 1, "a burst leaves one idle");
+        // which the calls after it, one at a time, reuse
+        for _ in 0..3 {
+            drop(burst(&runtime, 1));
+            assert_eq!(idle(&runtime), 1);
+        }
+        assert_eq!(runtime.compilations(), 3, "and compile nothing");
+    }
+
+    #[test]
+    fn the_modules_keeping_spares_keep_at_most_their_limit_over_all_of_them() {
+        let spares: &'static Spares = Box::leak(Box::new(Spares::new(3)));
+        let (one, two) = (PluginRuntime::new(module("spares one")), PluginRuntime::new(module("spares two")));
+        one.code.keep_spares(spares);
+        two.code.keep_spares(spares);
+        drop(burst(&one, 6));
+        assert_eq!((idle(&one), spares.kept()), (4, 3), "its first idle copy and every spare");
+        drop(burst(&two, 2));
+        assert_eq!(idle(&two), 1, "the spares are all kept: its first idle copy only");
+
+        // a spare leased is a spare no more, and its place may go to another module
+        let leased = burst(&one, 1);
+        assert_eq!((idle(&one), spares.kept()), (3, 2));
+        drop(burst(&two, 2));
+        assert_eq!((idle(&two), spares.kept()), (2, 3));
+        drop(leased);
+        assert_eq!(idle(&one), 3, "returned past the limit: dropped");
+        assert_eq!(spares.kept(), 3);
+
+        // the code of a module gone, its spares go with it
         drop(one);
-        assert_eq!(idle(&runtime), IDLE_LIMIT);
+        assert_eq!(spares.kept(), 1);
+        drop(two);
+        assert_eq!(spares.kept(), 0);
     }
 
     #[test]

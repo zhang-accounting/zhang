@@ -2,13 +2,20 @@
 //!
 //! A load registers every plugin anew, and running a plugin needs its module compiled ([`PluginRuntime`]): hundreds of
 //! milliseconds for a module the size of the Lua interpreter or of an analyzer written with the SDK. Every write
-//! reloads the ledger. So the compiled code of a module is kept here for the process, by the module's bytes
-//! ([`code`]), and a load running the same module, a ledger's own plugin as well as a default one, reuses it: the Lua
-//! interpreter is the same module for every Lua script, whatever the script, and is compiled once. Compiled code holds
-//! no settings of a plugin, which each instance gets from the manifest of its call ([`PluginRuntime::instantiate`]),
-//! so a changed script, config or option of the ledger takes effect at the next load without compiling; a changed
-//! module is other bytes, compiled at the next load. At most [`MODULES_KEPT`] modules are kept, the least recently used
-//! one going first, each with at most a few compiled plugins idle ([`super::runtime`]).
+//! reloads the ledger. So the compiled code of a module is kept here, by the module's bytes ([`code`]), and a load
+//! running the same module, a ledger's own plugin as well as a default one, reuses it: the Lua interpreter is the same
+//! module for every Lua script, whatever the script, and is compiled once. Compiled code holds no settings of a plugin,
+//! which each instance gets from the manifest of its call ([`PluginRuntime::instantiate`]), so a changed script, config
+//! or option of the ledger takes effect at the next load without compiling; a changed module is other bytes, compiled
+//! at the next load.
+//!
+//! How long code is kept depends on whose module it is ([`Owner`]). The server's own modules, the Lua interpreter and
+//! a default plugin's module, are the same at every load: their code is kept for the process, at most
+//! [`MODULES_KEPT`] modules, the least recently used one going first, and may keep spare compiled plugins idle for
+//! calls running at the same time ([`super::runtime::SPARES`]). A ledger's own module, read from its files, is kept
+//! while a loaded ledger runs it, with one compiled plugin idle: a reload runs while the ledger it replaces is still
+//! served, so it reuses the code, and the code of a module edited since goes with the ledger replaced, instead of
+//! staying for the process.
 //!
 //! A default plugin ([`crate::analysis::LoadOptions::default_plugins`]) is the same module at every load of every
 //! ledger, so its runtime is kept here too, by its module and its settings ([`Manifest`]: its config, the ledger's
@@ -19,30 +26,74 @@
 //! What is kept holds no ledger: the host functions reach each instance's host through the instance
 //! ([`PluginRuntime`], "InstanceBindings"), and each instance leases compiled code of its own.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use extism::Manifest;
 
-use super::runtime::{ModuleCode, PluginRuntime};
+use super::runtime::{ModuleCode, PluginRuntime, SPARES};
 
-/// the most modules whose compiled code is kept: the Lua interpreter every Lua plugin runs on, and a ledger's wasm
-/// modules, a few
+/// the most of the server's own modules whose compiled code is kept: the Lua interpreter every Lua plugin runs on, and
+/// the modules of the default plugins, a few
 const MODULES_KEPT: usize = 8;
+
+/// whose module a plugin runs, which says how long its compiled code is kept
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Owner {
+    /// the server's: the Lua interpreter every script runs on, or the module of a default plugin, the same at every
+    /// load. Kept for the process, with spare compiled plugins for calls running at the same time
+    Server,
+    /// a ledger's, read from its files, which an edit replaces: kept while a loaded ledger runs it, with one compiled
+    /// plugin idle
+    Ledger,
+}
 
 /// the most runtimes of default plugins kept: a server serves one ledger, whose default plugins are a few
 const KEPT: usize = 4;
 
-/// the compiled code kept, the most recently used last
-static CODE: Mutex<Vec<Arc<ModuleCode>>> = Mutex::new(Vec::new());
+/// the compiled code kept
+struct KeptCode {
+    /// of the server's modules, the most recently used last
+    server: Vec<Arc<ModuleCode>>,
+    /// of the ledgers' modules, while a loaded ledger runs them
+    ledgers: Vec<Weak<ModuleCode>>,
+}
 
-/// The compiled code of the module `module_bytes`, for every plugin running it: the code kept for these bytes, or new
-/// code, compiled on first use and kept from now on. Every module compiles with the same settings of wasmtime and the
-/// same host functions, and compiled code holds no settings of a plugin, so the module's bytes, compared whole, are the
-/// key.
-pub(crate) fn code(module_bytes: Vec<u8>) -> Arc<ModuleCode> {
+static CODE: Mutex<KeptCode> = Mutex::new(KeptCode {
+    server: Vec::new(),
+    ledgers: Vec::new(),
+});
+
+/// The compiled code of the module `module_bytes`, `owner`'s, for every plugin running it: the code kept for these
+/// bytes, or new code, compiled on first use and kept from now on, for as long as `owner`'s modules are. Every module
+/// compiles with the same settings of wasmtime and the same host functions, and compiled code holds no settings of a
+/// plugin, so the module's bytes, compared whole, are the key: a ledger's module with the bytes of the server's runs on
+/// the server's code, and a module the server runs too is the server's from then on.
+pub(crate) fn code(module_bytes: Vec<u8>, owner: Owner) -> Arc<ModuleCode> {
     let mut kept = CODE.lock().unwrap_or_else(PoisonError::into_inner);
-    let found = kept.iter().position(|it| it.module_bytes() == module_bytes.as_slice());
-    keep(&mut kept, MODULES_KEPT, found, || Arc::new(ModuleCode::new(module_bytes))).clone()
+    let KeptCode { server, ledgers } = &mut *kept;
+    // the code no loaded ledger runs any more is gone
+    ledgers.retain(|it| it.strong_count() > 0);
+    let at = server.iter().position(|it| it.module_bytes() == module_bytes.as_slice());
+    let ledgers_code = match at {
+        Some(_) => None,
+        None => ledgers.iter().filter_map(Weak::upgrade).find(|it| it.module_bytes() == module_bytes.as_slice()),
+    };
+    match (owner, at) {
+        (Owner::Server, _) => {
+            let code = keep(server, MODULES_KEPT, at, || {
+                ledgers_code.unwrap_or_else(|| Arc::new(ModuleCode::new(module_bytes)))
+            })
+            .clone();
+            code.keep_spares(&SPARES);
+            code
+        }
+        (Owner::Ledger, Some(at)) => server[at].clone(),
+        (Owner::Ledger, None) => ledgers_code.unwrap_or_else(|| {
+            let code = Arc::new(ModuleCode::new(module_bytes));
+            ledgers.push(Arc::downgrade(&code));
+            code
+        }),
+    }
 }
 
 /// a runtime kept, and the settings it is kept for
@@ -64,7 +115,7 @@ pub(crate) fn runtime(module_bytes: Vec<u8>, manifest: &Manifest) -> Arc<PluginR
         .position(|it| it.manifest == *manifest && it.runtime.module_bytes() == module_bytes.as_slice());
     let make = || Kept {
         manifest: manifest.clone(),
-        runtime: Arc::new(PluginRuntime::of(code(module_bytes))),
+        runtime: Arc::new(PluginRuntime::of(code(module_bytes, Owner::Server))),
     };
     keep(&mut kept, KEPT, found, make).runtime.clone()
 }
@@ -201,6 +252,65 @@ mod test {
         let again = changed.reloader()().expect("the ledger reloads");
         assert_eq!(first(&again).compilations(), 0);
         assert_eq!(first(&again).module_bytes(), module("own, changed").as_slice());
+    }
+
+    /// A ledger's own module keeps one compiled plugin idle, and its code is kept while a loaded ledger runs it: the
+    /// code of a module edited since goes with the last ledger running it
+    #[test]
+    fn a_ledgers_own_module_is_kept_while_a_loaded_ledger_runs_it() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("router_now.wat"), module("own, kept")).unwrap();
+        std::fs::write(
+            dir.path().join("main.zhang"),
+            "option \"features.plugin\" \"true\"\nplugin \"router_now.wat\"\n1970-01-01 open Assets:Cash\n",
+        )
+        .unwrap();
+        let loaded = load(dir.path(), LoadOptions::with_policy(Arc::new(PluginPolicy::default())));
+        let old = Arc::downgrade(first(&loaded).runtime.code());
+        assert_eq!(first(&loaded).runtime.idle(), 1, "registering leaves one compiled plugin idle");
+        let reloaded = loaded.reloader()().expect("the ledger reloads");
+        assert_eq!(first(&reloaded).compilations(), 0, "the reload reuses it");
+        assert_eq!(first(&reloaded).runtime.idle(), 1);
+
+        // the module edited: the reload compiles the new one, and the old code is gone with the ledgers running it
+        std::fs::write(dir.path().join("router_now.wat"), module("own, kept, edited")).unwrap();
+        let edited = reloaded.reloader()().expect("the ledger reloads");
+        assert!(old.upgrade().is_some(), "the ledgers running the old module are still loaded");
+        drop((loaded, reloaded));
+        assert!(old.upgrade().is_none(), "the old module's code went with the last ledger running it");
+        let again = edited.reloader()().expect("the ledger reloads");
+        assert_eq!(first(&again).compilations(), 0, "the edited module's code is kept");
+
+        // nothing runs the module any more: the next load compiles it again
+        let weak = Arc::downgrade(first(&again).runtime.code());
+        drop((edited, again));
+        assert!(weak.upgrade().is_none());
+        let fresh = load(dir.path(), LoadOptions::with_policy(Arc::new(PluginPolicy::default())));
+        assert_eq!(first(&fresh).compilations(), 1);
+    }
+
+    /// The server's modules keep spare compiled plugins idle, and a ledger's do not; a ledger's module the server runs
+    /// too is the server's from then on, and a ledger's module with the bytes of the server's runs on its code
+    #[test]
+    fn the_servers_modules_keep_spares_and_a_ledgers_do_not() {
+        use super::{code, Owner};
+        use crate::plugin::runtime::SPARES;
+
+        let server = code(module("the server's"), Owner::Server);
+        assert!(server.keeps_spares_in(&SPARES));
+        assert!(Arc::ptr_eq(&code(module("the server's"), Owner::Ledger), &server));
+        assert!(server.keeps_spares_in(&SPARES));
+
+        let ledgers = code(module("a ledger's"), Owner::Ledger);
+        assert!(!ledgers.keeps_spares_in(&SPARES));
+        assert!(Arc::ptr_eq(&code(module("a ledger's"), Owner::Ledger), &ledgers));
+        let promoted = code(module("a ledger's"), Owner::Server);
+        assert!(Arc::ptr_eq(&promoted, &ledgers), "the same code");
+        assert!(ledgers.keeps_spares_in(&SPARES), "now keeping spares");
+        // the server keeps it, whether a ledger runs it or not
+        let weak = Arc::downgrade(&ledgers);
+        drop((ledgers, promoted));
+        assert!(weak.upgrade().is_some());
     }
 
     /// What is kept is bounded, the least recently used going first
