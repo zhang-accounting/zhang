@@ -1,12 +1,12 @@
 FROM gcr.io/distroless/cc-debian12
-LABEL org.opencontainers.image.source https://github.com/kilerd/zhang
+LABEL org.opencontainers.image.source=https://github.com/zhang-accounting/zhang
 
 
 COPY --chmod=755 zhang /application/
 
 ENV ZHANG_AUTH=""
 ENV RUST_LOG="info"
-WORKDIR application
+WORKDIR /application
 VOLUME "/data"
 EXPOSE 8000
 
