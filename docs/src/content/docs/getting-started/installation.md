@@ -40,14 +40,20 @@ services:
       - "8000:8000"
     volumes:
       - ./ledger:/data
+      # the compiled code of plugins, kept across re-created containers: a volume of its own, never the
+      # ledger's, as whatever can write to it can run code in the container (see below)
+      - zhang-cache:/root/.cache/zhang
     environment:
       ZHANG_AUTH: "admin:change-me"
     restart: unless-stopped
+
+volumes:
+  zhang-cache:
 ```
 
 The image sets `RUST_LOG=info`, so `docker logs zhang` shows what Zhang does, including the reason when the ledger cannot be loaded. It runs Zhang as `root`: files it creates in `/data` belong to `root` on the host (see [file permissions](/deployment/data-sources/local/#file-permissions)).
 
-[Plugins](/guides/plugins/#compiled-code) keep their compiled code in `/root/.cache/zhang/zhang-wasmtime-cache` inside the container. A re-created container starts without it and compiles its plugins again, which takes a moment per plugin. To keep the code across re-created containers, mount a volume at `/root/.cache/zhang`, such as `-v zhang-cache:/root/.cache/zhang`; with a read-only root file system (`--read-only`), plugins run without the cache unless such a volume is mounted. The volume holds native code the server runs, so whatever can write to it can run code in Zhang's container: use a volume of its own, owned by `root` and writable by it only (a new named volume is), not the one holding the ledger, which Zhang refuses.
+[Plugins](/guides/plugins/#compiled-code) keep their compiled code in `/root/.cache/zhang/zhang-wasmtime-cache` inside the container. A re-created container starts without it and compiles its plugins again, which takes a moment per plugin. To keep the code across re-created containers, mount a volume at `/root/.cache/zhang`, such as `-v zhang-cache:/root/.cache/zhang` (the Compose file above mounts the named volume `zhang-cache` there); with a read-only root file system (`--read-only`), plugins run without the cache unless such a volume is mounted. The volume holds native code the server runs, so whatever can write to it can run code in Zhang's container: use a volume of its own, owned by `root` and writable by it only (a new named volume is), not the one holding the ledger, which Zhang refuses.
 
 ## Release binaries
 
