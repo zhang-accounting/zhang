@@ -20,8 +20,9 @@ The first release since 0.2.0 gathers more than 350 changes. Zhang now checks a 
 own BQL query engine, serves Lua and WebAssembly router plugins that may write within limits the server sets, bundles
 an MCP server, and lets the mobile app sign in; budgets become the official plugin `zhang:budget`. **Ledgers that
 loaded cleanly on 0.2 can report new errors, plugins lose network access by default, budgets stop when plugins are
-turned off, and several API endpoints are gone: read [Breaking changes](#breaking-changes) and
-[Upgrading from 0.2](#upgrading-from-02) before you upgrade.** The documentation has the same guide:
+turned off, a ledger without a time zone option falls back to UTC instead of UTC+8, and several API endpoints are
+gone: read [Breaking changes](#breaking-changes) and [Upgrading from 0.2](#upgrading-from-02) before you upgrade.**
+The documentation has the same guide:
 <https://zhang-accounting.kilerd.me/deployment/upgrading-to-0-3/>.
 
 ### Breaking changes
@@ -52,6 +53,17 @@ turned off, and several API endpoints are gone: read [Breaking changes](#breakin
 - New errors an existing ledger may show: `CommodityNotAllowed` for a commodity an `open` does not list (#683),
   `IncludeNotFound` (#682), `BudgetClosed` and `BudgetCommodityMismatch` (#684), `UnusedPad` and `PadWithCost` (#508),
   `DefineDuplicatedBudget` (#842)
+
+#### Time zone
+
+- **A ledger without `option "timezone"` takes its time zone from `TZ` first, and falls back to UTC instead of
+  UTC+8.**
+  - The order is now: the IANA name in the `TZ` environment variable (`docker run -e TZ=Europe/Berlin`), then the
+    system's time zone, then UTC. The fallback logs how to set the time zone. `TZ` is read once, when the server
+    starts: changing it needs a restart.
+  - Before, `TZ` was ignored, and the fallback was `Asia/Hong_Kong`, which every Docker install got.
+  - A `TZ` that is not an IANA name, such as `UTC0`, is ignored with a warning. The option still wins.
+  - An invalid option now really uses the default time zone. (#915)
 
 #### Plugins
 
@@ -173,6 +185,8 @@ turned off, and several API endpoints are gone: read [Breaking changes](#breakin
    its transaction through `metas.txn_id`; don't expect `metas` sorted by key.
 7. Set `ZHANG_SESSION_SECRET` to keep sign-ins across restarts, and `ZHANG_APP_RETURN_SCHEMES` if the app signs in
    with a scheme other than `zhang-app`.
+8. A ledger without `option "timezone"` that relied on the UTC+8 fallback (the Docker image) is in UTC now. Write
+   `option "timezone" "Asia/Shanghai"` (your zone) in the ledger, or pass `-e TZ=Asia/Shanghai` to the container.
 
 ### Budget as an official plugin
 
@@ -494,6 +508,11 @@ needs the release that brought it.
   of quiet (2 seconds at most), and reloads the whole ledger when its events overflow (#840, #846)
 - A slow event-stream client no longer stalls the server; one that would miss a reload is disconnected and fetches
   again when it reconnects (#840, #846)
+- The file watcher no longer panics when it cannot be created or loses its watch (the user's inotify instances or
+  watches used up, a folder that vanished during the walk), which left edits made outside the server unloaded. It logs
+  once why and which setting to raise (`fs.inotify.max_user_instances`, `fs.inotify.max_user_watches`), checks the
+  ledger's files every 5 s meanwhile, and tries to watch again with a backoff from 1 s up to 30 s; `GET /api/info` has
+  a new `watch_failure` with the reason (#916)
 - `zhang serve` and `zhang update` print `error: <reason>` and exit with 1 when they fail (#488, #660); the log
   filter is `ZHANG_LOG`, then `RUST_LOG`, then `info` (#661); `zhang --version` prints the release version (#662)
 - `zhang serve` stops gracefully on SIGTERM, the signal Docker, Podman, Kubernetes and systemd send, as on SIGINT: it
