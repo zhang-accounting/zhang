@@ -67,6 +67,8 @@ This gives:
 
 In April, `Food` starts with the 80 CNY left from March, plus the 2,000 CNY assigned. An overspent budget carries its negative amount over in the same way.
 
+Every figure is exact, and keeps the most decimal places of the amounts it adds up, zeros included, as beancount (Python's decimal) adds. A budget with `0.00 CNY` available that the next month assigns `500 CNY` to shows `500.00` as **Assigned**, and a month whose postings are `10.00`, `-10.00` and `5` shows `5.00` as **Activity**. Before Zhang 0.3.0 a zero dropped its decimal places in some of these sums, which gave `500` and `5`: the same amounts.
+
 ## How spending counts
 
 - Every posting to a linked account adds to the activity of the budget in the month of its transaction. A refund, a negative posting, takes activity away.

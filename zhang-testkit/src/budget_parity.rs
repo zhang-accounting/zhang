@@ -12,7 +12,9 @@
 //! A difference is classified by the rules of the testing guide ("The budget contract", allowed differences): the scale
 //! of a decimal (`500.00` against `500`, the same value) is allowed where the answer types the value as a decimal (a
 //! `decimal` cell, or the number of an `amount`, a `position` or an `inventory` cell), and so is the order of the load's
-//! errors across places; anything else is not, a text that reads as a number included.
+//! errors across places; anything else is not, a text that reads as a number included. Against the SDK's budget
+//! analyzer the scale is not allowed either ([`compare_until`]): the script and the analyzer keep the larger scale of
+//! what they add up, as Python's decimal adds (`0.00 + 500` is `500.00`).
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -68,6 +70,9 @@ fn short(value: &Value) -> String {
         Some((end, _)) => format!("{}…", &text[..end]),
     }
 }
+
+/// Why the testing guide allows a difference of the scale of a decimal: the same value, other trailing zeros.
+pub const SCALE: &str = "the scale of a decimal";
 
 /// The decimal a JSON string holds, if it is one: `"500.00"`.
 fn decimal(value: &Value) -> Option<BigDecimal> {
@@ -168,7 +173,7 @@ fn diff(path: &str, expected: &Value, actual: &Value, typed: Typed, found: &mut 
         (a, b) if a == b => {}
         (a, b) => {
             let allowed = match (typed, decimal(a), decimal(b)) {
-                (Typed::Decimal, Some(a), Some(b)) if a == b => Some("the scale of a decimal"),
+                (Typed::Decimal, Some(a), Some(b)) if a == b => Some(SCALE),
                 _ => None,
             };
             found.push(Difference {
@@ -463,9 +468,22 @@ pub async fn compare(dir: &Path, entry: &str, clock: Clock, requests: &[Value]) 
 
 /// [`compare`], stopping at the first difference the testing guide does not allow when `first` is set; an error when the
 /// ledger does not load (both ways), or when there is no oracle.
+///
+/// Against the SDK's budget analyzer a difference of scale is not allowed: the script and the analyzer keep the larger
+/// scale of what they add up, as Python's decimal adds (`0.00 + 500` is `500.00`), so their figures are the same text.
+/// Against a module [`BASELINE_ENV`] names, such as a `budget.lua` from before v0.3.0, the scale may differ.
 pub async fn compare_until(dir: &Path, entry: &str, clock: Clock, requests: &[Value], first: bool) -> Result<Report, String> {
     let mut report = Report::default();
     oracle()?.ok_or("no oracle to compare the budget script with: the wasm32 target is not installed")?;
+    let exact_scale = std::env::var_os(BASELINE_ENV).is_none();
+    let judged = |mut differences: Vec<Difference>| {
+        if exact_scale {
+            for it in differences.iter_mut().filter(|it| it.allowed == Some(SCALE)) {
+                it.allowed = None;
+            }
+        }
+        differences
+    };
     let loads = (serve(dir, entry, clock, Budgets::Oracle).await, serve(dir, entry, clock, Budgets::Script).await);
     let ((oracle, oracle_ledger), (script, script_ledger)) = match loads {
         (Ok(oracle), Ok(script)) => (oracle, script),
@@ -490,7 +508,7 @@ pub async fn compare_until(dir: &Path, entry: &str, clock: Clock, requests: &[Va
         list.sort_by_key(|error| (error["span"]["file"].as_str().map(str::to_owned), error["span"]["start"].as_u64()));
         list
     };
-    let differences = differences("errors", &Value::from(by_place(&a)), &Value::from(by_place(&b)));
+    let differences = judged(differences("errors", &Value::from(by_place(&a)), &Value::from(by_place(&b))));
     if differences.is_empty() && a != b {
         report.differences.push(Difference {
             path: "errors (load order)".to_owned(),
@@ -508,7 +526,7 @@ pub async fn compare_until(dir: &Path, entry: &str, clock: Clock, requests: &[Va
         }
         let (a, b) = (answer(&oracle, request).await, answer(&script, request).await);
         let path = request.to_string();
-        report.differences.extend(differences_of_answers(&path, &a, &b));
+        report.differences.extend(judged(differences_of_answers(&path, &a, &b)));
         report.requests += 1;
     }
     Ok(report)

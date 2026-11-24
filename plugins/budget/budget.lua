@@ -1,7 +1,9 @@
 -- zhang:budget, the official budget plugin (RFC #698): zhang's budgets as an analyzer, a Lua script bundled with
 -- zhang, and their only implementation: the server registers it as a default plugin for every ledger. It answers as
--- zhang's native budget code did until RFC #698 P5 deleted it, which the budget contract and the differential fuzzer
--- check, against the budget analyzer of zhang-plugin-sdk/examples/budget, written to the same rules.
+-- zhang's native budget code did until RFC #698 P5 deleted it, but for the scale of its figures: each keeps the
+-- largest scale of what it adds up, zeros included, as Python's decimal adds (`0.00 + 500` is `500.00`, where the
+-- native code gave `500`). The budget contract and the differential fuzzer check it, against the budget analyzer of
+-- zhang-plugin-sdk/examples/budget, written to the same rules.
 --
 -- It publishes the budget tables (#budgets, #budget_events, #budget_definitions), the `budgets` column of `postings`,
 -- the budget pages' named queries and the budget errors. It follows the steps of RFC #698 Appendix A:
@@ -210,14 +212,6 @@ local function meta_one(record, key)
   return values and values[1] or null
 end
 
--- `a + b` as zhang's budgets have always added the running figures (BigDecimal's `&a + &b`): when one of them is zero,
--- the other one, its scale unchanged. `a` is a decimal value, `b` one or the text of one; so is the sum
-local function add_running(a, b)
-  if d.is_zero(b) then return a end
-  if d.is_zero(a) then return d(b) end
-  return a + b
-end
-
 -- `sum + x`, where `sum` is nil (then `x`, as it is), a decimal value or the text of one, and `x` one of those
 local function accumulate(sum, x)
   if sum == nil then return x end
@@ -246,9 +240,9 @@ local PLACE = 1000000
 -- ---- the running figures of a budget, month by month ----------------------------------------------------------
 -- For each month of `months` (sorted), what was added `added[month]` and spent `spent[month]` (each a decimal value,
 -- the text of one or nil for none): the assigned amount (the available amount before, plus what was added) and the
--- available amount after (assigned minus spent), as zhang's budgets have always computed them with BigDecimal: a sum
--- keeps the larger scale of the two, but for `assigned` when one of them is zero, which is then the other one as it
--- is (`&a + &b`, add_running). The texts are listed, 3 per month: assigned, available, and a spare slot.
+-- available amount after (assigned minus spent), each at the larger scale of the two, zeros included, as Python's
+-- decimal adds and zhang.decimal does (`0.00 + 500` is `500.00`). The texts are listed, 3 per month: assigned,
+-- available, and a spare slot.
 -- Fewer decimal values: the facts of #budgets are most of what an analysis computes in Lua.
 --
 -- `running` computes them over Lua integers, a figure as a coefficient and a scale, while every coefficient stays
@@ -320,14 +314,9 @@ local function running(months, added, spent)
       put, ps = figure(added[month])
       if not put then return nil end
     end
-    -- assigned: available plus put, or one of them as it is when the other is zero
-    local a, sa
-    if put == 0 then a, sa = v, scale
-    elseif v == 0 then a, sa = put, ps
-    else
-      a, sa = plus(v, scale, put, ps)
-      if not a then return nil end
-    end
+    -- assigned: available plus put
+    local a, sa = plus(v, scale, put, ps)
+    if not a then return nil end
     local out, os = 0, 0
     if spent[month] then
       out, os = figure(spent[month])
@@ -344,7 +333,7 @@ end
 local function running_decimal(months, added, spent)
   local figures, available = {}, ZERO
   for at, month in ipairs(months) do
-    local assigned = add_running(available, added[month] or ZERO)
+    local assigned = available + (added[month] or ZERO)
     available = assigned - (spent[month] or ZERO)
     local at3 = 3 * at
     figures[at3 - 2], figures[at3 - 1] = tostring(assigned), tostring(available)
@@ -508,6 +497,9 @@ function M.analyze(input)
   -- a posting as an amount in :commodity, or in its own commodity when no price converts it; one in :commodity as it
   -- is (convert() would round it to 28 digits)
   local AS_AMOUNT = "CASE WHEN currency = :commodity THEN units(position) ELSE convert(position, :commodity, date) END"
+  -- the number of a posting in :commodity, or NULL when no price converts it: a sum of them leaves those out
+  local IF_CONVERTED = "CASE WHEN currency = :commodity THEN number WHEN currency(convert(position, :commodity, date)) "
+    .. "= :commodity THEN number(convert(position, :commodity, date)) END"
   -- whether every account of `list` is of a debit-normal type (Assets, Expenses), whose postings possign leaves as they
   -- are
   local function debit_normal(list)
@@ -1028,12 +1020,11 @@ function M.analyze(input)
   if next(rest) then complete_cells(sorted(rest), counted) end
 
   -- what each commodity reads of its other budgets: the months read posting by posting (by budget, and for a budget of
-  -- cells by cell), the budgets that keep the postings no price converts apart, and the months of such a budget that
-  -- its group (or its cell) sums as an inventory, where a posting no price converts stays in its own commodity, and is
-  -- left out. The last seq and the first and last day of the groups come from the aggregation of a commodity whose
-  -- closed budgets have half its accounts or more, else from one query per commodity over the accounts of its other
-  -- budgets (the budgets the aggregation takes as they are, most of them, read none). A budget keeps the sums of its
-  -- months of counted postings that all convert, and no other.
+  -- cells by cell), the budgets that keep the postings no price converts apart, and the months of such a budget whose
+  -- group (or cell) sums its postings that convert, leaving out the others. The last seq and the first and last day of
+  -- the groups come from the aggregation of a commodity whose closed budgets have half its accounts or more, else from
+  -- one query per commodity over the accounts of its other budgets (the budgets the aggregation takes as they are, most
+  -- of them, read none). A budget keeps the sums of its months of counted postings that all convert, and no other.
   local classes, reads, early = {}, {}, {}
   -- the month `month` of the budget `name` read posting by posting; of a budget of cells, of the cells `it`
   local function posting_by_posting(of_commodity, name, budget, month, it)
@@ -1063,9 +1054,9 @@ function M.analyze(input)
     if cells[account][month].split then of_commodity.labelled = true end
   end
   for _, commodity in ipairs(commodities) do
-    local of_commodity = { mixed = {}, months = {}, cells = {}, labelled = false, held = {}, inventories = {}, kept = {} }
+    local of_commodity = { mixed = {}, months = {}, cells = {}, labelled = false, held = {}, partial = {}, kept = {} }
     reads[commodity] = of_commodity
-    local list, closes, inventory = {}, false, {}
+    local list, closes, partial = {}, false, {}
     for _, name in ipairs(budgets_in[commodity]) do
       local budget = budgets[name]
       if groups[name] then
@@ -1089,8 +1080,8 @@ function M.analyze(input)
             if budget.converts then
               of_activity[month] = cell[commodity][5]
             elseif cell.n > cell[commodity][4] then
-              -- summed as an inventory: from its cell, but for a part of a boundary month, which the sum of the
-              -- account's month does not tell apart
+              -- the sum of those that convert: from its cell, but for a part of a boundary month, which the sum of
+              -- the account's month does not tell apart
               if cell.part then
                 class = nil
               else
@@ -1123,8 +1114,8 @@ function M.analyze(input)
         if class == nil then
           posting_by_posting(of_commodity, name, budget, month, nil)
         elseif class == 0 then
-          -- the sum of postings that all convert, as it is; otherwise summed as an inventory, below
-          if not budget.converts then inventory[name] = true end
+          -- the sum of postings that all convert, as it is; otherwise the sum of those that convert, below
+          if not budget.converts then partial[name] = true end
         elseif class ~= 3 then
           early[name] = true
         end
@@ -1147,7 +1138,7 @@ function M.analyze(input)
         group.firsts, group.lasts, group.los, group.his = nil, nil, nil, nil
         if not budgets[name].converts then
           of_commodity.held[#of_commodity.held + 1] = name
-          if inventory[name] then of_commodity.inventories[#of_commodity.inventories + 1] = name end
+          if partial[name] then of_commodity.partial[#of_commodity.partial + 1] = name end
         end
       end
     end
@@ -1196,22 +1187,20 @@ function M.analyze(input)
   local mismatches, whole = {}, {}
   for _, commodity in ipairs(commodities) do
     local of_commodity = reads[commodity]
-    -- the months whose postings are all counted, of a budget whose postings do not all convert: summed as an inventory,
-    -- where a posting no price converts stays in its own commodity, and is left out
-    if #of_commodity.inventories > 0 then
-      local scope, signed = scope_of(of_commodity.inventories)
-      grouped("unnest(" .. BUDGETS .. ") AS budget, yearmonth(date) AS month, sum(" .. signed(AS_AMOUNT) .. ") AS activity",
+    -- the months whose postings are all counted, of a budget whose postings do not all convert: the sum of those that
+    -- convert, leaving out those no price converts
+    if #of_commodity.partial > 0 then
+      local scope, signed = scope_of(of_commodity.partial)
+      grouped("unnest(" .. BUDGETS .. ") AS budget, yearmonth(date) AS month, sum(" .. signed(IF_CONVERTED) .. ") AS activity",
         "account IN :accounts", "budget, month", { accounts = scope, commodity = zhang.str(commodity) }, function(row)
         local name = row[1]
         local of_budget = classes[name]
         if of_budget and not budgets[name].converts and budgets[name].commodity == commodity and of_budget[row[2]] == 0 then
-          for _, position in ipairs(row[3].positions) do
-            if position.units.currency == commodity then activity[name][row[2]] = position.units.number end
-          end
+          activity[name][row[2]] = row[3]
         end
       end, BY_BUDGET)
     end
-    -- the same of a budget of cells, from the sum of its cell as an inventory
+    -- the same of a budget of cells, from the sum of its cell
     if #of_commodity.kept > 0 then
       local wanted, list = {}, {}
       for _, it in ipairs(of_commodity.kept) do
@@ -1225,24 +1214,20 @@ function M.analyze(input)
       end
       sort(list)
       local sums = {}
-      grouped("account, yearmonth(date) AS month, sum(" .. signer(list)(AS_AMOUNT) .. ") AS activity",
+      grouped("account, yearmonth(date) AS month, sum(" .. signer(list)(IF_CONVERTED) .. ") AS activity",
         "account IN :accounts", "account, month", { accounts = zhang.set(list), commodity = zhang.str(commodity) },
         function(row)
-          if wanted[row[1]][row[2]] then
-            for _, position in ipairs(row[3].positions) do
-              if position.units.currency == commodity then sums[row[1] .. " " .. row[2]] = position.units.number end
-            end
-          end
+          if wanted[row[1]][row[2]] then sums[row[1] .. " " .. row[2]] = row[3] end
         end, BY_ACCOUNT)
       for _, it in ipairs(of_commodity.kept) do
         activity[it[1]][it[2]] = sums[it[3] .. " " .. it[2]]
       end
     end
 
-    -- the months read posting by posting, in ledger order: the postings counted, summed as the budget's own query sums
-    -- them (a sum of decimals, which takes the first non-zero one as it is, or an inventory, which drops a commodity
-    -- whose sum comes to zero), and the first posting of each account before the definition and after the close. The
-    -- budgets of a posting are its own, but in a month of a cell that is not a boundary, those of its cell
+    -- the months read posting by posting, in ledger order: the postings counted, summed as BQL's sum adds decimals, at
+    -- the largest scale of the terms (for a budget whose postings do not all convert, those that convert), and the
+    -- first posting of each account before the definition and after the close. The budgets of a posting are its own,
+    -- but in a month of a cell that is not a boundary, those of its cell
     if next(of_commodity.mixed) then
       local mixed, by_cell, labelled = of_commodity.mixed, of_commodity.cells, of_commodity.labelled
       local scope, signed = scope_of(sorted(mixed))
@@ -1256,18 +1241,9 @@ function M.analyze(input)
         if kind == 0 then
           it.counted = true
           if budget.converts then
-            local number = row[6]
-            if not d.is_zero(number) then
-              if d.is_zero(it.sum) then it.sum = d(number) else it.sum = it.sum + number end
-            end
+            it.sum = it.sum + row[6]
           elseif row[7].currency == commodity then
-            local number = row[7].number
-            if it.sum == nil then
-              if not d.is_zero(number) then it.sum = d(number) end
-            else
-              it.sum = it.sum + number
-              if d.is_zero(it.sum) then it.sum = nil end
-            end
+            it.sum = (it.sum or ZERO) + row[7].number
           end
         elseif kind ~= 3 then
           first_posting(name, kind, row[3], row[1] * PLACE + row[2])

@@ -1,0 +1,11 @@
+{
+  "description": "Zeros of a larger scale than the amounts around them (see main.zhang): what is available comes to zero before an add, adds and transfers of zero and a conversion of zero, postings that cancel out and a posting of zero, in a budget's own months, in the last month of a closed budget and in a budget with a posting no price converts. Each figure keeps the largest scale of what it adds up, zeros included, as Python's decimal adds (v0.3.0): 0.00 + 500 is 500.00.",
+  "now": "2024-06-15T00:00:00Z",
+  "pages": {
+    "months": ["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"],
+    "budgets": ["Food", "Gifts", "Rent", "Trip"]
+  },
+  "requests": [
+    {"bql": "SELECT name, date, assigned, added, activity, available, closed FROM #budgets WHERE date <= 2024-05-01 ORDER BY name, date"}
+  ]
+}

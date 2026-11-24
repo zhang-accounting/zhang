@@ -1,0 +1,1790 @@
+{
+  "case": "zeros-of-a-larger-scale",
+  "description": "Zeros of a larger scale than the amounts around them (see main.zhang): what is available comes to zero before an add, adds and transfers of zero and a conversion of zero, postings that cancel out and a posting of zero, in a budget's own months, in the last month of a closed budget and in a budget with a posting no price converts. Each figure keeps the largest scale of what it adds up, zeros included, as Python's decimal adds (v0.3.0): 0.00 + 500 is 500.00.",
+  "ledger": "zhang-server/tests/golden/budget_contract/zeros-of-a-larger-scale/main.zhang",
+  "now": "2024-06-15T00:00:00Z",
+  "errors": [
+    {
+      "kind": "BudgetCommodityMismatch",
+      "file": "main.zhang",
+      "line": 52,
+      "metas": [{"key": "account_name", "value": "Expenses:Gifts"}, {"key": "budget_commodity", "value": "CNY"}, {"key": "budget_name", "value": "Gifts"}, {"key": "commodity", "value": "XYZ"}, {"key": "txn_id", "value": "2b472f02-a632-94b3-a5b7-8ff2f4560236"}]
+    },
+    {
+      "kind": "BudgetClosed",
+      "file": "main.zhang",
+      "line": 90,
+      "metas": [{"key": "account_name", "value": "Expenses:Trip"}, {"key": "budget_name", "value": "Trip"}, {"key": "txn_id", "value": "d441061a-fb70-3707-6f0a-9d397703f6c3"}]
+    }
+  ],
+  "error_list": [
+    {
+      "id": "d17ffc3f-6e0c-0f44-8cb3-2566a0faf120",
+      "id_of": "main.zhang@1671 BudgetCommodityMismatch #0",
+      "span": {"file": "main.zhang", "start": 1671, "end": 1739, "line": 52},
+      "kind": "BudgetCommodityMismatch",
+      "metas": {
+        "account_name": "Expenses:Gifts",
+        "budget_commodity": "CNY",
+        "budget_name": "Gifts",
+        "commodity": "XYZ",
+        "txn_id": "2b472f02-a632-94b3-a5b7-8ff2f4560236"
+      }
+    },
+    {
+      "id": "9b47fc68-d79c-2ca4-4209-31baf993b916",
+      "id_of": "main.zhang@2548 BudgetClosed #0",
+      "span": {"file": "main.zhang", "start": 2548, "end": 2621, "line": 90},
+      "kind": "BudgetClosed",
+      "metas": {"account_name": "Expenses:Trip", "budget_name": "Trip", "txn_id": "d441061a-fb70-3707-6f0a-9d397703f6c3"}
+    }
+  ],
+  "responses": [
+    {
+      "request": {"builtin": "ledger.now"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}],
+          "rows": [["2024-06-15", "00:00:00"]]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-01-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Food", null, null, "CNY", "2024-01-01", {"number": "10.00", "currency": "CNY"}, "10.00", {"number": "0.00", "currency": "CNY"}, false],
+            ["Gifts", null, null, "CNY", "2024-01-01", {"number": "50", "currency": "CNY"}, "0", {"number": "50", "currency": "CNY"}, false],
+            ["Rent", null, null, "CNY", "2024-01-01", {"number": "3000", "currency": "CNY"}, "50.00", {"number": "2950.00", "currency": "CNY"}, false],
+            ["Trip", null, null, "CNY", "2024-01-01", {"number": "100", "currency": "CNY"}, "0", {"number": "100", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-02-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Food", null, null, "CNY", "2024-02-01", {"number": "500.00", "currency": "CNY"}, "0", {"number": "500.00", "currency": "CNY"}, false],
+            ["Gifts", null, null, "CNY", "2024-02-01", {"number": "50.00", "currency": "CNY"}, "0", {"number": "50.00", "currency": "CNY"}, false],
+            ["Rent", null, null, "CNY", "2024-02-01", {"number": "2950.00", "currency": "CNY"}, "20.000", {"number": "2930.000", "currency": "CNY"}, false],
+            ["Trip", null, null, "CNY", "2024-02-01", {"number": "100", "currency": "CNY"}, "0", {"number": "100", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-03-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Food", null, null, "CNY", "2024-03-01", {"number": "500.000", "currency": "CNY"}, "5", {"number": "495.000", "currency": "CNY"}, false],
+            ["Gifts", null, null, "CNY", "2024-03-01", {"number": "50.00", "currency": "CNY"}, "3.00", {"number": "47.00", "currency": "CNY"}, false],
+            ["Rent", null, null, "CNY", "2024-03-01", {"number": "2930.000", "currency": "CNY"}, "0", {"number": "2930.000", "currency": "CNY"}, false],
+            ["Trip", null, null, "CNY", "2024-03-01", {"number": "100", "currency": "CNY"}, "0", {"number": "100", "currency": "CNY"}, false]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"builtin": "budgets.month", "params": {"month": "2024-04-01"}},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Food", null, null, "CNY", "2024-04-01", {"number": "495.000", "currency": "CNY"}, "0", {"number": "495.000", "currency": "CNY"}, false],
+            ["Gifts", null, null, "CNY", "2024-04-01", {"number": "47.00", "currency": "CNY"}, "0", {"number": "47.00", "currency": "CNY"}, false],
+            ["Rent", null, null, "CNY", "2024-04-01", {"number": "2930.000", "currency": "CNY"}, "0", {"number": "2930.000", "currency": "CNY"}, false],
+            ["Trip", null, null, "CNY", "2024-04-01", {"number": "100", "currency": "CNY"}, "10.00", {"number": "90.00", "currency": "CNY"}, true]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.budget_month", "params": {"name": "Food", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Food", null, null, "CNY", "2024-01-01", {"number": "10.00", "currency": "CNY"}, "10.00", {"number": "0.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "10.00", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-05", "00:00:00", 1704412800, "Expenses:Food", "9ead3c70-cd59-1b68-aec0-6ec14001ecbf", "Market", "all of it", {"number": "10.00", "currency": "CNY"}, {"number": "10.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "10.00", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-05", "00:00:00", 1704412800, "Expenses:Food", "9ead3c70-cd59-1b68-aec0-6ec14001ecbf", "Market", "all of it", {"number": "10.00", "currency": "CNY"}, {"number": "10.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.budget_month", "params": {"name": "Food", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Food", null, null, "CNY", "2024-02-01", {"number": "500.00", "currency": "CNY"}, "0", {"number": "500.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-02-01", "00:00:00", 1706745600, "assign", {"number": "500", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-02-01", "00:00:00", 1706745600, "assign", {"number": "500", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.budget_month", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Food", null, null, "CNY", "2024-03-01", {"number": "500.000", "currency": "CNY"}, "5", {"number": "495.000", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-03-02", "00:00:00", 1709337600, "assign", {"number": "0", "currency": "USD"}],
+              ["2024-03-01", "00:00:00", 1709251200, "assign", {"number": "0.000", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-03", "00:00:00", 1709424000, "Expenses:Food", "c86e605f-fbf9-07bb-a8f5-12b05e126843", "Market", "lunch", {"number": "5", "currency": "CNY"}, {"number": "15.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [
+              ["2024-03-02", "00:00:00", 1709337600, "assign", {"number": "0", "currency": "USD"}],
+              ["2024-03-01", "00:00:00", 1709251200, "assign", {"number": "0.000", "currency": "CNY"}]
+            ]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-03", "00:00:00", 1709424000, "Expenses:Food", "c86e605f-fbf9-07bb-a8f5-12b05e126843", "Market", "lunch", {"number": "5", "currency": "CNY"}, {"number": "15.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.budget_month", "params": {"name": "Food", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Food", null, null, "CNY", "2024-04-01", {"number": "495.000", "currency": "CNY"}, "0", {"number": "495.000", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Food"}},
+          {"name": "budgets.events", "params": {"name": "Food", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "Food", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Food", null, null, "CNY", ["Expenses:Food"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.budget_month", "params": {"name": "Gifts", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "CNY", ["Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Gifts", null, null, "CNY", "2024-01-01", {"number": "50", "currency": "CNY"}, "0", {"number": "50", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "50", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "CNY", ["Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "50", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.budget_month", "params": {"name": "Gifts", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "CNY", ["Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Gifts", null, null, "CNY", "2024-02-01", {"number": "50.00", "currency": "CNY"}, "0", {"number": "50.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-02-10", "00:00:00", 1707523200, "transfer_in", {"number": "0.00", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "CNY", ["Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-02-10", "00:00:00", 1707523200, "transfer_in", {"number": "0.00", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.budget_month", "params": {"name": "Gifts", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "CNY", ["Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Gifts", null, null, "CNY", "2024-03-01", {"number": "50.00", "currency": "CNY"}, "3.00", {"number": "47.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-07", "00:00:00", 1709769600, "Expenses:Gifts", "e1a2df97-62a7-6bac-dd71-d526cf28cdca", "Shop", "a card", {"number": "3", "currency": "CNY"}, {"number": "3", "currency": "CNY"}],
+              ["2024-03-06", "00:00:00", 1709683200, "Expenses:Gifts", "426d8eaf-0ec9-fd98-e651-547c4fcbaf99", "Shop", "returned", {"number": "-8.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}],
+              ["2024-03-05", "00:00:00", 1709596800, "Expenses:Gifts", "22c7bfcb-46e6-cb2d-59d2-d522dfba89e4", "Shop", "flowers", {"number": "8.00", "currency": "CNY"}, {"number": "8.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "CNY", ["Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-03-07", "00:00:00", 1709769600, "Expenses:Gifts", "e1a2df97-62a7-6bac-dd71-d526cf28cdca", "Shop", "a card", {"number": "3", "currency": "CNY"}, {"number": "3", "currency": "CNY"}],
+              ["2024-03-06", "00:00:00", 1709683200, "Expenses:Gifts", "426d8eaf-0ec9-fd98-e651-547c4fcbaf99", "Shop", "returned", {"number": "-8.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}],
+              ["2024-03-05", "00:00:00", 1709596800, "Expenses:Gifts", "22c7bfcb-46e6-cb2d-59d2-d522dfba89e4", "Shop", "flowers", {"number": "8.00", "currency": "CNY"}, {"number": "8.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.budget_month", "params": {"name": "Gifts", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "CNY", ["Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Gifts", null, null, "CNY", "2024-04-01", {"number": "47.00", "currency": "CNY"}, "0", {"number": "47.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Gifts"}},
+          {"name": "budgets.events", "params": {"name": "Gifts", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "Gifts", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Gifts", null, null, "CNY", ["Expenses:Gifts"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Rent"}},
+          {"name": "budgets.budget_month", "params": {"name": "Rent", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Rent", null, null, "CNY", ["Expenses:Rent"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Rent", null, null, "CNY", "2024-01-01", {"number": "3000", "currency": "CNY"}, "50.00", {"number": "2950.00", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Rent", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Rent", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "3000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-10", "00:00:00", 1704844800, "Expenses:Rent", "2cf29cd0-c45e-11fb-909a-de47c3592340", "Landlord", "the rent", {"number": "50", "currency": "CNY"}, {"number": "50", "currency": "CNY"}],
+              ["2024-01-04", "00:00:00", 1704326400, "Expenses:Rent", "448fef44-60a8-6046-116c-449ff029a05c", "Landlord", "refunded", {"number": "-100.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}],
+              ["2024-01-03", "00:00:00", 1704240000, "Expenses:Rent", "744736b8-330c-c699-9191-818694234589", "Landlord", "January rent", {"number": "100.00", "currency": "CNY"}, {"number": "100.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Rent"}},
+          {"name": "budgets.events", "params": {"name": "Rent", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Rent", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Rent", null, null, "CNY", ["Expenses:Rent"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "3000", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-01-10", "00:00:00", 1704844800, "Expenses:Rent", "2cf29cd0-c45e-11fb-909a-de47c3592340", "Landlord", "the rent", {"number": "50", "currency": "CNY"}, {"number": "50", "currency": "CNY"}],
+              ["2024-01-04", "00:00:00", 1704326400, "Expenses:Rent", "448fef44-60a8-6046-116c-449ff029a05c", "Landlord", "refunded", {"number": "-100.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}],
+              ["2024-01-03", "00:00:00", 1704240000, "Expenses:Rent", "744736b8-330c-c699-9191-818694234589", "Landlord", "January rent", {"number": "100.00", "currency": "CNY"}, {"number": "100.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Rent"}},
+          {"name": "budgets.budget_month", "params": {"name": "Rent", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Rent", null, null, "CNY", ["Expenses:Rent"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Rent", null, null, "CNY", "2024-02-01", {"number": "2950.00", "currency": "CNY"}, "20.000", {"number": "2930.000", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Rent", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Rent", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-02-10", "00:00:00", 1707523200, "transfer_out", {"number": "0.00", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-02-04", "00:00:00", 1707004800, "Expenses:Rent", "2354e7b5-c7d2-1493-3060-cf1c54864d15", "Landlord", "February rent", {"number": "20", "currency": "CNY"}, {"number": "70.000", "currency": "CNY"}],
+              ["2024-02-03", "00:00:00", 1706918400, "Expenses:Rent", "69eb53f9-0ede-ef5b-6aaf-3e8c4b7bc724", "Landlord", "a fee waived", {"number": "0.000", "currency": "CNY"}, {"number": "50.000", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Rent"}},
+          {"name": "budgets.events", "params": {"name": "Rent", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Rent", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Rent", null, null, "CNY", ["Expenses:Rent"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-02-10", "00:00:00", 1707523200, "transfer_out", {"number": "0.00", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-02-04", "00:00:00", 1707004800, "Expenses:Rent", "2354e7b5-c7d2-1493-3060-cf1c54864d15", "Landlord", "February rent", {"number": "20", "currency": "CNY"}, {"number": "70.000", "currency": "CNY"}],
+              ["2024-02-03", "00:00:00", 1706918400, "Expenses:Rent", "69eb53f9-0ede-ef5b-6aaf-3e8c4b7bc724", "Landlord", "a fee waived", {"number": "0.000", "currency": "CNY"}, {"number": "50.000", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Rent"}},
+          {"name": "budgets.budget_month", "params": {"name": "Rent", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Rent", null, null, "CNY", ["Expenses:Rent"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Rent", null, null, "CNY", "2024-03-01", {"number": "2930.000", "currency": "CNY"}, "0", {"number": "2930.000", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Rent", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Rent", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Rent"}},
+          {"name": "budgets.events", "params": {"name": "Rent", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Rent", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Rent", null, null, "CNY", ["Expenses:Rent"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Rent"}},
+          {"name": "budgets.budget_month", "params": {"name": "Rent", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Rent", null, null, "CNY", ["Expenses:Rent"], null, null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Rent", null, null, "CNY", "2024-04-01", {"number": "2930.000", "currency": "CNY"}, "0", {"number": "2930.000", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Rent", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "Rent", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Rent"}},
+          {"name": "budgets.events", "params": {"name": "Rent", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "Rent", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Rent", null, null, "CNY", ["Expenses:Rent"], null, null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Trip"}},
+          {"name": "budgets.budget_month", "params": {"name": "Trip", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Trip", null, null, "CNY", ["Expenses:Trip"], "2024-04-15", null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Trip", null, null, "CNY", "2024-01-01", {"number": "100", "currency": "CNY"}, "0", {"number": "100", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Trip", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Trip", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "100", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Trip"}},
+          {"name": "budgets.events", "params": {"name": "Trip", "month": "2024-01-01"}},
+          {"name": "budgets.postings", "params": {"name": "Trip", "month": "2024-01-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Trip", null, null, "CNY", ["Expenses:Trip"], "2024-04-15", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": [["2024-01-01", "00:00:00", 1704067200, "assign", {"number": "100", "currency": "CNY"}]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Trip"}},
+          {"name": "budgets.budget_month", "params": {"name": "Trip", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Trip", null, null, "CNY", ["Expenses:Trip"], "2024-04-15", null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Trip", null, null, "CNY", "2024-02-01", {"number": "100", "currency": "CNY"}, "0", {"number": "100", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Trip", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Trip", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Trip"}},
+          {"name": "budgets.events", "params": {"name": "Trip", "month": "2024-02-01"}},
+          {"name": "budgets.postings", "params": {"name": "Trip", "month": "2024-02-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Trip", null, null, "CNY", ["Expenses:Trip"], "2024-04-15", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Trip"}},
+          {"name": "budgets.budget_month", "params": {"name": "Trip", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Trip", null, null, "CNY", ["Expenses:Trip"], "2024-04-15", null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Trip", null, null, "CNY", "2024-03-01", {"number": "100", "currency": "CNY"}, "0", {"number": "100", "currency": "CNY"}, false]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Trip", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Trip", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Trip"}},
+          {"name": "budgets.events", "params": {"name": "Trip", "month": "2024-03-01"}},
+          {"name": "budgets.postings", "params": {"name": "Trip", "month": "2024-03-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Trip", null, null, "CNY", ["Expenses:Trip"], "2024-04-15", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": []
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Trip"}},
+          {"name": "budgets.budget_month", "params": {"name": "Trip", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Trip", null, null, "CNY", ["Expenses:Trip"], "2024-04-15", null]]
+          },
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "last_month", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "activity", "type": "decimal"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+            "rows": [
+              ["Trip", null, null, "CNY", "2024-04-01", {"number": "100", "currency": "CNY"}, "10.00", {"number": "90.00", "currency": "CNY"}, true]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.events", "params": {"name": "Trip", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "Trip", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-04-03", "00:00:00", 1712102400, "Expenses:Trip", "680dda35-6fbe-d0e6-9381-0d5d85da5a22", "Bus", "a ticket", {"number": "10", "currency": "CNY"}, {"number": "10", "currency": "CNY"}],
+              ["2024-04-02", "00:00:00", 1712016000, "Expenses:Trip", "eb87c8a9-0224-67c5-1f2d-45f2724500cf", "Airline", "refunded", {"number": "-30.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}],
+              ["2024-04-01", "00:00:00", 1711929600, "Expenses:Trip", "926763cc-e56f-b928-5ee3-c9019ec17464", "Airline", "a seat", {"number": "30.00", "currency": "CNY"}, {"number": "30.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "batch": [
+          {"name": "budgets.budget", "params": {"name": "Trip"}},
+          {"name": "budgets.events", "params": {"name": "Trip", "month": "2024-04-01"}},
+          {"name": "budgets.postings", "params": {"name": "Trip", "month": "2024-04-01"}}
+        ]
+      },
+      "status": 200,
+      "body": {
+        "data": [
+          {
+            "columns": [{"name": "name", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "currency", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+            "rows": [["Trip", null, null, "CNY", ["Expenses:Trip"], "2024-04-15", null]]
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+            "rows": []
+          },
+          {
+            "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "account", "type": "str"}, {"name": "id", "type": "str"}, {"name": "payee", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "balance", "type": "amount"}],
+            "rows": [
+              ["2024-04-03", "00:00:00", 1712102400, "Expenses:Trip", "680dda35-6fbe-d0e6-9381-0d5d85da5a22", "Bus", "a ticket", {"number": "10", "currency": "CNY"}, {"number": "10", "currency": "CNY"}],
+              ["2024-04-02", "00:00:00", 1712016000, "Expenses:Trip", "eb87c8a9-0224-67c5-1f2d-45f2724500cf", "Airline", "refunded", {"number": "-30.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}],
+              ["2024-04-01", "00:00:00", 1711929600, "Expenses:Trip", "926763cc-e56f-b928-5ee3-c9019ec17464", "Airline", "a seat", {"number": "30.00", "currency": "CNY"}, {"number": "30.00", "currency": "CNY"}]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, currency, alias, category, accounts, close, close_time FROM #budget_definitions"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "currency", "type": "str"}, {"name": "alias", "type": "str"}, {"name": "category", "type": "str"}, {"name": "accounts", "type": "set"}, {"name": "close", "type": "date"}, {"name": "close_time", "type": "str"}],
+          "rows": [
+            ["Food", "2024-01-01", "CNY", null, null, ["Expenses:Food"], null, null],
+            ["Gifts", "2024-01-01", "CNY", null, null, ["Expenses:Gifts"], null, null],
+            ["Rent", "2024-01-01", "CNY", null, null, ["Expenses:Rent"], null, null],
+            ["Trip", "2024-01-01", "CNY", null, null, ["Expenses:Trip"], "2024-04-15", null]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT name, date, time, timestamp, type, amount FROM #budget_events"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "timestamp", "type": "int"}, {"name": "type", "type": "str"}, {"name": "amount", "type": "amount"}],
+          "rows": [
+            ["Food", "2024-01-01", "00:00:00", 1704067200, "assign", {"number": "10.00", "currency": "CNY"}],
+            ["Rent", "2024-01-01", "00:00:00", 1704067200, "assign", {"number": "3000", "currency": "CNY"}],
+            ["Trip", "2024-01-01", "00:00:00", 1704067200, "assign", {"number": "100", "currency": "CNY"}],
+            ["Gifts", "2024-01-01", "00:00:00", 1704067200, "assign", {"number": "50", "currency": "CNY"}],
+            ["Food", "2024-02-01", "00:00:00", 1706745600, "assign", {"number": "500", "currency": "CNY"}],
+            ["Rent", "2024-02-10", "00:00:00", 1707523200, "transfer_out", {"number": "0.00", "currency": "CNY"}],
+            ["Gifts", "2024-02-10", "00:00:00", 1707523200, "transfer_in", {"number": "0.00", "currency": "CNY"}],
+            ["Food", "2024-03-01", "00:00:00", 1709251200, "assign", {"number": "0.000", "currency": "CNY"}],
+            ["Food", "2024-03-02", "00:00:00", 1709337600, "assign", {"number": "0", "currency": "USD"}],
+            ["Trip", "2024-04-15", "00:00:00", 1713139200, "close", null]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, year, month, currency, alias, category, assigned, added, activity, available, closed, accounts FROM #budgets"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [
+            {"name": "name", "type": "str"},
+            {"name": "date", "type": "date"},
+            {"name": "year", "type": "int"},
+            {"name": "month", "type": "int"},
+            {"name": "currency", "type": "str"},
+            {"name": "alias", "type": "str"},
+            {"name": "category", "type": "str"},
+            {"name": "assigned", "type": "amount"},
+            {"name": "added", "type": "amount"},
+            {"name": "activity", "type": "amount"},
+            {"name": "available", "type": "amount"},
+            {"name": "closed", "type": "bool"},
+            {"name": "accounts", "type": "set"}
+          ],
+          "rows": [
+            [
+              "Food",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "10.00", "currency": "CNY"},
+              {"number": "10.00", "currency": "CNY"},
+              {"number": "10.00", "currency": "CNY"},
+              {"number": "0.00", "currency": "CNY"},
+              false,
+              ["Expenses:Food"]
+            ],
+            [
+              "Food",
+              "2024-02-01",
+              2024,
+              2,
+              "CNY",
+              null,
+              null,
+              {"number": "500.00", "currency": "CNY"},
+              {"number": "500", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "500.00", "currency": "CNY"},
+              false,
+              ["Expenses:Food"]
+            ],
+            [
+              "Food",
+              "2024-03-01",
+              2024,
+              3,
+              "CNY",
+              null,
+              null,
+              {"number": "500.000", "currency": "CNY"},
+              {"number": "0.000", "currency": "CNY"},
+              {"number": "5", "currency": "CNY"},
+              {"number": "495.000", "currency": "CNY"},
+              false,
+              ["Expenses:Food"]
+            ],
+            [
+              "Food",
+              "2024-04-01",
+              2024,
+              4,
+              "CNY",
+              null,
+              null,
+              {"number": "495.000", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "495.000", "currency": "CNY"},
+              false,
+              ["Expenses:Food"]
+            ],
+            [
+              "Food",
+              "2024-05-01",
+              2024,
+              5,
+              "CNY",
+              null,
+              null,
+              {"number": "495.000", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "495.000", "currency": "CNY"},
+              false,
+              ["Expenses:Food"]
+            ],
+            [
+              "Food",
+              "2024-06-01",
+              2024,
+              6,
+              "CNY",
+              null,
+              null,
+              {"number": "495.000", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "495.000", "currency": "CNY"},
+              false,
+              ["Expenses:Food"]
+            ],
+            [
+              "Gifts",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "50", "currency": "CNY"},
+              {"number": "50", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "50", "currency": "CNY"},
+              false,
+              ["Expenses:Gifts"]
+            ],
+            [
+              "Gifts",
+              "2024-02-01",
+              2024,
+              2,
+              "CNY",
+              null,
+              null,
+              {"number": "50.00", "currency": "CNY"},
+              {"number": "0.00", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "50.00", "currency": "CNY"},
+              false,
+              ["Expenses:Gifts"]
+            ],
+            [
+              "Gifts",
+              "2024-03-01",
+              2024,
+              3,
+              "CNY",
+              null,
+              null,
+              {"number": "50.00", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "3.00", "currency": "CNY"},
+              {"number": "47.00", "currency": "CNY"},
+              false,
+              ["Expenses:Gifts"]
+            ],
+            [
+              "Gifts",
+              "2024-04-01",
+              2024,
+              4,
+              "CNY",
+              null,
+              null,
+              {"number": "47.00", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "47.00", "currency": "CNY"},
+              false,
+              ["Expenses:Gifts"]
+            ],
+            [
+              "Gifts",
+              "2024-05-01",
+              2024,
+              5,
+              "CNY",
+              null,
+              null,
+              {"number": "47.00", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "47.00", "currency": "CNY"},
+              false,
+              ["Expenses:Gifts"]
+            ],
+            [
+              "Gifts",
+              "2024-06-01",
+              2024,
+              6,
+              "CNY",
+              null,
+              null,
+              {"number": "47.00", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "47.00", "currency": "CNY"},
+              false,
+              ["Expenses:Gifts"]
+            ],
+            [
+              "Rent",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "3000", "currency": "CNY"},
+              {"number": "3000", "currency": "CNY"},
+              {"number": "50.00", "currency": "CNY"},
+              {"number": "2950.00", "currency": "CNY"},
+              false,
+              ["Expenses:Rent"]
+            ],
+            [
+              "Rent",
+              "2024-02-01",
+              2024,
+              2,
+              "CNY",
+              null,
+              null,
+              {"number": "2950.00", "currency": "CNY"},
+              {"number": "0.00", "currency": "CNY"},
+              {"number": "20.000", "currency": "CNY"},
+              {"number": "2930.000", "currency": "CNY"},
+              false,
+              ["Expenses:Rent"]
+            ],
+            [
+              "Rent",
+              "2024-03-01",
+              2024,
+              3,
+              "CNY",
+              null,
+              null,
+              {"number": "2930.000", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "2930.000", "currency": "CNY"},
+              false,
+              ["Expenses:Rent"]
+            ],
+            [
+              "Rent",
+              "2024-04-01",
+              2024,
+              4,
+              "CNY",
+              null,
+              null,
+              {"number": "2930.000", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "2930.000", "currency": "CNY"},
+              false,
+              ["Expenses:Rent"]
+            ],
+            [
+              "Rent",
+              "2024-05-01",
+              2024,
+              5,
+              "CNY",
+              null,
+              null,
+              {"number": "2930.000", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "2930.000", "currency": "CNY"},
+              false,
+              ["Expenses:Rent"]
+            ],
+            [
+              "Rent",
+              "2024-06-01",
+              2024,
+              6,
+              "CNY",
+              null,
+              null,
+              {"number": "2930.000", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "2930.000", "currency": "CNY"},
+              false,
+              ["Expenses:Rent"]
+            ],
+            [
+              "Trip",
+              "2024-01-01",
+              2024,
+              1,
+              "CNY",
+              null,
+              null,
+              {"number": "100", "currency": "CNY"},
+              {"number": "100", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "100", "currency": "CNY"},
+              false,
+              ["Expenses:Trip"]
+            ],
+            [
+              "Trip",
+              "2024-02-01",
+              2024,
+              2,
+              "CNY",
+              null,
+              null,
+              {"number": "100", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "100", "currency": "CNY"},
+              false,
+              ["Expenses:Trip"]
+            ],
+            [
+              "Trip",
+              "2024-03-01",
+              2024,
+              3,
+              "CNY",
+              null,
+              null,
+              {"number": "100", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "100", "currency": "CNY"},
+              false,
+              ["Expenses:Trip"]
+            ],
+            [
+              "Trip",
+              "2024-04-01",
+              2024,
+              4,
+              "CNY",
+              null,
+              null,
+              {"number": "100", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "10.00", "currency": "CNY"},
+              {"number": "90.00", "currency": "CNY"},
+              true,
+              ["Expenses:Trip"]
+            ],
+            [
+              "Trip",
+              "2024-05-01",
+              2024,
+              5,
+              "CNY",
+              null,
+              null,
+              {"number": "90.00", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "90.00", "currency": "CNY"},
+              true,
+              ["Expenses:Trip"]
+            ],
+            [
+              "Trip",
+              "2024-06-01",
+              2024,
+              6,
+              "CNY",
+              null,
+              null,
+              {"number": "90.00", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "0", "currency": "CNY"},
+              {"number": "90.00", "currency": "CNY"},
+              true,
+              ["Expenses:Trip"]
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "request": {"bql": "SELECT date, time, account, narration, units(position) AS units, budgets FROM #postings"},
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "date", "type": "date"}, {"name": "time", "type": "str"}, {"name": "account", "type": "str"}, {"name": "narration", "type": "str"}, {"name": "units", "type": "amount"}, {"name": "budgets", "type": "set"}],
+          "rows": [
+            [
+              "2024-01-03",
+              "00:00:00",
+              "Expenses:Rent",
+              "January rent",
+              {"number": "100.00", "currency": "CNY"},
+              ["Rent"]
+            ],
+            ["2024-01-03", "00:00:00", "Assets:Bank", "January rent", {"number": "-100.00", "currency": "CNY"}, []],
+            ["2024-01-04", "00:00:00", "Expenses:Rent", "refunded", {"number": "-100.00", "currency": "CNY"}, ["Rent"]],
+            ["2024-01-04", "00:00:00", "Assets:Bank", "refunded", {"number": "100.00", "currency": "CNY"}, []],
+            ["2024-01-05", "00:00:00", "Expenses:Food", "all of it", {"number": "10.00", "currency": "CNY"}, ["Food"]],
+            ["2024-01-05", "00:00:00", "Assets:Bank", "all of it", {"number": "-10.00", "currency": "CNY"}, []],
+            ["2024-01-10", "00:00:00", "Expenses:Rent", "the rent", {"number": "50", "currency": "CNY"}, ["Rent"]],
+            ["2024-01-10", "00:00:00", "Assets:Bank", "the rent", {"number": "-50", "currency": "CNY"}, []],
+            ["2024-02-01", "00:00:00", "Expenses:Gifts", "a voucher", {"number": "1", "currency": "XYZ"}, []],
+            ["2024-02-01", "00:00:00", "Assets:Bank", "a voucher", {"number": "-1", "currency": "XYZ"}, []],
+            [
+              "2024-02-03",
+              "00:00:00",
+              "Expenses:Rent",
+              "a fee waived",
+              {"number": "0.000", "currency": "CNY"},
+              ["Rent"]
+            ],
+            ["2024-02-03", "00:00:00", "Assets:Bank", "a fee waived", {"number": "0", "currency": "CNY"}, []],
+            ["2024-02-04", "00:00:00", "Expenses:Rent", "February rent", {"number": "20", "currency": "CNY"}, ["Rent"]],
+            ["2024-02-04", "00:00:00", "Assets:Bank", "February rent", {"number": "-20", "currency": "CNY"}, []],
+            ["2024-03-03", "00:00:00", "Expenses:Food", "lunch", {"number": "5", "currency": "CNY"}, ["Food"]],
+            ["2024-03-03", "00:00:00", "Assets:Bank", "lunch", {"number": "-5", "currency": "CNY"}, []],
+            ["2024-03-05", "00:00:00", "Expenses:Gifts", "flowers", {"number": "8.00", "currency": "CNY"}, ["Gifts"]],
+            ["2024-03-05", "00:00:00", "Assets:Bank", "flowers", {"number": "-8.00", "currency": "CNY"}, []],
+            ["2024-03-06", "00:00:00", "Expenses:Gifts", "returned", {"number": "-8.00", "currency": "CNY"}, ["Gifts"]],
+            ["2024-03-06", "00:00:00", "Assets:Bank", "returned", {"number": "8.00", "currency": "CNY"}, []],
+            ["2024-03-07", "00:00:00", "Expenses:Gifts", "a card", {"number": "3", "currency": "CNY"}, ["Gifts"]],
+            ["2024-03-07", "00:00:00", "Assets:Bank", "a card", {"number": "-3", "currency": "CNY"}, []],
+            ["2024-04-01", "00:00:00", "Expenses:Trip", "a seat", {"number": "30.00", "currency": "CNY"}, ["Trip"]],
+            ["2024-04-01", "00:00:00", "Assets:Bank", "a seat", {"number": "-30.00", "currency": "CNY"}, []],
+            ["2024-04-02", "00:00:00", "Expenses:Trip", "refunded", {"number": "-30.00", "currency": "CNY"}, ["Trip"]],
+            ["2024-04-02", "00:00:00", "Assets:Bank", "refunded", {"number": "30.00", "currency": "CNY"}, []],
+            ["2024-04-03", "00:00:00", "Expenses:Trip", "a ticket", {"number": "10", "currency": "CNY"}, ["Trip"]],
+            ["2024-04-03", "00:00:00", "Assets:Bank", "a ticket", {"number": "-10", "currency": "CNY"}, []],
+            ["2024-04-20", "00:00:00", "Expenses:Trip", "after the close", {"number": "99", "currency": "CNY"}, []],
+            ["2024-04-20", "00:00:00", "Assets:Bank", "after the close", {"number": "-99", "currency": "CNY"}, []]
+          ]
+        }
+      }
+    },
+    {
+      "request": {
+        "bql": "SELECT name, date, assigned, added, activity, available, closed FROM #budgets WHERE date <= 2024-05-01 ORDER BY name, date"
+      },
+      "status": 200,
+      "body": {
+        "data": {
+          "columns": [{"name": "name", "type": "str"}, {"name": "date", "type": "date"}, {"name": "assigned", "type": "amount"}, {"name": "added", "type": "amount"}, {"name": "activity", "type": "amount"}, {"name": "available", "type": "amount"}, {"name": "closed", "type": "bool"}],
+          "rows": [
+            ["Food", "2024-01-01", {"number": "10.00", "currency": "CNY"}, {"number": "10.00", "currency": "CNY"}, {"number": "10.00", "currency": "CNY"}, {"number": "0.00", "currency": "CNY"}, false],
+            ["Food", "2024-02-01", {"number": "500.00", "currency": "CNY"}, {"number": "500", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "500.00", "currency": "CNY"}, false],
+            ["Food", "2024-03-01", {"number": "500.000", "currency": "CNY"}, {"number": "0.000", "currency": "CNY"}, {"number": "5", "currency": "CNY"}, {"number": "495.000", "currency": "CNY"}, false],
+            ["Food", "2024-04-01", {"number": "495.000", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "495.000", "currency": "CNY"}, false],
+            ["Food", "2024-05-01", {"number": "495.000", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "495.000", "currency": "CNY"}, false],
+            ["Gifts", "2024-01-01", {"number": "50", "currency": "CNY"}, {"number": "50", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "50", "currency": "CNY"}, false],
+            ["Gifts", "2024-02-01", {"number": "50.00", "currency": "CNY"}, {"number": "0.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "50.00", "currency": "CNY"}, false],
+            ["Gifts", "2024-03-01", {"number": "50.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "3.00", "currency": "CNY"}, {"number": "47.00", "currency": "CNY"}, false],
+            ["Gifts", "2024-04-01", {"number": "47.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "47.00", "currency": "CNY"}, false],
+            ["Gifts", "2024-05-01", {"number": "47.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "47.00", "currency": "CNY"}, false],
+            ["Rent", "2024-01-01", {"number": "3000", "currency": "CNY"}, {"number": "3000", "currency": "CNY"}, {"number": "50.00", "currency": "CNY"}, {"number": "2950.00", "currency": "CNY"}, false],
+            ["Rent", "2024-02-01", {"number": "2950.00", "currency": "CNY"}, {"number": "0.00", "currency": "CNY"}, {"number": "20.000", "currency": "CNY"}, {"number": "2930.000", "currency": "CNY"}, false],
+            ["Rent", "2024-03-01", {"number": "2930.000", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "2930.000", "currency": "CNY"}, false],
+            ["Rent", "2024-04-01", {"number": "2930.000", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "2930.000", "currency": "CNY"}, false],
+            ["Rent", "2024-05-01", {"number": "2930.000", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "2930.000", "currency": "CNY"}, false],
+            ["Trip", "2024-01-01", {"number": "100", "currency": "CNY"}, {"number": "100", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "100", "currency": "CNY"}, false],
+            ["Trip", "2024-02-01", {"number": "100", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "100", "currency": "CNY"}, false],
+            ["Trip", "2024-03-01", {"number": "100", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "100", "currency": "CNY"}, false],
+            ["Trip", "2024-04-01", {"number": "100", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "10.00", "currency": "CNY"}, {"number": "90.00", "currency": "CNY"}, true],
+            ["Trip", "2024-05-01", {"number": "90.00", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "0", "currency": "CNY"}, {"number": "90.00", "currency": "CNY"}, true]
+          ]
+        }
+      }
+    }
+  ],
+  "round_trip": {"beancount": "same", "zhang": "same"}
+}

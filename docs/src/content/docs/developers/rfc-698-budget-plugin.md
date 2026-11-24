@@ -738,6 +738,16 @@ gives `190.8450704225352112676056338 USD`, and a product keeps its scale (`10355
   (Python's decimal, as beancount computes), of which the native `500` is a quirk of bigdecimal 0.4.3 (its owned
   `a + b` keeps the scale). The native budget code is aligned in P3, not before; the Lua plugins guide names the
   difference.
+  **Done in v0.3.0** (the owner's decision of 2026-11-24): the budget figures keep the larger scale, zeros included.
+  `budget.lua` adds the running figures as `zhang.decimal` does (no more `&a + &b` for `assigned`) and sums the
+  postings it reads one by one, and those of a budget no price converts every posting of, at the largest scale of the
+  terms; the host's `sum` of decimals, which the script's aggregations use, keeps the largest scale of its terms
+  (`zhang_shared::decimal::add_to`), where it gave the other operand as it is when one was zero (`x += y` of an owned
+  `y`). The SDK's budget analyzer, the fuzzer's oracle, adds with `zhang_shared::decimal::{add, sub, add_to}`, and so
+  does the contract's `budget_reference`. #835's golden files did not change, byte for byte: none of their cases has
+  a zero of the larger scale. The case `zeros-of-a-larger-scale` pins the rule; against what `main` answered before,
+  its golden file differs only in 120 scales, each one wider. The fuzzer finds no difference on the seeds 1 to 10,000,
+  and since then compares the scale with the SDK's analyzer too.
 - **`api_version` stays 1.** No release has shipped a Lua API: v0.2.0 predates Lua scripts, so routers, analyzers,
   `zhang.decimal` and `zhang.convert` are version 1, the API of the first release with Lua scripts, as the rule of the
   Lua plugins guide reads (a release that adds to the `zhang` table raises it).
@@ -1115,8 +1125,9 @@ them, and P3.3's merge, on 2026-11-24, although three timers stayed inconclusive
 - **The bench** (`budget_baseline`, `budget_pairs`, `budget_compare`) compares two builds since there is no native
   side: the side the layout calls `native` is the baseline build, and `--expect-analyzer` checks the candidate only
   (Budget Baseline, "After RFC #698 P5").
-- **Left open.** §4's alignment of `assigned`'s zero scale (the script keeps the native `&a + &b` quirk, Lua Plugins,
-  "A known difference") changes figures' scales and is left to a change of its own.
+- **Left open, then done in v0.3.0.** §4's alignment of `assigned`'s zero scale (the script kept the native
+  `&a + &b` quirk, Lua Plugins, "A known difference") changed figures' scales and was left to a change of its own:
+  §4, "Done in v0.3.0".
 
 ## 11. Decisions
 
