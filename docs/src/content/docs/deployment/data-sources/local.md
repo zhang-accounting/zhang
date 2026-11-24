@@ -70,6 +70,25 @@ If a file cannot be read at all, for example because of a syntax error, the relo
 
 At startup, a ledger that cannot be read makes `zhang serve` exit with code 1.
 
+### When the folder cannot be watched
+
+On Linux, Zhang watches the folder with inotify, whose limits are per user and shared by every program the user runs, on a server, and on a Docker host or Kubernetes node by every container running as that user: `fs.inotify.max_user_instances`, the number of programs that watch (often 128), and `fs.inotify.max_user_watches`, the number of folders watched. When one is used up, Zhang still serves the ledger, and logs one error that names the setting to raise, such as:
+
+```text
+cannot watch /data for edits made outside the server: Too many open files (os error 24): the inotify instances of the user the server runs as, or the server's open files, are used up; raise fs.inotify.max_user_instances (`sysctl -w fs.inotify.max_user_instances=1024`), or the open-file limit (`ulimit -n`). Until it can, the server checks the ledger's files for changes every 5s, and tries to watch the folder again every 30s at most
+```
+
+While the folder is not watched, `GET /api/info` answers the same reason as `watch_failure`, and Zhang checks for changes every 5 seconds instead: the ledger's files and the files its plugins read, by their modification time and size (no file is read, so this costs next to nothing). An edit made outside then reloads the ledger within 5 seconds; of a folder a plugin lists, only a file added to it or removed from it is noticed. Zhang tries to watch the folder again after 1 second, then after waits that double, up to 30 seconds. Once it can, it logs `watching <folder>`, reloads the ledger once for what changed meanwhile, and reloads at once after an edit again. The same happens when a folder created in the ledger folder cannot be watched, and when the ledger folder itself is removed or moved away.
+
+Raise the limits where the container runs (the host or the Kubernetes node: a container cannot change them), for example with a file `/etc/sysctl.d/90-inotify.conf`:
+
+```text
+fs.inotify.max_user_instances = 1024
+fs.inotify.max_user_watches = 524288
+```
+
+and `sudo sysctl --system`. To see which programs hold the inotify instances, run `sudo find /proc/*/fd -lname 'anon_inode:inotify' | cut -d/ -f3 | sort | uniq -c | sort -rn`: it counts them by process id.
+
 ## File permissions
 
 Zhang needs to read every file of the ledger. To record anything from the web UI, it also needs to write to the ledger folder: it appends to existing files and creates folders and files such as `data/2024/` and `attachments/`. Without write access, recording from the web UI fails while reading keeps working.

@@ -75,6 +75,7 @@ pub async fn get_basic_info(ledger: State<SharedLedger>, reload_sender: State<Sh
         build_date: env!("ZHANG_BUILD_DATE").to_string(),
         format: ledger.dialect.name().to_owned(),
         reload_failure: reload_sender.last_failure(),
+        watch_failure: reload_sender.watch_failure(),
     })
 }
 

@@ -434,6 +434,9 @@ pub struct BasicInfoEntity {
     /// why the last reload failed, while the ledger served is the one loaded before it; absent once a reload
     /// succeeded (#492)
     pub reload_failure: Option<ReloadFailure>,
+    /// why the ledger's folder is not watched for edits made outside the server, while it is not, as an inotify limit
+    /// reached: the server checks the ledger's files every few seconds meanwhile; absent while it is watched
+    pub watch_failure: Option<String>,
 }
 
 #[derive(Serialize, Schematic)]

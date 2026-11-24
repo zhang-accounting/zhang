@@ -1,12 +1,15 @@
 //! When the served ledger is stale: a filesystem event that touches something the load read, or, for a ledger
-//! that depends on the date, the next local midnight.
+//! that depends on the date, the next local midnight. And what the file watcher does while it cannot watch the
+//! ledger's folder: it says why, checks the ledger's files every [`POLL_INTERVAL`] ([`changes`]) and tries again.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use chrono::{DateTime, NaiveTime, TimeDelta, Utc};
 use chrono_tz::Tz;
 use indexmap::IndexSet;
+use notify::event::{CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
 use notify::{Event, EventKind};
 use zhang_ast::resolve_local_datetime;
 use zhang_core::constants::CACHE_DIR;
@@ -23,6 +26,16 @@ pub const QUIET: Duration = Duration::from_millis(500);
 
 /// the longest the watcher gathers changes, from the first, however busy the files are ([`gather`])
 pub const MAX_WAIT: Duration = Duration::from_secs(2);
+
+/// the wait before the first attempt to watch the ledger's folder again after the watcher failed, doubled after every
+/// attempt up to [`MAX_RETRY`]
+pub const FIRST_RETRY: Duration = Duration::from_secs(1);
+
+/// the longest wait between two attempts to watch the ledger's folder
+pub const MAX_RETRY: Duration = Duration::from_secs(30);
+
+/// how often the ledger's files are checked for changes while the folder is not watched ([`changes`])
+pub const POLL_INTERVAL: Duration = Duration::from_secs(5);
 
 /// whether a report of the watcher may be a change, to gather: not a read (an access), which inotify reports for every
 /// file a load opens, and which changes nothing; an error may be anything
@@ -130,18 +143,108 @@ pub fn next_local_midnight(now: DateTime<Utc>, timezone: Tz) -> DateTime<Utc> {
     }
 }
 
+/// `EMFILE`, "Too many open files", the error of `inotify_init` once the user's inotify instances
+/// (`fs.inotify.max_user_instances`) or the process's open files are used up
+const TOO_MANY_OPEN_FILES: i32 = 24;
+
+/// Why the watcher cannot watch the ledger's folder, from the `error` it failed with: a limit of inotify names the
+/// setting to raise
+pub fn why_unwatched(error: &notify::Error) -> String {
+    match &error.kind {
+        notify::ErrorKind::MaxFilesWatch => format!(
+            "{error}: the inotify watches of the user the server runs as are used up, one per folder watched; raise \
+             fs.inotify.max_user_watches (`sysctl -w fs.inotify.max_user_watches=524288`)"
+        ),
+        notify::ErrorKind::Io(io) if cfg!(unix) && io.raw_os_error() == Some(TOO_MANY_OPEN_FILES) => format!(
+            "{error}: the inotify instances of the user the server runs as, or the server's open files, are used up; raise \
+             fs.inotify.max_user_instances (`sysctl -w fs.inotify.max_user_instances=1024`), or the open-file limit (`ulimit -n`)"
+        ),
+        notify::ErrorKind::PathNotFound => format!("{error}: the ledger's folder, or a folder in it, is gone"),
+        _ => error.to_string(),
+    }
+}
+
+/// What the server tells, logged once and as `watch_failure` of `/api/info`, while it cannot watch the ledger's folder
+/// `root` for `why` ([`why_unwatched`])
+pub fn unwatched(root: &Path, why: &str, poll_interval: Duration, max_retry: Duration) -> String {
+    format!(
+        "cannot watch {} for edits made outside the server: {why}. Until it can, the server checks the ledger's files \
+         for changes every {poll_interval:?}, and tries to watch the folder again every {max_retry:?} at most",
+        root.display()
+    )
+}
+
+/// Why the watcher no longer watches the whole ledger, after it reported `events`, `None` while it does: it could not
+/// watch a folder created under the root (`MaxFilesWatch`, the inotify watch limit), or the root, one of `roots`, was
+/// removed or moved away, after which it watches nothing the ledger is read from
+pub fn watch_lost(events: &[notify::Result<Event>], roots: &[PathBuf]) -> Option<String> {
+    events.iter().find_map(|event| match event {
+        Err(error) if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) => Some(why_unwatched(error)),
+        Ok(event)
+            if matches!(event.kind, EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(RenameMode::From)))
+                && event.paths.iter().any(|path| roots.contains(path)) =>
+        {
+            Some("the ledger's folder was removed or moved away".to_owned())
+        }
+        _ => None,
+    })
+}
+
+/// What the poll compares of a file ([`changes`]): when it was modified last and its length, `None` while there is no
+/// file
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Stamp(Option<(Option<SystemTime>, u64)>);
+
+/// The paths the poll checks while the ledger's folder is not watched: the ledger's own files (`visited_files`) and
+/// what the load read besides (`extra_inputs`, relative to `root`). A folder among them is checked for files added to
+/// it or removed from it, the changes its modification time shows
+pub fn polled_paths(root: &Path, visited_files: &[PathBuf], extra_inputs: &IndexSet<ExtraInput>) -> Vec<PathBuf> {
+    let inputs = extra_inputs.iter().filter_map(|input| match input {
+        ExtraInput::File(path) | ExtraInput::Dir(path) => Some(root.join(path)),
+        ExtraInput::Clock => None,
+    });
+    visited_files.iter().cloned().chain(inputs).collect()
+}
+
+/// the stamps of `paths`, read now: a blocking read of their metadata
+pub fn stamps(paths: Vec<PathBuf>) -> HashMap<PathBuf, Stamp> {
+    paths
+        .into_iter()
+        .map(|path| {
+            let stamp = std::fs::metadata(&path).ok().map(|metadata| (metadata.modified().ok(), metadata.len()));
+            (path, Stamp(stamp))
+        })
+        .collect()
+}
+
+/// What changed between two polls of the ledger's files (`before`, `now`), as the watcher reports it: a file created,
+/// modified or removed. A path the earlier poll did not check, one the reload in between added, is no change
+pub fn changes(before: &HashMap<PathBuf, Stamp>, now: &HashMap<PathBuf, Stamp>) -> Vec<notify::Result<Event>> {
+    now.iter()
+        .filter_map(|(path, stamp)| {
+            let kind = match (before.get(path)?.0, stamp.0) {
+                (old, new) if old == new => return None,
+                (None, Some(_)) => EventKind::Create(CreateKind::Any),
+                (Some(_), None) => EventKind::Remove(RemoveKind::Any),
+                _ => EventKind::Modify(ModifyKind::Data(DataChange::Any)),
+            };
+            Some(Ok(Event::new(kind).add_path(path.clone())))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod test {
     use std::path::PathBuf;
     use std::time::Duration;
 
     use indexmap::IndexSet;
-    use notify::event::{AccessKind, CreateKind, DataChange, ModifyKind, RemoveKind};
+    use notify::event::{AccessKind, CreateKind, DataChange, ModifyKind, RemoveKind, RenameMode};
     use notify::{Event, EventKind};
     use tokio::time::Instant;
     use zhang_core::inputs::ExtraInput;
 
-    use super::{change, gather, is_change, should_reload, Change};
+    use super::{change, changes, gather, is_change, polled_paths, should_reload, stamps, watch_lost, why_unwatched, Change};
 
     const MODIFY: EventKind = EventKind::Modify(ModifyKind::Data(DataChange::Content));
     const CREATE: EventKind = EventKind::Create(CreateKind::File);
@@ -348,6 +451,93 @@ mod test {
     fn should_not_reload_without_extra_inputs() {
         let event = Event::new(CREATE).add_path(PathBuf::from("/var/ledger/documents/receipt.pdf"));
         assert!(!should_reload(&event, &roots(), &visited_files(), &IndexSet::new()));
+    }
+
+    /// a limit of inotify names the setting to raise
+    #[test]
+    fn why_a_folder_is_not_watched_names_the_inotify_limit_to_raise() {
+        let instances = why_unwatched(&notify::Error::io(std::io::Error::from_raw_os_error(24)));
+        assert!(instances.contains("fs.inotify.max_user_instances"), "{instances}");
+        let watches = why_unwatched(&notify::Error::new(notify::ErrorKind::MaxFilesWatch));
+        assert!(watches.contains("fs.inotify.max_user_watches"), "{watches}");
+        let gone = why_unwatched(&notify::Error::path_not_found());
+        assert!(gone.contains("gone") && !gone.contains("fs.inotify"), "{gone}");
+    }
+
+    /// the watcher watches the whole ledger no more once it could not watch a folder created in it, or once the root
+    /// is gone; any other report, an error too, leaves it watching
+    #[test]
+    fn a_watch_is_lost_on_the_watch_limit_or_without_its_root() {
+        let report = |kind: EventKind, path: &str| Ok(Event::new(kind).add_path(PathBuf::from(path)));
+        let limit = Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch).add_path(PathBuf::from("/var/ledger/new")));
+        assert!(watch_lost(&[limit], &roots()).is_some_and(|why| why.contains("fs.inotify.max_user_watches")));
+        for kind in [
+            REMOVE,
+            EventKind::Remove(RemoveKind::Folder),
+            EventKind::Modify(ModifyKind::Name(RenameMode::From)),
+        ] {
+            assert!(
+                watch_lost(&[report(MODIFY, "/var/ledger/main.zhang"), report(kind, "/var/ledger")], &roots()).is_some(),
+                "{kind:?}"
+            );
+            assert!(
+                watch_lost(&[report(kind, "/private/var/ledger")], &roots()).is_some(),
+                "{kind:?} of the canonical root"
+            );
+            assert!(
+                watch_lost(&[report(kind, "/var/ledger/data")], &roots()).is_none(),
+                "{kind:?} of a folder in it"
+            );
+        }
+        assert!(watch_lost(&[report(MODIFY, "/var/ledger")], &roots()).is_none());
+        assert!(watch_lost(&[Err(notify::Error::generic("lost"))], &roots()).is_none());
+    }
+
+    /// The poll reports what changed between two polls, as the watcher would: a file modified, created or removed
+    #[test]
+    fn the_poll_reports_files_modified_created_or_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let (main, plugin, documents) = (root.join("main.zhang"), root.join("plugins/fx.wasm"), root.join("documents"));
+        std::fs::write(&main, "1970-01-01 open Assets:A\n").unwrap();
+        let inputs = IndexSet::from([
+            ExtraInput::File("plugins/fx.wasm".into()),
+            ExtraInput::Dir("documents".into()),
+            ExtraInput::Clock,
+        ]);
+        let paths = polled_paths(&root, std::slice::from_ref(&main), &inputs);
+        assert_eq!(paths, vec![main.clone(), plugin.clone(), documents.clone()]);
+        let before = stamps(paths.clone());
+        assert!(changes(&before, &stamps(paths.clone())).is_empty(), "nothing changed");
+
+        // a write of the same length a moment later: its modification time tells
+        std::thread::sleep(Duration::from_millis(50));
+        std::fs::write(&main, "1970-01-01 open Assets:B\n").unwrap();
+        std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
+        std::fs::write(&plugin, "module").unwrap();
+        let now = stamps(paths.clone());
+        let mut changed: Vec<_> = changes(&before, &now)
+            .into_iter()
+            .map(|event| event.unwrap())
+            .map(|event| (event.kind, event.paths))
+            .collect();
+        changed.sort_by_key(|(_, paths)| paths.clone());
+        assert_eq!(
+            changed,
+            vec![
+                (EventKind::Modify(ModifyKind::Data(DataChange::Any)), vec![main.clone()]),
+                (EventKind::Create(CreateKind::Any), vec![plugin.clone()]),
+            ]
+        );
+
+        std::fs::remove_file(&plugin).unwrap();
+        let removed = changes(&now, &stamps(paths.clone()));
+        assert_eq!(removed.len(), 1, "{removed:?}");
+        assert_eq!(removed[0].as_ref().unwrap().kind, EventKind::Remove(RemoveKind::Any));
+        // a path the reload in between added is no change
+        let added = root.join("data.zhang");
+        std::fs::write(&added, "").unwrap();
+        assert!(changes(&now, &stamps(vec![main, added])).is_empty());
     }
 
     mod midnight {

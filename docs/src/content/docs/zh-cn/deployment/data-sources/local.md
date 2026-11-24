@@ -70,6 +70,25 @@ ledger/
 
 启动时，如果账本无法读取，`zhang serve` 会以退出码 1 退出。
 
+### 无法监视文件夹时
+
+在 Linux 上，张记账用 inotify 监视文件夹。inotify 的限制按用户计算，由该用户运行的所有程序共享；在 Docker 主机或 Kubernetes 节点上，以同一用户运行的所有容器也共享它们：`fs.inotify.max_user_instances` 是可以进行监视的程序数（通常为 128），`fs.inotify.max_user_watches` 是被监视的文件夹数。其中一个用完时，张记账照常提供账本，并在日志中写入一条错误，指出需要调大的设置，例如：
+
+```text
+cannot watch /data for edits made outside the server: Too many open files (os error 24): the inotify instances of the user the server runs as, or the server's open files, are used up; raise fs.inotify.max_user_instances (`sysctl -w fs.inotify.max_user_instances=1024`), or the open-file limit (`ulimit -n`). Until it can, the server checks the ledger's files for changes every 5s, and tries to watch the folder again every 30s at most
+```
+
+在文件夹未被监视期间，`GET /api/info` 会在 `watch_failure` 中给出同样的原因，张记账改为每 5 秒检查一次变化：检查账本的文件以及插件读取过的文件，只比较它们的修改时间和大小（不读取任何文件，几乎没有开销）。此时在外部所做的修改会在 5 秒内重新加载账本；对于插件列出的文件夹，只能发现其中新增或删除的文件。张记账会在 1 秒后再次尝试监视文件夹，之后每次等待的时间加倍，最长 30 秒。一旦成功，它会在日志中写入 `watching <文件夹>`，为期间发生的变化重新加载一次账本，之后修改又会立即触发重新加载。当账本文件夹中新建的文件夹无法被监视，或者账本文件夹本身被删除或移走时，也是如此。
+
+请在容器所运行的地方（主机或 Kubernetes 节点；容器内无法修改）调大这些限制，例如写入文件 `/etc/sysctl.d/90-inotify.conf`：
+
+```text
+fs.inotify.max_user_instances = 1024
+fs.inotify.max_user_watches = 524288
+```
+
+然后运行 `sudo sysctl --system`。要查看哪些程序占用了 inotify 实例，运行 `sudo find /proc/*/fd -lname 'anon_inode:inotify' | cut -d/ -f3 | sort | uniq -c | sort -rn`：它按进程号统计数量。
+
 ## 文件权限
 
 张记账需要读取账本的每一个文件。要在网页界面中记录任何内容，它还需要写入账本文件夹：它会向已有文件追加内容，并创建 `data/2024/` 和 `attachments/` 这样的文件夹和文件。没有写入权限时，在网页界面中记录会失败，但读取仍然正常。
