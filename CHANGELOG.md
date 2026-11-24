@@ -12,8 +12,6 @@ Release prep. Before tagging:
 - refresh: `git-cliff --unreleased --tag v0.3.0` lists the raw commits since v0.2.0; fold the new ones in below
   (the budget migration, #698, complete on main with #913, is in "Budget as an official plugin" and under
   Breaking changes › Budgets). Folded in up to #913;
-- replace the TODO(zero-scale) entry under Breaking changes › Budgets with the CHANGELOG text of the zero-scale
-  alignment PR (`fix(budget)!: keep the larger scale…`) once it merges, or remove it;
 - replace "Unreleased" above with the release date, and `main` in the [0.3.0] link at the end with `v0.3.0`;
 - the workspace version in Cargo.toml must equal the tag.
 -->
@@ -105,7 +103,15 @@ turned off, and several API endpoints are gone: read [Breaking changes](#breakin
   `load_options`), `Ledger::{account_budgets, budget_accounts}` (use `open_meta_values_at` / `open_meta_accounts` with
   `"budget"`) and the `budget-switch` features are gone. The budgets guide, query reference, plugin development and
   upgrading pages describe the plugin alone
-- TODO(zero-scale, not merged): the entry of the zero-scale alignment PR, `fix(budget)!: keep the larger scale…`
+- Budget figures (`assigned`, `added`, `activity` and `available`, in `#budgets` and on the budget pages) keep the
+  larger scale of what they add up, zeros included, as Python's decimal and beancount do. For example, a budget with
+  `0.00` available that is assigned `500` reads `500.00` instead of `500`. Values are unchanged (#914)
+
+#### Query
+
+- `sum()` of decimals keeps the largest scale of its terms, zeros included, as Python's decimal and beancount do:
+  `0.00` and `500` sum to `500.00` instead of `500`. Values are unchanged. Binary `+` and `-` don't follow this rule
+  yet (see the query reference) (#914)
 
 #### HTTP API
 
