@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Smoke test of a zhang image: serve a small ledger that declares a plugin in a container limited to 512 MiB, check
 # that the server answers, that the official budget plugin and the declared plugin run, that the ledger has no errors,
-# and that the container stops on SIGTERM within a few seconds.
+# that the ledger, which sets no timezone, takes the one `TZ` names although the image has no system timezone, and
+# that the container stops on SIGTERM within a few seconds.
 #
 #   .github/scripts/docker-smoke.sh <image>
 #
@@ -95,7 +96,8 @@ chmod 755 "$ledger"
 chmod 644 "$ledger/main.zhang"
 
 echo "starting $image with $engine, --memory $memory, on port $port"
-"$engine" run -d --name "$name" "${run_args[@]}" --memory "$memory" -p "127.0.0.1:${port}:8000" -v "$ledger:/data" "$image" >/dev/null
+"$engine" run -d --name "$name" "${run_args[@]}" --memory "$memory" -p "127.0.0.1:${port}:8000" -v "$ledger:/data" \
+  -e TZ=Europe/Berlin "$image" >/dev/null
 
 # What a container that is not running anymore died of, with the plugin compile-memory hint for an OOM kill
 report_dead() {
@@ -151,6 +153,16 @@ if info=$(curl -fsS "$base/api/info") && version=$(jq -er '.data.version | selec
   pass "GET /api/info answers, version $version, title $(jq -r '.data.title' <<<"$info")"
 else
   fail "GET /api/info: ${info:-no answer}"
+fi
+
+# the timezone of a ledger without option "timezone": the one TZ names, as the image has no system timezone (no
+# /etc/localtime); zhang reads it with the IANA database built into the binary
+if options=$(curl -fsS "$base/api/options") &&
+  timezone=$(jq -er '.data[] | select(.key == "timezone") | .value' <<<"$options") &&
+  [ "$timezone" = "Europe/Berlin" ]; then
+  pass "the ledger is in the timezone TZ names: $timezone"
+else
+  fail "the ledger is not in Europe/Berlin, which TZ names: ${timezone:-${options:-no answer}}"
 fi
 
 # the declared plugin is loaded
