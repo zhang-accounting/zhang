@@ -715,17 +715,32 @@ fn analyzers(ledger: &Ledger) -> Vec<String> {
 /// What was measured: the SHA-256 of the bench's executable, the build; the commit `ZHANG_BUDGET_BASELINE_COMMIT`
 /// names, if any; and the plugin level.
 fn identity() -> Value {
-    use sha2::{Digest, Sha256};
-    let build = std::env::current_exe()
-        .ok()
-        .and_then(|exe| std::fs::read(exe).ok())
-        .map(|bytes| Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect::<String>());
     json!({
-        "build": build,
+        "build": build_digest(),
         "commit": std::env::var("ZHANG_BUDGET_BASELINE_COMMIT").ok(),
         "plugins": format!("{:?}", plugin_policy().level).to_lowercase(),
         "burden_mib": burden_mib().expect("checked at the start"),
     })
+}
+
+/// The SHA-256 of the bench's own executable, read in blocks of 64 KiB: read whole, the binary (about 70 MiB in a
+/// release build with the features of the comparison) is as much memory again, which the allocator keeps resident a
+/// while after it is freed, and which every memory figure taken after it then counted on both sides of a comparison.
+fn build_digest() -> Option<String> {
+    use std::io::Read;
+
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(std::env::current_exe().ok()?).ok()?;
+    let (mut hasher, mut block) = (Sha256::new(), vec![0u8; 64 * 1024]);
+    loop {
+        match file.read(&mut block) {
+            Ok(0) => break,
+            Ok(read) => hasher.update(&block[..read]),
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
+        }
+    }
+    Some(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 // ---- the conditions of a run ------------------------------------------------------------------------------------
@@ -897,6 +912,8 @@ fn baseline(spec: Spec) -> Value {
     assert_eq!(Some(digest.as_str()), expected, "{name}: not the ledger the baseline page measured");
     let dir = scratch.dir().to_path_buf();
 
+    // what was measured, before the memory is: its reading of the executable is no part of the server's
+    let identity = identity();
     let peak_reset = reset_peak_rss();
     let rss_before = status_mib("VmRSS");
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -977,7 +994,7 @@ fn baseline(spec: Spec) -> Value {
             "sha256": digest,
             "data_source": if local { "LocalFileSystemDataSource" } else { "OpendalDataSource (Fs)" },
             "allocator": allocator::NAME,
-            "identity": identity(),
+            "identity": identity,
             "generate_ms": ms(generate),
             "load_ms": ms(first_load),
             "mode": mode.name(),
