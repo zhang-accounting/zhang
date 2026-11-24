@@ -54,6 +54,7 @@ description: 把张记账从 0.2 升级到 0.3 时，账本、插件和调用 AP
 
 启动 0.3，打开网页界面，查看**总览**页面上的错误列表。下面是 0.2 的账本最可能遇到的错误和行为变化；每种错误的修复方法见[错误码](/zh-cn/reference/error-codes/)。
 
+- **没有 [`timezone` 选项](/zh-cn/reference/directives/options/#timezone)的账本先从 `TZ` 读取时区，最后回退到 UTC，而不再是 UTC+8。** 以前张记账只读取系统的时区，读取不到时使用 `Asia/Hong_Kong`（UTC+8），并在每次启动时记录 `cannot get timezone, fall back to use GMT+8`。Docker 镜像就是这种情况，因为镜像中没有系统时区：现在这样的账本在镜像中使用 UTC。依赖时区的一切都会随之变化：“今天”和“本月”（预算页面、报表、查询中的 `today()`）、在网页界面中记录的交易的时间，以及账本中写下的日期或时间所代表的时刻（查询中的 `timestamp` 列、插件读取的时间）。如果你依赖了这个回退，请在账本中写上这个选项，例如 `option "timezone" "Asia/Shanghai"`，或者把你的时区传给容器，例如 `-e TZ=Asia/Shanghai`。`TZ` 接受 IANA 名称（`UTC0` 这样的 POSIX 规则会被忽略并给出警告），并且只在服务器启动时读取一次：修改之后需要重启。在设置了 `TZ` 的机器上，`TZ` 现在优先于系统的时区；选项又优先于两者。服务器会在启动时记录这样的账本使用哪个时区，以及它的来源。
 - **账户的生命周期。** 对尚未开设的账户的记账行、`pad` 或 `balance … with pad` 会报告为 [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist)，账户 `close` 之后的会报告为 [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed)。账户名中的笔误会以这种方式暴露出来。不带时间的 `close` 在当天结束时生效。
 - **账户的商品。** 开立时列出了商品的账户（例如 `open Assets:Bank USD`）只接受这些商品：使用其他商品的记账行或余额断言会报告为 [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed)，与 Beancount 一致。把该商品加进 `open`，或者不写列表。
 - **余额断言不再改变余额。** 不成立的[余额断言](/zh-cn/reference/directives/balance/)仍然报告为 [`AccountBalanceCheckError`](/zh-cn/reference/error-codes/#accountbalancecheckerror)，但余额、报表和补齐都以记账行为准。请修正记账行，或者用 `pad` 或 `balance … with pad` 有意地调整余额。
@@ -95,10 +96,11 @@ description: 把张记账从 0.2 升级到 0.3 时，账本、插件和调用 AP
 
 浏览器的密码弹窗被登录页面取代，并且可以使用通行密钥。登录状态保持 30 天；设置 `ZHANG_SESSION_SECRET`，登录状态才能在服务器重启后保留。移动端通过网页界面登录，见[移动端登录](/zh-cn/deployment/authentication/#移动端登录)；`ZHANG_APP_RETURN_SCHEMES` 会忽略 `https` 等网页协议。
 
-## 停止服务器与日志
+## 停止、日志与文件监视
 
 - **`zhang serve` 收到 SIGTERM 时会正常停止**，与按 Ctrl+C 时一样；`docker stop`、Podman、Kubernetes 和 systemd 发送的都是 SIGTERM。它不再接受新连接，让进行中的请求完成（写入不会中途被打断），然后以退出码 0 退出，整个过程最多约 7 秒。`docker stop` 不再等满 10 秒、再以退出码 137 杀掉容器。如果你曾为此设置 `--stop-signal SIGINT` 或 `KillSignal=`，现在可以去掉。第二次收到信号时会立即退出，SIGINT 的退出码为 130，SIGTERM 为 143。
 - **日志更安静了。** 在 `info` 级别下，日志不再包含依赖库的内部信息（`wasmtime_wasi`、`gotcha`、`tracing::span`）：除非过滤器点名它们（例如 `RUST_LOG=info,wasmtime_wasi=trace`），它们只显示警告和错误。`ZHANG_LOG` 现在作用于每一行日志。只有输出是终端时日志才带颜色，所以 `docker logs` 和 journald 得到的是纯文本；`RUST_LOG_STYLE=always` 可以恢复颜色。
+- **监视账本文件夹。** 当服务器无法监视文件夹中来自服务器之外的修改时（例如用户的 inotify 实例或监视数已经用完：`fs.inotify.max_user_instances`、`fs.inotify.max_user_watches`，或者某个文件夹在监视过程中消失），它不再崩溃、不再从此停止重新加载。它会记录一次原因以及应调大的设置，在此期间每 5 秒检查一次账本的文件是否有变化，并重新尝试监视，每次等待 1 到 30 秒。`GET /api/info` 的新字段 `watch_failure` 会给出原因。见[无法监视文件夹时](/zh-cn/deployment/data-sources/local/#无法监视文件夹时)。
 
 ## 内存
 
