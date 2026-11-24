@@ -243,13 +243,6 @@ end
 -- a posting's place, as a query gives it: `seq * PLACE + posting_index`, which orders like (seq, posting_index)
 local PLACE = 1000000
 
--- the parts of the query text that test a budget's close, for a budget closed at `close`: whether a posting's date
--- and time come after it (a close with a date only lasts through its day)
-local function after_close(close)
-  if close.time then return "(date > :close_date OR (date = :close_date AND time > :close_time))" end
-  return "date > :close_date"
-end
-
 -- ---- the running figures of a budget, month by month ----------------------------------------------------------
 -- For each month of `months` (sorted), what was added `added[month]` and spent `spent[month]` (each a decimal value,
 -- the text of one or nil for none): the assigned amount (the available amount before, plus what was added) and the
