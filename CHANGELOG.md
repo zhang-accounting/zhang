@@ -5,16 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - Unreleased
-
-<!--
-Release prep. Before tagging:
-- refresh: `git-cliff --unreleased --tag v0.3.0` lists the raw commits since v0.2.0; fold the new ones in below
-  (the budget migration, #698, complete on main with #913, is in "Budget as an official plugin" and under
-  Breaking changes › Budgets). Folded in up to #913;
-- replace "Unreleased" above with the release date, and `main` in the [0.3.0] link at the end with `v0.3.0`;
-- the workspace version in Cargo.toml must equal the tag.
--->
+## [0.3.0] - 2026-11-24
 
 The first release since 0.2.0 gathers more than 350 changes. Zhang now checks a ledger the way beancount does, has its
 own BQL query engine, serves Lua and WebAssembly router plugins that may write within limits the server sets, bundles
@@ -2106,7 +2097,7 @@ The other commits since 0.2.0 are refactors, tests, CI and dependency updates wi
 - Remove filter condition
 - Remove useless in-memory options and configs store
 
-[0.3.0]: https://github.com/zhang-accounting/zhang/compare/v0.2.0...main
+[0.3.0]: https://github.com/zhang-accounting/zhang/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/zhang-accounting/zhang/compare/v0.1.10...v0.2.0
 [0.1.10]: https://github.com///compare/v0.1.9..v0.1.10
 [0.1.9]: https://github.com///compare/v0.1.8..v0.1.9
