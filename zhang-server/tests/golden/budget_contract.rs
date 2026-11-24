@@ -76,7 +76,6 @@ use serde_json::{json, Map, Value};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use zhang_ast::{Directive, Spanned};
-use zhang_core::analysis::DefaultPlugin;
 use zhang_core::clock::Clock;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::data_type::DataType;
@@ -85,6 +84,7 @@ use zhang_core::ledger::Ledger;
 use zhang_core::plugin_policy::PluginPolicy;
 use zhang_core::utils::id::FromSpan;
 use zhang_server::analysis::{load_options_for, BudgetImpl};
+use zhang_testkit::budget_parity::{budget_analyzer, with_budget_plugin};
 use zhang_testkit::fixtures::{data_source_for, repo_root};
 use zhang_testkit::golden;
 use zhang_testkit::http::{app, call, router_of, serve_config, Settings};
@@ -213,66 +213,6 @@ static SCRIPT_DIFFERENCES: Differences = std::sync::Mutex::new(Vec::new());
 
 /// The differences the native budgets' answers have with the golden files.
 static NATIVE_DIFFERENCES: Differences = std::sync::Mutex::new(Vec::new());
-
-/// The options the server loads a ledger with, but with the module `content`, a file named `file`, as the default
-/// plugin `zhang:budget` in place of the bundled script.
-fn with_budget_plugin(file: &str, content: Arc<[u8]>) -> zhang_core::analysis::LoadOptions {
-    let mut options = load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Plugin);
-    let budget = options
-        .default_plugins
-        .iter_mut()
-        .find(|plugin| plugin.module == "zhang:budget")
-        .expect("the server registers zhang:budget");
-    *budget = DefaultPlugin {
-        module: "zhang:budget".to_owned(),
-        file: file.to_owned(),
-        content,
-    };
-    options
-}
-
-/// The budget analyzer of `zhang-plugin-sdk/examples/budget`, built for wasm32 once per process; `None` when the
-/// wasm32 target is missing (on CI that fails, as `sdk_plugins` does).
-fn budget_analyzer() -> Option<Arc<[u8]>> {
-    static MODULE: std::sync::OnceLock<Option<Arc<[u8]>>> = std::sync::OnceLock::new();
-    MODULE
-        .get_or_init(|| {
-            const TARGET: &str = "wasm32-unknown-unknown";
-            let rustc = std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
-            let sysroot = std::process::Command::new(rustc).args(["--print", "sysroot"]).output().ok()?;
-            let installed = Path::new(String::from_utf8_lossy(&sysroot.stdout).trim())
-                .join("lib/rustlib")
-                .join(TARGET)
-                .join("lib")
-                .is_dir();
-            if !installed {
-                assert!(
-                    std::env::var_os("CI").is_none(),
-                    "the {TARGET} target is not installed: CI must run the budget analyzer"
-                );
-                eprintln!("skipping the budget contract as an analyzer: the {TARGET} target is not installed");
-                return None;
-            }
-            let target_dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("sdk-plugins");
-            let cargo = std::env::var_os("CARGO").unwrap_or_else(|| env!("CARGO").into());
-            let output = std::process::Command::new(cargo)
-                .current_dir(repo_root())
-                .args(["build", "--release", "--target", TARGET, "-p", "zhang-plugin-example-budget", "--target-dir"])
-                .arg(&target_dir)
-                .output()
-                .expect("cargo runs");
-            assert!(
-                output.status.success(),
-                "building the budget analyzer failed:\n{}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            let module = target_dir.join(TARGET).join("release/zhang_plugin_example_budget.wasm");
-            Some(Arc::from(
-                std::fs::read(&module).unwrap_or_else(|error| panic!("{}: {error}", module.display())),
-            ))
-        })
-        .clone()
-}
 
 /// A server on the ledger `dir/entry`, loaded in the format of `entry` with its clock at `now`, its budgets computed by
 /// `budgets`, and the ledger it serves; the load's error when it does not load.
@@ -565,8 +505,8 @@ fn compare(budgets: Budgets, path: &Path, actual: &str) {
                     .filter(|(_, (a, b))| a != b)
                     .map(|(line, (a, b))| zhang_testkit::budget_parity::Difference {
                         path: format!("line {}", line + 1),
-                        native: json!(a),
-                        plugin: json!(b),
+                        expected: json!(a),
+                        actual: json!(b),
                         allowed: None,
                     })
                     .collect(),

@@ -1,11 +1,11 @@
 name: Budget fuzz
 
-# RFC #698's differential fuzzer of the budgets (testing.md, "The differential fuzzer") on its long range: the native
-# budgets against the bundled script zhang:budget on the seeds 1 to 10,000, every night. Every test run checks the
-# seeds 1 to 40; this run finds what they miss. It is the ignored test `budget_fuzz_long_run_finds_no_difference`, run
-# by the cargo alias `budget-fuzz` (.cargo/config.toml) in release with the `budget-switch` feature, in four shards of
-# 2,500 seeds: a shard takes under 2 minutes on 4 cores of the build pod, so at most about 9 minutes here after the
-# build (the default seeds take 2.5 s there and 12 to 14 s on this runner). Run it by hand on a branch
+# RFC #698's differential fuzzer of the budgets (testing.md, "The differential fuzzer") on its long range: the bundled
+# script zhang:budget against the oracle, the budget analyzer of zhang-plugin-sdk/examples/budget built for wasm32, on
+# the seeds 1 to 10,000, every night. Every test run checks the seeds 1 to 40; this run finds what they miss. It is the
+# ignored test `budget_fuzz_long_run_finds_no_difference`, run by the cargo alias `budget-fuzz` (.cargo/config.toml)
+# in release, in four shards of 2,500 seeds: a shard takes under 2 minutes on 4 cores of the build pod, so at most
+# about 9 minutes here after the build (the default seeds take 2.5 s there and 12 to 14 s on this runner). Run it by hand on a branch
 # (workflow_dispatch), with other seeds if needed. A difference fails its shard with the seed and the smallest ledger
 # found, kept as an artifact.
 on:
@@ -46,6 +46,8 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
+          # the test builds the oracle, the SDK's budget analyzer, for wasm32; without the target it fails on CI
+          target: wasm32-unknown-unknown
           cache-save-if: ${{ github.ref == 'refs/heads/main' && strategy.job-index == 0 }}
       # the alias passes its arguments to the test binary: check the lock file first, as the test workflow does
       - name: Cargo.lock is up to date

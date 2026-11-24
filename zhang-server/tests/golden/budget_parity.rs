@@ -1,5 +1,6 @@
-//! RFC #698's `both` mode on generated ledgers: each ledger's budgets computed natively and by the bundled script
-//! `zhang:budget`, and what a client reads of them compared ([`zhang_testkit::budget_parity`]). The budget baseline's
+//! The bundled script `zhang:budget` against the oracle on generated ledgers: each ledger's budgets computed by the
+//! script and by the SDK's budget analyzer, and what a client reads of them compared ([`zhang_testkit::budget_parity`]);
+//! without the wasm32 target there is no oracle, and the comparisons skip locally (CI fails). The budget baseline's
 //! ledgers ([`zhang_testkit::budget_ledger`]) on demand, in release: a debug build takes minutes on 100,000
 //! transactions. In every run, ledgers of many closed budgets, which also count the script's queries, and what the
 //! comparison allows.
@@ -26,7 +27,7 @@ use zhang_core::plugin_policy::{parse_size, PluginPolicy, MAX_MEMORY_ENV};
 use zhang_server::analysis::{analysis_host, load_options_for, BudgetImpl};
 use zhang_shared::plugin_abi::{analysis as abi, HostError};
 use zhang_testkit::budget_ledger::{Spec, MAIN};
-use zhang_testkit::budget_parity::{compare, differences, published, requests};
+use zhang_testkit::budget_parity::{compare, differences, oracle, published, requests};
 use zhang_testkit::fixtures::data_source_for;
 use zhang_testkit::ledger::Scratch;
 
@@ -43,6 +44,9 @@ fn months(spec: &Spec) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "minutes in a debug build: run on demand, in release"]
 async fn the_bench_ledgers_answer_alike_both_ways() {
+    if !has_oracle("the bench ledgers") {
+        return;
+    }
     for spec in [Spec::new(10_000, 30), Spec::new(100_000, 30)] {
         let scratch = spec.generate().scratch();
         let budgets = ["Groceries", "Household", "Japan"].map(str::to_owned);
@@ -397,9 +401,22 @@ fn monthly_budgets(categories: usize, months: u32) -> String {
     text
 }
 
-/// `dir`'s budgets alike natively and with the script for every request of `requests`, but for the differences the
-/// testing guide allows; what was compared, and the kinds of the errors, as `what`.
-async fn assert_alike(what: &str, dir: &Path, clock: Clock, requests: &[Value]) -> std::collections::BTreeSet<String> {
+/// Whether there is an oracle to compare the script with ([`zhang_testkit::budget_parity::oracle`]); without one, `what`
+/// is not compared, and says so.
+fn has_oracle(what: &str) -> bool {
+    let found = oracle().unwrap_or_else(|error| panic!("{error}")).is_some();
+    if !found {
+        eprintln!("{what}: not compared, as there is no oracle to compare the budget script with");
+    }
+    found
+}
+
+/// `dir`'s budgets alike by the oracle and by the script for every request of `requests`, but for the differences the
+/// testing guide allows; what was compared, and the kinds of the errors, as `what`. `None` without an oracle.
+async fn assert_alike(what: &str, dir: &Path, clock: Clock, requests: &[Value]) -> Option<std::collections::BTreeSet<String>> {
+    if !has_oracle(what) {
+        return None;
+    }
     let report = compare(dir, MAIN, clock, requests).await;
     let regressions = report.regressions().map(ToString::to_string).collect::<Vec<_>>();
     eprintln!(
@@ -411,7 +428,7 @@ async fn assert_alike(what: &str, dir: &Path, clock: Clock, requests: &[Value]) 
         regressions.len()
     );
     assert!(regressions.is_empty(), "{what}: the script differs:\n{}", regressions.join("\n"));
-    report.kinds
+    Some(report.kinds)
 }
 
 /// The ledger `dir/main.zhang` loaded with the script, which publishes: how many queries it ran.
@@ -430,7 +447,7 @@ fn probe_clock() -> Clock {
 /// RFC #698's review probe, small: the script used to run up to three queries per budget it could not aggregate with
 /// the others (closed, with postings before its definition or that no price converts), so a ledger of closed budgets
 /// ran a few hundred queries more for 200 budgets more. It now runs a few queries per budget commodity, as many for
-/// 400 closed budgets as for 200, and answers as the native budgets do.
+/// 400 closed budgets as for 200, and answers as the oracle does.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_budget_script_runs_as_many_queries_on_400_closed_budgets_as_on_200() {
     let (small, large) = (Scratch::zhang(&closed_budgets(200)), Scratch::zhang(&closed_budgets(400)));
@@ -442,15 +459,16 @@ async fn the_budget_script_runs_as_many_queries_on_400_closed_budgets_as_on_200(
         queries[0] == queries[1] && queries[1] <= 10,
         "the queries grow with the closed budgets: {queries:?}"
     );
-    let kinds = assert_alike("400 closed budgets", large.dir(), probe_clock(), &probe_requests(400)).await;
-    for kind in ["BudgetDoesNotExist", "BudgetClosed", "BudgetCommodityMismatch"] {
-        assert!(kinds.contains(kind), "the probe reports no {kind}: {kinds:?}");
+    if let Some(kinds) = assert_alike("400 closed budgets", large.dir(), probe_clock(), &probe_requests(400)).await {
+        for kind in ["BudgetDoesNotExist", "BudgetClosed", "BudgetCommodityMismatch"] {
+            assert!(kinds.contains(kind), "the probe reports no {kind}: {kinds:?}");
+        }
     }
 }
 
 /// RFC #698's review probe at its size: 3,600 closed budgets, past the 10,000 queries of an analysis
 /// (`zhang_server::analysis::MAX_QUERIES`) the script used to run at about 3,500. It publishes in a few queries (one
-/// more page of the postings read one by one than on 40 budgets), and answers as the native budgets do. On demand,
+/// more page of the postings read one by one than on 40 budgets), and answers as the oracle does. On demand,
 /// about 15 s in a debug build:
 ///
 /// ```sh
@@ -474,7 +492,7 @@ async fn the_budget_script_reads_thousands_of_closed_budgets_in_a_few_queries() 
 /// [`monthly_budgets`] of 4 categories over 110 months: 440 budgets, each with postings in all 110 months, every posting
 /// in all 110 budgets of its account. The script groups the postings by account and month (440 cells), not by budget
 /// and month (48,400 groups), and adds up the cells of each budget: as many queries as for 4 categories over 30 months,
-/// and it answers as the native budgets do.
+/// and it answers as the oracle does.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_budget_script_reads_budgets_of_every_month_on_one_account_by_account_and_month() {
     let clock = Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2025-01-15T12:00:00Z").unwrap().to_utc());
@@ -495,7 +513,7 @@ async fn the_budget_script_reads_budgets_of_every_month_on_one_account_by_accoun
 }
 
 /// [`monthly_budgets`] at the sizes of RFC #698's P4 (10 and 35 categories over 120 months: 1,200 and 4,200 budgets, every
-/// posting in the 120 budgets of its account): a few queries each, and the script answers as the native budgets do. On
+/// posting in the 120 budgets of its account): a few queries each, and the script answers as the oracle does. On
 /// demand, in release:
 ///
 /// ```sh
@@ -557,7 +575,7 @@ fn many_accounts(accounts: usize, months: u32) -> String {
 
 /// [`many_accounts`] of 404 accounts over 100 months: 404 budgets, 40,400 groups of a budget's postings of a month,
 /// more than the script reads at once. It reads them by ranges of months, which a census of the postings by month
-/// sizes, and answers as the native budgets do. On demand, in release:
+/// sizes, and answers as the oracle does. On demand, in release:
 ///
 /// ```sh
 /// cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(more_groups_than)'
