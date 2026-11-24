@@ -52,6 +52,7 @@ sidebar:
 迁移有意做出的变更，各自放在做出它的那个变更里，并带上其黄金文件 diff：
 
 - `GET /api/query/schema` 中每个表和每一列的 `provided_by`（RFC #698 P1.3，§3.5）：`#budgets`、`#budget_events`、`#budget_definitions` 及其各列以及 `postings` 的 `budgets` 列为 `"zhang:budget"`，其余为 `null`。这是 `schema.json` 中该字段带来的唯一变化：名称、类型和顺序都不变。
+- 预算数字的标度（v0.3.0，RFC #698 §4）：每个数字保留它所相加的内容中最大的标度，零也算在内，与 Python 的 decimal 的加法相同，所以 `0.00 + 500` 是 `500.00`，以前是 `500`。#835 的黄金文件都没有变化；用例 `zeros-of-a-larger-scale` 固定这条规则，它与张记账以前的回答只有标度不同，而且每一处都更宽。
 
 ### 仍属契约的内容
 
@@ -63,13 +64,13 @@ sidebar:
 
 ### 预算脚本及其参照实现
 
-内置脚本 `zhang:budget`（`plugins/budget/budget.lua`）是预算的唯一实现（RFC #698）。张记账的原生预算代码已在 P5 删除；原先把脚本与原生代码比较的测试，现在把它与一个参照实现（oracle）比较：`zhang-plugin-sdk/examples/budget` 的预算分析器。它是按原生代码的规则用 Rust 写成的预算实现（P1.4），在原生代码删除之前，它在契约和模糊测试的种子 1 到 10,000 上与原生代码回答一致。
+内置脚本 `zhang:budget`（`plugins/budget/budget.lua`）是预算的唯一实现（RFC #698）。张记账的原生预算代码已在 P5 删除；原先把脚本与原生代码比较的测试，现在把它与一个参照实现（oracle）比较：`zhang-plugin-sdk/examples/budget` 的预算分析器。它是按原生代码的规则用 Rust 写成的预算实现（P1.4），在原生代码删除之前，它在契约和模糊测试的种子 1 到 10,000 上与原生代码回答一致。自 v0.3.0 起，两者都保留所相加内容中最大的标度，零也算在内，与 Python 的 decimal 的加法相同（`0.00 + 500` 是 `500.00`）；原生代码在一个操作数为零时直接给出另一个操作数（`500`）。
 
 - 不运行脚本的加载会报告一次它的预算未被解释（`ExtensionUnavailable`），它的预算表、`budgets` 列和预算页面的命名查询都回答不可用并说明原因：插件关闭时、没有插件运行时的构建中，以及没有脚本或分析宿主的加载中，例如单纯的 `Ledger::load` 或 `cargo test -p zhang-core` 中的测试。Playground（`bindings/wasm`）就是这样的构建；它的测试 `a_ledger_with_budgets_says_they_are_not_interpreted_and_is_unchanged_otherwise` 固定了这一点，原生构建用 `cargo test -p zhang-wasm` 运行，WebAssembly 用 `wasm-pack test --node bindings/wasm` 运行。查询引擎在每个目录（catalog）中声明 `zhang:budget` 的表、列和命名查询（`zhang-query/src/extension/compat.rs`），使它们继续被列出并说明原因。脚本的分析失败时，加载只有它的一个 `PluginAnalysisFailed`，没有任何预算错误（`budget_contract_has_one_error_and_no_budget_error_when_zhang_budget_fails`，以及内存限制过小时的 `budget_parity::a_budget_analysis_out_of_memory_publishes_once_the_server_allows_more_memory`）。
 - 工具包带 `server` feature 时，它的加载函数（`zhang_testkit::ledger`、`zhang_testkit::fixtures` 以及 HTTP 测试框架）像 `zhang serve` 一样用脚本加载（`fixtures::load_options`）：zhang-server 和 zhang-query 的测试会打开这个 feature，一起构建整个工作区测试时（例如 CI）也是如此。zhang-core 的测试不打开它，使 `cargo test -p zhang-core` 保持没有插件运行时：那里账本的预算不被解释。用脚本加载的账本有自己的目录，查询引擎的预算测试针对它编译查询（`zhang-query/tests/engine/main.rs` 中的 `compile`）。
 - 契约的每个用例都用服务器的选项运行，也就是用脚本，并与黄金文件逐字节比较；`UPDATE_GOLDEN=1` 用这次运行重写黄金文件。`budget_contract_as_an_analyzer` 用 SDK 的分析器代替脚本运行每个用例，对照同样的黄金文件逐字节比较，包括错误的 id 和位置。
 - `the_handlers_answer_the_reference_figures_on_every_ledger` 在仓库的每个账本上，用 `budget_reference` 的独立计算检查使用脚本时的预算页面；`the_budget_oracle_answers_the_reference_figures_on_every_ledger` 对 SDK 的分析器做同样的检查。
-- `zhang_testkit::budget_parity` 把脚本与参照实现比较。工具包用 cargo 为 `wasm32-unknown-unknown` 构建它，每个测试进程一次（`budget_parity::budget_analyzer`）；没有这个目标时就没有参照实现，每次比较在本地跳过，在 CI 上失败。它用参照实现和脚本各加载一次账本，按服务器提供账本的方式提供，比较按 id 精确的错误、三张预算表、`#postings` 的 `budgets`、错误页以及预算页面的命名查询。`budget_parity::the_bench_ledgers_answer_alike_both_ways` 按需在预算基线的两个账本上运行它：`cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(the_bench_ledgers)'`。
+- `zhang_testkit::budget_parity` 把脚本与参照实现比较。工具包用 cargo 为 `wasm32-unknown-unknown` 构建它，每个测试进程一次（`budget_parity::budget_analyzer`）；没有这个目标时就没有参照实现，每次比较在本地跳过，在 CI 上失败。它用参照实现和脚本各加载一次账本，按服务器提供账本的方式提供，比较按 id 精确的错误、三张预算表、`#postings` 的 `budgets`、错误页以及预算页面的命名查询，包括每个小数的标度：与 SDK 的分析器比较时，标度不同也算差异；与 `ZHANG_BUDGET_PARITY_BASELINE` 指定的模块（见下文）比较时则允许。`budget_parity::the_bench_ledgers_answer_alike_both_ways` 按需在预算基线的两个账本上运行它：`cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(the_bench_ledgers)'`。
 - `the_budget_script_runs_as_many_queries_on_400_closed_budgets_as_on_200` 在每次测试中都会运行：用脚本加载生成的、含已关闭预算的账本，脚本须发布结果，400 个预算与 200 个预算所跑的查询数相同（每种预算商品几条，与预算个数无关；一次分析最多跑 10,000 条），且回答与参照实现一致。`the_budget_script_reads_thousands_of_closed_budgets_in_a_few_queries` 按需在 3,600 个预算上做同样的检查。`the_budget_script_reads_budgets_of_every_month_on_one_account_by_account_and_month` 加载 4 个账户上的 440 个按月预算，每个预算覆盖全部 110 个月，每笔过账都属于其账户的 110 个预算：脚本把属于这么多预算的账户的过账按账户和月份分组，再从各账户的格子读出每个预算，所用查询数与 120 个这样的预算相同，且回答与参照实现一致；`the_budget_script_reads_thousands_of_monthly_budgets_in_a_few_queries` 按需在 1,200 和 4,200 个预算（120 个月里 10 个和 35 个类别）上做同样的检查。`the_budget_script_reads_more_groups_than_it_holds_by_ranges_of_months` 按需加载 404 个各有一个账户、100 个月都有过账的预算，按预算和月份分组的组数超过脚本一次读取的数量：脚本按月份区间分批读取，区间大小由一次过账普查决定。`the_budget_script_costs` 按需测量脚本在这些账本（`monthly<N>` 为 N 个类别的按月预算）和预算基线两个账本上的查询数、查询耗时、分析耗时与加载期间的内存峰值：`cargo nextest run --release -p zhang-server --test golden --run-ignored only -E 'test(the_budget_script_costs)' --no-capture`。设置 `ZHANG_BUDGET_PARITY_BASELINE=<某个 budget.lua 或 .wasm 模块的路径>` 时，`budget_parity` 的每次比较和模糊测试都改为比较内置脚本与它，而不是与 SDK 的预算分析器比较，例如用 `main` 的脚本检验脚本的改动。
 
 #### 差分模糊测试
@@ -80,7 +81,7 @@ sidebar:
 - 出现差异时，测试失败并给出种子、它覆盖的内容、第一个差异，以及仍然出现差异的最小账本（在差异仍然存在的前提下删除账本的块，最多三分钟），该账本也会写到 `target/tmp/budget-fuzz/seed-<seed>/`。
 - 长跑检查种子 1 到 10,000，即被忽略的测试 `budget_fuzz_long_run_finds_no_difference`，以 release 构建：`Budget fuzz` 工作流每晚运行它（也可以在任意分支上手动运行，并按需指定其他种子），`cargo budget-fuzz`（`.cargo/config.toml` 中的别名，需要安装 `wasm32-unknown-unknown` 目标以构建参照实现）按需运行它（release 构建在 4 核上约 7 分钟；工作流把它分成四片，每片 2,500 个种子）。失败时，工作流会把复现账本保存为 artifact。
 - 其他种子按需运行，用 release 构建更快：`ZHANG_BUDGET_FUZZ_SEEDS=1..=2000 cargo nextest run --release -p zhang-server --test golden -E 'test(budget_fuzz)'`，或者只运行一个种子（`ZHANG_BUDGET_FUZZ_SEEDS=17`）；`ZHANG_BUDGET_FUZZ_SEEDS` 同样决定 `cargo budget-fuzz` 的种子。`ZHANG_BUDGET_FUZZ_KEEP=1` 会把每个种子的账本写到 `target/tmp/budget-fuzz/ledgers/`。
-- 汇总行按规则统计上述规则允许的差异；小数的标度只在回答中类型为小数的值上允许不同。
+- 汇总行按规则统计上述规则允许的差异。与 SDK 的分析器比较时不允许小数的标度不同，与 `budget_parity` 相同；与基线模块比较时，小数的标度只在回答中类型为小数的值上允许不同。
 
 ## 约定
 

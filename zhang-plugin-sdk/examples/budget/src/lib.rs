@@ -1,6 +1,8 @@
 //! `zhang:budget` as an analyzer, built with `zhang-plugin-sdk`: zhang's budgets (the tables `#budgets`,
 //! `#budget_events`, `#budget_definitions`, the `budgets` column of `postings`, and the budget errors) computed from the
-//! budget records and queries, as zhang's native budget code computed them until RFC #698 P5 deleted it.
+//! budget records and queries, as zhang's native budget code computed them until RFC #698 P5 deleted it, but for the
+//! scale of the figures, which keep the largest scale of what they add up, zeros included, as Python's decimal adds
+//! (`0.00 + 500` is `500.00`, where the native code gave `500`).
 //!
 //! It is the example of an analyzer that does real work. The host's tests run it in place of the bundled script, as the
 //! default plugin `zhang:budget`, to check that an analyzer's diagnostics land at the places and ids zhang gives them
@@ -18,7 +20,7 @@
 //! 4. the facts of `#budgets`, the months with something, with the running figures, which zhang fills between.
 //!
 //! What crosses the boundary is the budget records, the postings of the budgets' accounts and the conversions: the sums
-//! are exact, in [`zhang_plugin_sdk::bigdecimal`], as zhang adds.
+//! are exact, at the larger scale of their operands ([`zhang_plugin_sdk::decimal::add`]), as zhang adds.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::str::FromStr;
@@ -27,6 +29,7 @@ use zhang_plugin_sdk::analysis::{self, Cause, Conversion, ConvertedAmount, Diagn
 use zhang_plugin_sdk::ast::Account;
 use zhang_plugin_sdk::bigdecimal::{BigDecimal, Zero};
 use zhang_plugin_sdk::chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime};
+use zhang_plugin_sdk::decimal::{add, add_to, sub};
 use zhang_plugin_sdk::router::{self, Param, Params, QueryResult};
 use zhang_plugin_sdk::serde_json::{self, json, Map, Value};
 use zhang_plugin_sdk::{plugin, Error};
@@ -541,7 +544,7 @@ fn analyze(input: Input) -> Result<Output, Error> {
         let on = date(&event.record.date)?;
         let key = (event.name.clone(), first_of_month(on));
         if amount.currency == budget.commodity {
-            *added.entry(key).or_insert_with(BigDecimal::zero) += &amount.number;
+            add_to(added.entry(key).or_insert_with(BigDecimal::zero), amount.number.clone());
         } else {
             to_convert.push((amount.clone(), budget.commodity.clone(), on, None));
             converting.push(key);
@@ -549,7 +552,7 @@ fn analyze(input: Input) -> Result<Output, Error> {
     }
     for (key, converted) in converting.into_iter().zip(convert(&to_convert)?) {
         if let Some(number) = converted {
-            *added.entry(key).or_insert_with(BigDecimal::zero) += number;
+            add_to(added.entry(key).or_insert_with(BigDecimal::zero), number);
         }
     }
 
@@ -570,12 +573,8 @@ fn analyze(input: Input) -> Result<Output, Error> {
             }
             let key = (name.clone(), first_of_month(leg.date));
             if leg.currency == budget.commodity {
-                let entry = activity.entry(key).or_insert_with(BigDecimal::zero);
-                if negated {
-                    *entry -= &leg.number;
-                } else {
-                    *entry += &leg.number;
-                }
+                let number = if negated { -&leg.number } else { leg.number.clone() };
+                add_to(activity.entry(key).or_insert_with(BigDecimal::zero), number);
             } else {
                 let units = Amount {
                     number: leg.number.clone(),
@@ -588,12 +587,7 @@ fn analyze(input: Input) -> Result<Output, Error> {
     }
     for ((key, negated), converted) in converting.into_iter().zip(convert(&to_convert)?) {
         if let Some(number) = converted {
-            let entry = activity.entry(key).or_insert_with(BigDecimal::zero);
-            if negated {
-                *entry -= number;
-            } else {
-                *entry += number;
-            }
+            add_to(activity.entry(key).or_insert_with(BigDecimal::zero), if negated { -number } else { number });
         }
     }
 
@@ -660,8 +654,8 @@ fn analyze(input: Input) -> Result<Output, Error> {
             let key = (name.clone(), month);
             let added = added.get(&key).cloned().unwrap_or_else(BigDecimal::zero);
             let activity = activity.get(&key).cloned().unwrap_or_else(BigDecimal::zero);
-            let assigned = &available + &added;
-            available = &assigned - &activity;
+            let assigned = add(&available, &added);
+            available = sub(&assigned, &activity);
             rows.push(object(json!({
                 "alias": budget.meta("alias"), "category": budget.meta("category"), "currency": budget.commodity,
                 "date": month.format("%Y-%m-%d").to_string(),

@@ -1,0 +1,92 @@
+; Zeros of a larger scale than the amounts around them, in every figure of a budget: each figure is the exact sum of
+; what it adds up, at the largest scale of its terms, zeros included, as Python's decimal adds (0.00 + 500 is 500.00).
+; Food spends all it has, to the cent, before an add of 500; it adds zero, with three decimals, and zero dollars. Rent
+; has postings that cancel out but for the last, a posting of zero with three decimals, and transfers zero to Gifts.
+; Trip, closed in April, has postings that cancel out before its close; it reads its last month posting by posting.
+; Gifts has a posting no price converts, which it leaves out, and postings that cancel out.
+option "operating_currency" "CNY"
+option "timezone" "UTC"
+
+1970-01-01 commodity CNY
+1970-01-01 commodity USD
+1970-01-01 commodity XYZ
+
+2024-01-01 open Assets:Bank
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 open Expenses:Rent
+  budget: Rent
+2024-01-01 open Expenses:Trip
+  budget: Trip
+2024-01-01 open Expenses:Gifts
+  budget: Gifts
+
+2024-01-01 price USD 7.10 CNY
+
+2024-01-01 budget Food CNY
+2024-01-01 budget Rent CNY
+2024-01-01 budget Trip CNY
+2024-01-01 budget Gifts CNY
+
+2024-01-01 budget-add Food 10.00 CNY
+2024-01-01 budget-add Rent 3000 CNY
+2024-01-01 budget-add Trip 100 CNY
+2024-01-01 budget-add Gifts 50 CNY
+
+; January
+2024-01-03 * "Landlord" "January rent"
+  Expenses:Rent 100.00 CNY
+  Assets:Bank
+2024-01-04 * "Landlord" "refunded"
+  Expenses:Rent -100.00 CNY
+  Assets:Bank
+2024-01-05 * "Market" "all of it"
+  Expenses:Food 10.00 CNY
+  Assets:Bank
+2024-01-10 * "Landlord" "the rent"
+  Expenses:Rent 50 CNY
+  Assets:Bank
+
+; February
+2024-02-01 budget-add Food 500 CNY
+2024-02-01 * "Shop" "a voucher"
+  Expenses:Gifts 1 XYZ
+  Assets:Bank
+2024-02-03 * "Landlord" "a fee waived"
+  Expenses:Rent 0.000 CNY
+  Assets:Bank
+2024-02-04 * "Landlord" "February rent"
+  Expenses:Rent 20 CNY
+  Assets:Bank
+2024-02-10 budget-transfer Rent Gifts 0.00 CNY
+
+; March
+2024-03-01 budget-add Food 0.000 CNY
+2024-03-02 budget-add Food 0 USD
+2024-03-03 * "Market" "lunch"
+  Expenses:Food 5 CNY
+  Assets:Bank
+2024-03-05 * "Shop" "flowers"
+  Expenses:Gifts 8.00 CNY
+  Assets:Bank
+2024-03-06 * "Shop" "returned"
+  Expenses:Gifts -8.00 CNY
+  Assets:Bank
+2024-03-07 * "Shop" "a card"
+  Expenses:Gifts 3 CNY
+  Assets:Bank
+
+; April
+2024-04-01 * "Airline" "a seat"
+  Expenses:Trip 30.00 CNY
+  Assets:Bank
+2024-04-02 * "Airline" "refunded"
+  Expenses:Trip -30.00 CNY
+  Assets:Bank
+2024-04-03 * "Bus" "a ticket"
+  Expenses:Trip 10 CNY
+  Assets:Bank
+2024-04-15 budget-close Trip
+2024-04-20 * "Bus" "after the close"
+  Expenses:Trip 99 CNY
+  Assets:Bank

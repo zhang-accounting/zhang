@@ -444,6 +444,42 @@ fn aggregates() {
     assert_eq!(one("SELECT sum(position) WHERE account ~ '^Expenses'"), "100.00 EUR, 20.00 USD");
 }
 
+/// A sum of decimals is exact and ends at the largest scale of its terms, zeros and partial sums of zero included, as
+/// beanquery adds Python's decimals: `0.00` and `500` sum to `500.00`, `1.5`, `-1.5` and `2` to `2.0`.
+#[test]
+fn a_sum_of_decimals_keeps_the_largest_scale_of_its_terms() {
+    let ledger = zhang_testkit::ledger::load_text(
+        r#"
+1970-01-01 open Assets:Cash
+1970-01-01 open Expenses:Food
+1970-01-01 open Expenses:Fun
+2024-01-01 "Shop" "nothing"
+  Expenses:Food 0.00 CNY
+  Assets:Cash -0.00 CNY
+2024-01-02 "Shop" "groceries"
+  Expenses:Food 500 CNY
+  Assets:Cash -500 CNY
+2024-01-03 "Fair" "a ride"
+  Expenses:Fun 1.5 CNY
+  Assets:Cash -1.5 CNY
+2024-01-04 "Fair" "refunded"
+  Expenses:Fun -1.5 CNY
+  Assets:Cash 1.5 CNY
+2024-01-05 "Fair" "another ride"
+  Expenses:Fun 2 CNY
+  Assets:Cash -2 CNY
+"#,
+    );
+    let sql = "SELECT account, sum(number) WHERE account ~ '^Expenses' GROUP BY account ORDER BY account";
+    let result = zhang_query::execute(&ledger, sql).unwrap_or_else(|err| panic!("{sql}: {err:?}"));
+    let rows = result
+        .rows
+        .iter()
+        .map(|row| row.iter().map(Value::to_string).collect::<Vec<_>>())
+        .collect::<Vec<_>>();
+    assert_eq!(rows, vec![vec!["Expenses:Food", "500.00"], vec!["Expenses:Fun", "2.0"]]);
+}
+
 #[test]
 fn aggregates_over_zero_rows_return_their_initial_values() {
     assert_eq!(

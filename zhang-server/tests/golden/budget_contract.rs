@@ -779,6 +779,7 @@ cases! {
     budget_contract_months_and_a_date_typo => "months-and-a-date-typo",
     budget_contract_lots_of_two_cost_currencies => "lots-of-two-cost-currencies",
     budget_contract_many_significant_digits => "many-significant-digits",
+    budget_contract_zeros_of_a_larger_scale => "zeros-of-a-larger-scale",
 }
 
 /// Every case, with the budget analyzer of the SDK's examples computing the budgets instead of the bundled script: the

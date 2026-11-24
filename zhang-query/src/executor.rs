@@ -617,7 +617,8 @@ impl Accumulator {
             }
             (Accumulator::SumDecimal(sum), value) => {
                 if let Some(it) = value.as_decimal() {
-                    *sum += it;
+                    // at the largest scale of the terms, as Python's decimal adds (`0.00` and `500` sum to `500.00`)
+                    decimal::add_to(sum, it);
                 }
             }
             (Accumulator::SumInventory(inventory), Value::Amount(it)) => inventory.add_owned_position(Position::new(it, None)),

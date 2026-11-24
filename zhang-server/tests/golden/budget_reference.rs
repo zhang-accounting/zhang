@@ -13,6 +13,8 @@
 //! - a conversion uses the latest `price` on or before the date (the last of a day wins): the
 //!   pair itself, else its inverse, else through the cost currency of a posting held at cost;
 //!   an amount no price converts is left out;
+//! - a figure is an exact sum at the largest scale of its terms, zeros included, as Python's decimal adds
+//!   (`0.00 + 500` is `500.00`); the checks compare the figures by value;
 //! - each month starts with what was available at the end of the previous one, and a budget is
 //!   closed from the month of its first `budget-close`. It takes no activity after it: a
 //!   posting dated after the day of a `budget-close` without a time, or after the time of one
@@ -29,6 +31,7 @@ use chrono::{Datelike, Months, NaiveDate};
 use zhang_ast::amount::Amount;
 use zhang_ast::{AccountType, Date, Directive, SingleTotalPrice, Transaction};
 use zhang_core::ledger::Ledger;
+use zhang_shared::decimal::{add, add_to, sub};
 
 /// A budget's figures in a month.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -199,7 +202,7 @@ impl Reference {
         let add = |budgets: &mut HashMap<String, ReferenceBudget>, name: &str, number: &BigDecimal, currency: &str, date: NaiveDate| {
             if let Some(budget) = budgets.get_mut(name) {
                 if let Some(value) = prices.convert(number, currency, None, &budget.commodity, date) {
-                    *budget.added.entry(first_of_month(date)).or_insert_with(BigDecimal::zero) += value;
+                    add_to(budget.added.entry(first_of_month(date)).or_insert_with(BigDecimal::zero), value);
                 }
             }
         };
@@ -266,7 +269,7 @@ impl Reference {
                             let budget = budgets.get_mut(name).expect("defined");
                             if let Some(value) = prices.convert(&units.number, &units.commodity, cost_currency, &budget.commodity, date) {
                                 let value = if negated { -value } else { value };
-                                *budget.activity.entry(first_of_month(date)).or_insert_with(BigDecimal::zero) += value;
+                                add_to(budget.activity.entry(first_of_month(date)).or_insert_with(BigDecimal::zero), value);
                                 counted.insert(name.clone());
                             }
                         }
@@ -320,8 +323,8 @@ impl Reference {
         loop {
             let added = budget.added.get(&current).cloned().unwrap_or_default();
             let activity = budget.activity.get(&current).cloned().unwrap_or_default();
-            let assigned = &available + added;
-            available = &assigned - &activity;
+            let assigned = add(&available, &added);
+            available = sub(&assigned, &activity);
             if current == month {
                 return Some(Figures {
                     assigned,

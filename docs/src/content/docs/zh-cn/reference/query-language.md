@@ -517,6 +517,7 @@ SELECT flag, count(*) FROM OPEN ON 2024-01-01 CLOSE ON 2025-01-01 CLEAR WHERE fl
 | `amount` `+ -` `amount` | `amount` | 两个金额的货币必须相同，否则查询失败。 |
 
 - 加、减、乘都是精确的。乘积保留两个操作数的全部小数位：`1000.00 * 1` 等于 `1000.00`。
+- `+` 和 `-` 还没有全部像 [`sum`](#聚合函数) 那样保留两个操作数中较大的小数位数。一个操作数为零时，小数的 `-` 和金额的 `+` 直接给出另一个操作数，不管零有几位小数：`0.00 - 5` 等于 `-5`，`0.00 CNY + 500 CNY` 等于 `500 CNY`。小数的 `+` 和金额的 `-` 保留较大的小数位数：`0.00 + 500` 等于 `500.00`。因此在同一个查询里，对相同的数，`sum(x)` 与 `x + y` 或 `x - y` 可能数值相同而小数位数不同。之后的版本会让 `+` 和 `-` 与 `sum` 一致。
 - 结果不超过 28 位有效数字时，除法是精确的；否则像 Beancount 一样四舍六入五成双，保留 28 位有效数字：`1 / 3` 等于 `0.3333333333333333333333333333`。
 - 除以零得到 `NULL`，而不是报错。
 - 一元负号可用于 `int`、`decimal`、`amount`、`position` 和 `inventory`。
@@ -886,8 +887,9 @@ ORDER BY account
 - 每个预算从其 `budget` 指令所在的月份起，每个月都有一行，直到以下三个月份中最晚的一个：该预算最后一次 `budget-add`、`budget-transfer` 或 `budget-close` 所在的月份，账本中最后一笔交易所在的月份，以及当前月份，即账本时区中 [`today()`](#日期函数) 所在的月份。因此，用 `budget-add` 为未来月份提前安排的预算会显示那个月，`WHERE date = yearmonth(today())` 也会列出本月的每个预算，即使本月还没有发生任何事。价格、事件、备注、余额断言等其他指令不会延长这些月份。没有预算条目、也没有支出的月份同样有一行，可用金额顺延到这个月，与预算页面一致。最后一行之后的月份没有行：它就是该预算最后一行顺延过去、没有任何支出的样子。
 - 这些月份是生成的，而不是从账本中读取的，所以每个月份都计入[结果大小限制](#限制)，即使它随后被 `WHERE` 丢弃。例外是只保留某个日期之前月份的 `WHERE`，即用 `AND` 连接的条件中有 `date <= 2024-06-01`、`date < :month`、`date = :month` 或 `yearmonth(date) = :month` 这样的条件：此后的月份不会生成。只查询到所看的月份为止，这样的查询就很快，而且无论账本中有什么日期笔误都能正常工作。如果某笔交易或某条预算指令的日期被误写成遥远的未来，或某条 `budget` 指令的日期被误写成遥远的过去，查询会以“结果过大”的错误结束，而不会耗尽内存。错误信息会指出月份最多的预算，以及决定其结束月份的指令，例如 `budget 'food' runs from 2024-01 until 2204-05 because of a transaction dated 2204-05-01 (main.zhang); check that date`；如果它的月份一直延续到当前月份，则会指出它的 `budget` 指令。改正日期后即可再次查询该表。
 - `assigned`、`activity` 和 `available` 即预算页面上的 Assigned、Activity 和 Available 列。`assigned` 是这个月的起始金额（上个月月底仍可用的金额），加上本月 `budget-add` 和 `budget-transfer` 指令放入的金额（`added`）。`activity` 是预算关联的账户在本月的支出，`available` 即 `assigned - activity`，会顺延到下个月。
-- 所有金额都以预算的商品计。`activity` 把预算关联账户的分录相加，每笔分录都按其日期折算为预算的商品，与 [`convert(position, currency, date)`](#估值函数) 用账本中的价格折算的结果相同：`activity` 就是对这些分录求 `sum(convert(position, 'CNY', date))` 的结果。以其他商品计的 `budget-add` 或 `budget-transfer` 金额，按指令的日期以同样方式折算。没有价格可以折算的分录或金额不计入，而不会被当作另一种商品的数字加进去，张记账会把它报告为 [`BudgetCommodityMismatch`](/zh-cn/reference/error-codes/#budgetcommoditymismatch)。
+- 所有金额都以预算的商品计。`activity` 把预算关联账户的分录相加，每笔分录都按其日期折算为预算的商品，与 [`convert(position, currency, date)`](#估值函数) 用账本中的价格折算的结果相同：`activity` 的金额就是对这些分录求 `sum(convert(position, 'CNY', date))` 的结果。以其他商品计的 `budget-add` 或 `budget-transfer` 金额，按指令的日期以同样方式折算。没有价格可以折算的分录或金额不计入，而不会被当作另一种商品的数字加进去，张记账会把它报告为 [`BudgetCommodityMismatch`](/zh-cn/reference/error-codes/#budgetcommoditymismatch)。
 - 预算从其 `budget` 指令起才存在。针对尚不存在的预算的 `budget-add`、`budget-transfer` 或 `budget-close` 不起作用，预算的 `budget` 指令之前的分录也不算它的支出；张记账会把两者都报告为错误。同名的第二条 `budget` 指令是重复定义，会被忽略。
+- 每个数字都是精确的，并保留它所相加的金额中最多的小数位数，零也算在内，与 Python 的 decimal 的加法相同：可用 `0.00`、当月追加 `500` 时，`assigned` 是 `500.00`；分录 `10.00`、`-10.00` 和 `5` 的 `activity` 是 `5.00`。张记账 0.3.0 之前，零在其中一些求和里会丢掉它的小数位数（`500`、`5`）。
 - 由于 `assigned` 包含顺延的金额，把多个月的 `assigned` 相加会把同一笔钱算多次。要统计一段时间内一共安排了多少预算，请对 `added` 求和。
 - 预算关联的账户，是 `open` 指令中带有指向它的 `budget` 元数据（例如 `budget: food`）的账户。这些账户的分录就是该预算的支出。每一条元数据都算数，所以 `open` 中同时有 `budget: food` 和 `budget: fun` 的账户同属两个预算。一笔分录计入其日期和时间当时生效的账户 `open` 所指的预算：账户关闭后以其他预算重新开启，从重新开启起计入新的预算（即使是同一天稍后的时间），之前的分录仍属原来的预算。分录的 [`budgets`](#postings-表) 列给出它计入哪些预算。
 - 已关闭的预算在关闭之后不再计入支出：只有日期的 `budget-close` 让预算在当天全天仍然有效，带时间的则在该时间关闭预算。之后的分录不计入，张记账会把它们报告为 [`BudgetClosed`](/zh-cn/reference/error-codes/#budgetclosed)。它的 `budget-add` 和 `budget-transfer` 指令仍然计入，所以可以把剩下的金额转到另一个预算。
@@ -1099,7 +1101,7 @@ WHERE file = 'data/2024.zhang'
 | `count(*) -> int` | 分组中的分录数。 |
 | `count(any) -> int` | 分组中参数不为 `NULL` 的分录数。 |
 | `sum(int) -> int` | 整数之和。 |
-| `sum(decimal) -> decimal` | 数值之和。 |
+| `sum(decimal) -> decimal` | 数值之和。它是精确的，并保留各数值中最多的小数位数，零也算在内，与 Python 的 decimal 的加法相同：`0.00` 与 `500` 之和是 `500.00`，`1.5`、`-1.5` 与 `2` 之和是 `2.0`。 |
 | `sum(amount) -> inventory` | 各金额之和，按货币分开。 |
 | `sum(position) -> inventory` | 各持仓之和，成本批次按[类型](#类型)中描述的方式合并。 |
 | `sum(inventory) -> inventory` | 各库存之和。 |
@@ -1110,6 +1112,7 @@ WHERE file = 'data/2024.zhang'
 
 - `first` 和 `last` 按账本顺序计算，`ORDER BY` 不会改变哪条分录算作第一条。
 - 如果一个分组的值全部为 `NULL`，`sum` 的结果为 `0`（或空库存），`first`、`last`、`min` 和 `max` 的结果为 `NULL`。
+- 对同一批分录，`sum(number)` 与 `sum(position)` 的数值相同，但小数位数可能不同，与 Beancount 一样。库存会略过开头的零，也会去掉合计为零的持仓。因此分录 `0.00` 和 `500` 按数值求和是 `500.00`，按持仓求和是 `500 CNY`；`1.5`、`-1.5` 和 `2` 分别是 `2.0` 和 `2 CNY`。
 
 ### 估值函数
 

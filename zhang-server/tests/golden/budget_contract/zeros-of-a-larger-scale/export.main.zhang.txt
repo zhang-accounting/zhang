@@ -1,0 +1,45 @@
+; the budget directives of main.zhang and the opens linking accounts to budgets, as written, file after file
+; ---- written as zhang
+2024-01-01 open Expenses:Food
+  budget: Food
+2024-01-01 open Expenses:Rent
+  budget: Rent
+2024-01-01 open Expenses:Trip
+  budget: Trip
+2024-01-01 open Expenses:Gifts
+  budget: Gifts
+2024-01-01 budget Food CNY
+2024-01-01 budget Rent CNY
+2024-01-01 budget Trip CNY
+2024-01-01 budget Gifts CNY
+2024-01-01 budget-add Food 10.00 CNY
+2024-01-01 budget-add Rent 3000 CNY
+2024-01-01 budget-add Trip 100 CNY
+2024-01-01 budget-add Gifts 50 CNY
+2024-02-01 budget-add Food 500 CNY
+2024-02-10 budget-transfer Rent Gifts 0.00 CNY
+2024-03-01 budget-add Food 0.000 CNY
+2024-03-02 budget-add Food 0 USD
+2024-04-15 budget-close Trip
+; ---- written as beancount
+2024-01-01 open Expenses:Food
+  budget: "Food"
+2024-01-01 open Expenses:Rent
+  budget: "Rent"
+2024-01-01 open Expenses:Trip
+  budget: "Trip"
+2024-01-01 open Expenses:Gifts
+  budget: "Gifts"
+2024-01-01 custom "budget" "Food" "CNY"
+2024-01-01 custom "budget" "Rent" "CNY"
+2024-01-01 custom "budget" "Trip" "CNY"
+2024-01-01 custom "budget" "Gifts" "CNY"
+2024-01-01 custom "budget-add" "Food" 10.00 CNY
+2024-01-01 custom "budget-add" "Rent" 3000 CNY
+2024-01-01 custom "budget-add" "Trip" 100 CNY
+2024-01-01 custom "budget-add" "Gifts" 50 CNY
+2024-02-01 custom "budget-add" "Food" 500 CNY
+2024-02-10 custom "budget-transfer" "Rent" "Gifts" 0.00 CNY
+2024-03-01 custom "budget-add" "Food" 0.000 CNY
+2024-03-02 custom "budget-add" "Food" 0 USD
+2024-04-15 custom "budget-close" "Trip"

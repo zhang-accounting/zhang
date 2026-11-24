@@ -4,7 +4,10 @@
 //!
 //! zhang computes like beancount, in Python's default decimal context (28 significant digits,
 //! round-half-even), so the numbers zhang derives are those beancount derives:
-//! - Sums and differences are exact, and so is [`mul`], the product a query's `*` computes.
+//! - Sums and differences are exact, and so is [`mul`], the product a query's `*` computes. A sum or a difference
+//!   keeps the larger scale of its operands, zeros included, as Python's decimal does: `0.00 + 500` is `500.00`
+//!   ([`add`], [`sub`], [`add_to`]). `BigDecimal`'s own `&a + &b`, `a += b` of an owned `b`, `a - b` and `a -= b`
+//!   give the other operand as it is when one of them is zero, whatever the zero's scale (`500`).
 //! - Division has to round: [`div`] rounds to 28 significant digits, so `1/3` is
 //!   `0.3333333333333333333333333333`. The per-unit share of a total ([`per_unit`]: the per-unit
 //!   cost of a total cost, the per-unit price of a total price) is such a quotient. Booking keeps
@@ -103,6 +106,39 @@ pub fn checked_mul_in_context(lhs: &BigDecimal, rhs: &BigDecimal) -> Option<BigD
         product = product.with_precision_round(precision, RoundingMode::HalfEven);
     }
     Some(product)
+}
+
+/// `lhs + rhs`, exact, at the larger scale of the two, zeros included, as Python's decimal adds: `0.00 + 500` is
+/// `500.00`, where `BigDecimal`'s `&a + &b` gives `500`. See the module docs.
+pub fn add(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
+    at_larger_scale(lhs + rhs, lhs, rhs)
+}
+
+/// `lhs - rhs`, exact, at the larger scale of the two, zeros included, as Python's decimal subtracts: `0.00 - 5` is
+/// `-5.00`, where `BigDecimal`'s `a - b` gives `-5`. See the module docs.
+pub fn sub(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
+    at_larger_scale(lhs - rhs, lhs, rhs)
+}
+
+/// `*sum += term`, at the larger scale of the two ([`add`]): a running sum, which ends at the largest scale of its terms,
+/// as Python's `sum` of decimals does, whatever its partial sums (`1.5 - 1.5 + 2` is `2.0`) and its zeros.
+#[inline]
+pub fn add_to(sum: &mut BigDecimal, term: BigDecimal) {
+    let scale = sum.fractional_digit_count().max(term.fractional_digit_count());
+    *sum += term;
+    if sum.fractional_digit_count() < scale {
+        *sum = sum.with_scale(scale);
+    }
+}
+
+/// `value`, the exact sum or difference of `lhs` and `rhs`, at the larger scale of the two
+fn at_larger_scale(value: BigDecimal, lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
+    let scale = lhs.fractional_digit_count().max(rhs.fractional_digit_count());
+    if value.fractional_digit_count() < scale {
+        value.with_scale(scale)
+    } else {
+        value
+    }
 }
 
 /// A decimal written out in plain notation, which both zhang and beancount read: never with an exponent, as
@@ -248,6 +284,44 @@ mod tests {
             "10.00000000000000000000000000"
         );
         assert_eq!(mul_in_context(&d("-1000.00"), &d("1")).to_string(), "-1000.00");
+    }
+
+    #[test]
+    fn a_sum_or_a_difference_keeps_the_larger_scale_zeros_included() {
+        for (lhs, rhs, sum, difference) in [
+            ("0.00", "500", "500.00", "-500.00"),
+            ("500", "0.00", "500.00", "500.00"),
+            ("0", "0.00", "0.00", "0.00"),
+            ("0.000", "0", "0.000", "0.000"),
+            ("1.5", "-1.5", "0.0", "3.0"),
+            ("10.00", "10", "20.00", "0.00"),
+            ("-0.05", "2", "1.95", "-2.05"),
+            ("1", "2", "3", "-1"),
+        ] {
+            assert_eq!(plain_decimal(&add(&d(lhs), &d(rhs))), sum, "{lhs} + {rhs}");
+            assert_eq!(plain_decimal(&sub(&d(lhs), &d(rhs))), difference, "{lhs} - {rhs}");
+        }
+        // BigDecimal's own operators drop the scale of a zero operand
+        assert_eq!(plain_decimal(&(&d("0.00") + &d("500"))), "500");
+        assert_eq!(plain_decimal(&(d("0.00") - d("5"))), "-5");
+    }
+
+    #[test]
+    fn a_running_sum_ends_at_the_largest_scale_of_its_terms() {
+        for (terms, total) in [
+            (&["0.00", "500"][..], "500.00"),
+            (&["1.5", "-1.5", "2"], "2.0"),
+            (&["0.000"], "0.000"),
+            (&["10.00", "-10.00"], "0.00"),
+            (&["1", "2.50", "-3"], "0.50"),
+            (&[], "0"),
+        ] {
+            let mut sum = BigDecimal::zero();
+            for term in terms {
+                add_to(&mut sum, d(term));
+            }
+            assert_eq!(plain_decimal(&sum), total, "{terms:?}");
+        }
     }
 
     #[test]
