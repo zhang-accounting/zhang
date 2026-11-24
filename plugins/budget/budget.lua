@@ -736,6 +736,8 @@ function M.analyze(input)
     end
   end
   local commodities = sorted(budgets_in)
+  -- whether the groups of each commodity tell the last seq and the days of their postings
+  local classed = {}
   for _, commodity in ipairs(commodities) do
     -- the accounts of budgets of several accounts
     local shared = {}
@@ -758,15 +760,37 @@ function M.analyze(input)
     if next(cell_accounts) then read_cells(sorted(cell_accounts), commodity) end
     if #list > 0 then
       local scope, signed = scope_of(list)
-      -- a row: budget, month, first, unconverted, activity
+      -- when the closed budgets have half the accounts or more, the groups also tell their last seq and their first and
+      -- last day, which class their months (below): a second pass would read much the same postings again. Otherwise
+      -- the second pass reads only the accounts of the budgets it classes, fewer postings than three more columns here
+      local closed, all, of_closed, of_all = {}, {}, 0, 0
+      for _, name in ipairs(list) do
+        local close = budgets[name].close
+        for _, account in ipairs(accounts[name]) do
+          if not all[account] then all[account], of_all = true, of_all + 1 end
+          if close and not closed[account] then closed[account], of_closed = true, of_closed + 1 end
+        end
+      end
+      local closes = of_closed > 0 and 2 * of_closed >= of_all
+      classed[commodity] = closes
+      if closes then
+        for _, name in ipairs(list) do
+          local group = groups[name]
+          group.lasts, group.los, group.his = {}, {}, {}
+        end
+      end
+      -- a row: budget, month, first, unconverted, activity, and with a closed budget last, lo, hi
       grouped("unnest(" .. BUDGETS .. ") AS budget, yearmonth(date) AS month, min(seq) AS first, "
-        .. "count(CASE WHEN " .. UNCONVERTED .. " THEN 1 END) AS unconverted, sum(" .. signed(CONVERTED) .. ") AS activity",
+        .. "count(CASE WHEN " .. UNCONVERTED .. " THEN 1 END) AS unconverted, sum(" .. signed(CONVERTED) .. ") AS activity"
+        .. (closes and ", max(seq) AS last, min(date) AS lo, max(date) AS hi" or ""),
         "account IN :accounts", "budget, month", { accounts = scope, commodity = zhang.str(commodity) }, function(row)
         local of_budget = groups[row[1]]
         if of_budget and budgets[row[1]].commodity == commodity then
-          of_budget.sums[row[2]], of_budget.firsts[row[2]] = row[5], row[3]
+          local month = row[2]
+          of_budget.sums[month], of_budget.firsts[month] = row[5], row[3]
           if row[3] < of_budget.first then of_budget.first = row[3] end
           of_budget.unconverted = of_budget.unconverted + row[4]
+          if closes then of_budget.lasts[month], of_budget.los[month], of_budget.his[month] = row[6], row[7], row[8] end
         end
       end, BY_BUDGET)
     end
@@ -1014,9 +1038,10 @@ function M.analyze(input)
   -- what each commodity reads of its other budgets: the months read posting by posting (by budget, and for a budget of
   -- cells by cell), the budgets that keep the postings no price converts apart, and the months of such a budget that
   -- its group (or its cell) sums as an inventory, where a posting no price converts stays in its own commodity, and is
-  -- left out. The last seq and the first and last day of the groups come from one query per commodity over the
-  -- accounts of their budgets (the budgets the aggregation takes as they are, most of them, read none). A budget keeps
-  -- the sums of its months of counted postings that all convert, and no other.
+  -- left out. The last seq and the first and last day of the groups come from the aggregation of a commodity whose
+  -- closed budgets have half its accounts or more, else from one query per commodity over the accounts of its other
+  -- budgets (the budgets the aggregation takes as they are, most of them, read none). A budget keeps the sums of its
+  -- months of counted postings that all convert, and no other.
   local classes, reads, early = {}, {}, {}
   -- the month `month` of the budget `name` read posting by posting; of a budget of cells, of the cells `it`
   local function posting_by_posting(of_commodity, name, budget, month, it)
@@ -1053,7 +1078,10 @@ function M.analyze(input)
       local budget = budgets[name]
       if groups[name] then
         activity[name] = groups[name].sums
-        if not from_pass[name] then
+        if from_pass[name] then
+          local group = groups[name]
+          group.firsts, group.lasts, group.los, group.his = nil, nil, nil, nil
+        else
           list[#list + 1] = name
           classes[name] = {}
           closes = closes or budget.close ~= nil
@@ -1095,28 +1123,36 @@ function M.analyze(input)
       end
     end
     if #list > 0 then
-      grouped("unnest(" .. BUDGETS .. ") AS budget, yearmonth(date) AS month, max(seq) AS last"
-        .. (closes and ", min(date) AS lo, max(date) AS hi" or ""), "account IN :accounts", "budget, month",
-        { accounts = (scope_of(list)) }, function(row)
-        local name, month = row[1], row[2]
-        local of_budget = classes[name]
-        if of_budget and budgets[name].commodity == commodity then
-          local budget, group = budgets[name], groups[name]
-          local class = class_of(budget, group.firsts[month], row[3], row[4], row[5])
-          of_budget[month] = class or false
-          if class ~= 0 or not budget.converts then group.sums[month] = nil end
-          if class == nil then
-            posting_by_posting(of_commodity, name, budget, month, nil)
-          elseif class == 0 then
-            -- the sum of postings that all convert, as it is; otherwise summed as an inventory, below
-            if not budget.converts then inventory[name] = true end
-          elseif class ~= 3 then
-            early[name] = true
-          end
+      local function classify(name, month, last, lo, hi)
+        local budget, group = budgets[name], groups[name]
+        local class = class_of(budget, group.firsts[month], last, lo, hi)
+        classes[name][month] = class or false
+        if class ~= 0 or not budget.converts then group.sums[month] = nil end
+        if class == nil then
+          posting_by_posting(of_commodity, name, budget, month, nil)
+        elseif class == 0 then
+          -- the sum of postings that all convert, as it is; otherwise summed as an inventory, below
+          if not budget.converts then inventory[name] = true end
+        elseif class ~= 3 then
+          early[name] = true
         end
-      end, BY_BUDGET)
+      end
+      if classed[commodity] then
+        for _, name in ipairs(list) do
+          local group = groups[name]
+          for month in pairs(group.firsts) do classify(name, month, group.lasts[month], group.los[month], group.his[month]) end
+        end
+      else
+        grouped("unnest(" .. BUDGETS .. ") AS budget, yearmonth(date) AS month, max(seq) AS last"
+          .. (closes and ", min(date) AS lo, max(date) AS hi" or ""), "account IN :accounts", "budget, month",
+          { accounts = (scope_of(list)) }, function(row)
+          local name = row[1]
+          if classes[name] and budgets[name].commodity == commodity then classify(name, row[2], row[3], row[4], row[5]) end
+        end, BY_BUDGET)
+      end
       for _, name in ipairs(list) do
-        groups[name].firsts = nil
+        local group = groups[name]
+        group.firsts, group.lasts, group.los, group.his = nil, nil, nil, nil
         if not budgets[name].converts then
           of_commodity.held[#of_commodity.held + 1] = name
           if inventory[name] then of_commodity.inventories[#of_commodity.inventories + 1] = name end
