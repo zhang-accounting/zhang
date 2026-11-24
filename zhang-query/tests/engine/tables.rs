@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use chrono::NaiveDate;
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, ExecuteOptions, Params, Query, QueryError, QueryErrorKind, Value};
+use zhang_query::{DataType, ExecuteOptions, Params, QueryError, QueryErrorKind, Value};
 
 const LEDGER: &str = r#"
 option "operating_currency" "USD"
@@ -31,7 +31,7 @@ option "operating_currency" "USD"
 
 fn ledger() -> &'static Ledger {
     static LEDGER_CELL: OnceLock<Ledger> = OnceLock::new();
-    LEDGER_CELL.get_or_init(|| zhang_testkit::native::load_text(LEDGER))
+    LEDGER_CELL.get_or_init(|| zhang_testkit::ledger::load_text(LEDGER))
 }
 
 fn today() -> NaiveDate {
@@ -39,7 +39,7 @@ fn today() -> NaiveDate {
 }
 
 fn try_query(query: &str) -> Result<Vec<Vec<String>>, QueryError> {
-    let result = Query::compile(query)?.execute_at(ledger(), &Params::new(), today())?;
+    let result = crate::compile(query)?.execute_at(ledger(), &Params::new(), today())?;
     Ok(result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect())
 }
 
@@ -65,7 +65,7 @@ fn prices_rows_come_in_ledger_order() {
             vec!["2024-03-01", "EUR", "1.08 USD"],
         ]
     );
-    let columns = Query::compile("SELECT * FROM #prices").unwrap().columns();
+    let columns = crate::compile("SELECT * FROM #prices").unwrap().columns();
     let columns = columns.iter().map(|column| (column.name.as_str(), column.ty)).collect::<Vec<_>>();
     assert_eq!(
         columns,
@@ -79,7 +79,7 @@ fn prices_rows_come_in_ledger_order() {
 /// 1705248000 (19737 days of 86400 s since 1970-01-01, minus 8 hours).
 #[test]
 fn prices_have_the_time_and_timestamp_of_their_directive() {
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 option "operating_currency" "USD"
 option "timezone" "Asia/Shanghai"
@@ -93,7 +93,7 @@ option "timezone" "Asia/Shanghai"
 "#,
     );
     let run = |sql: &str| -> Vec<Vec<String>> {
-        let result = Query::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap();
+        let result = crate::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap();
         result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
     };
     assert_eq!(
@@ -170,7 +170,7 @@ fn columns_belong_to_their_table() {
 
 #[test]
 fn explain_names_the_table_and_projects_its_columns() {
-    let query = Query::compile("SELECT currency, count(*) FROM #prices WHERE year(date) = 2024 GROUP BY currency").unwrap();
+    let query = crate::compile("SELECT currency, count(*) FROM #prices WHERE year(date) = 2024 GROUP BY currency").unwrap();
     assert_eq!(query.table(), "prices");
     assert_eq!(query.referenced_columns(), vec!["currency", "date"]);
     assert_eq!(
@@ -184,14 +184,14 @@ fn explain_names_the_table_and_projects_its_columns() {
          project: [currency, date] (2 of 14 columns)\n"
     );
     // the default table is not named
-    let postings = Query::compile("SELECT count(*) FROM #postings").unwrap();
+    let postings = crate::compile("SELECT count(*) FROM #postings").unwrap();
     assert_eq!(postings.table(), "postings");
     assert!(!postings.explain().contains("table:"), "{}", postings.explain());
 }
 
 #[test]
 fn table_results_respect_the_budget_and_export_to_csv() {
-    let compiled = Query::compile("SELECT date, currency, amount FROM #prices ORDER BY date, currency").unwrap();
+    let compiled = crate::compile("SELECT date, currency, amount FROM #prices ORDER BY date, currency").unwrap();
     let options = |limit| ExecuteOptions {
         today: Some(today()),
         timeout: None,
@@ -269,7 +269,7 @@ fn the_schema_describes_every_table() {
         names.dedup();
         assert_eq!(names.len(), table.columns.len(), "{}", table.name);
         // every documented table can be queried, and SELECT * reads its own columns
-        let query = Query::compile(&format!("SELECT * FROM #{}", table.name)).unwrap_or_else(|err| panic!("{}: {}", table.name, err));
+        let query = crate::compile(&format!("SELECT * FROM #{}", table.name)).unwrap_or_else(|err| panic!("{}: {}", table.name, err));
         for column in query.columns() {
             assert!(table.columns.iter().any(|it| it.name == column.name), "{}.{}", table.name, column.name);
         }
@@ -279,8 +279,8 @@ fn the_schema_describes_every_table() {
 
 #[test]
 fn the_fava_demo_ledger_prices_match_the_store() {
-    let ledger = zhang_testkit::native::fava_demo_ledger();
-    let run = |sql: &str| Query::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap().rows;
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
+    let run = |sql: &str| crate::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap().rows;
     assert_eq!(run("SELECT count(*) FROM #prices"), vec![vec![Value::Int(846)]]);
     assert_eq!(run("SELECT DISTINCT currency FROM #prices").len(), 6);
 }
@@ -325,11 +325,11 @@ option "operating_currency" "USD"
 
 fn directives_ledger() -> &'static Ledger {
     static LEDGER_CELL: OnceLock<Ledger> = OnceLock::new();
-    LEDGER_CELL.get_or_init(|| zhang_testkit::native::load_text(DIRECTIVES))
+    LEDGER_CELL.get_or_init(|| zhang_testkit::ledger::load_text(DIRECTIVES))
 }
 
 fn on_directives(sql: &str) -> Vec<Vec<String>> {
-    let result = Query::compile(sql)
+    let result = crate::compile(sql)
         .and_then(|query| query.execute_at(directives_ledger(), &Params::new(), today()))
         .unwrap_or_else(|err| panic!("{}: {}", sql, err));
     result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
@@ -378,7 +378,7 @@ fn entries_hold_every_directive_in_beancount_order() {
     let ids = on_directives("SELECT DISTINCT id FROM #entries");
     assert_eq!(ids.len(), 14);
     // the default SELECT * of #entries
-    let columns = Query::compile("SELECT * FROM #entries").unwrap().columns();
+    let columns = crate::compile("SELECT * FROM #entries").unwrap().columns();
     let names = columns.iter().map(|it| it.name.as_str()).collect::<Vec<_>>();
     assert_eq!(
         names,
@@ -442,7 +442,7 @@ fn balances_report_the_discrepancy_zhang_found() {
 fn a_balance_discrepancy_is_measured_from_the_postings() {
     // an assertion moves no balance, failing or not: each one is measured from the postings, and a
     // transaction flagged `C` (beancount's conversions) is an ordinary transaction
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Equity:Opening\n\
          2024-01-01 * \"Salary\"\n  Assets:Bank 165 CNY\n  Equity:Opening\n\
          2024-01-02 balance Assets:Bank 200 CNY\n\
@@ -451,7 +451,7 @@ fn a_balance_discrepancy_is_measured_from_the_postings() {
          2024-01-05 C \"Conversion\"\n  Assets:Bank 10 CNY\n  Equity:Opening\n",
     );
     let query = |sql: &str| -> Vec<Vec<String>> {
-        let result = Query::compile(sql)
+        let result = crate::compile(sql)
             .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
             .unwrap_or_else(|err| panic!("{}: {}", sql, err));
         result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
@@ -468,14 +468,14 @@ fn a_balance_discrepancy_is_measured_from_the_postings() {
 
 #[test]
 fn a_pad_is_an_entry_and_its_padding_a_transaction_on_its_date() {
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Assets:Cash\n1970-01-01 open Equity:Opening\n\
          2024-01-01 pad Assets:Bank Equity:Opening\n\
          2024-01-01 pad Assets:Cash Equity:Opening\n\
          2024-02-01 balance Assets:Bank 100 CNY\n",
     );
     let query = |sql: &str| -> Vec<Vec<String>> {
-        let result = Query::compile(sql)
+        let result = crate::compile(sql)
             .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
             .unwrap_or_else(|err| panic!("{}: {}", sql, err));
         result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
@@ -499,13 +499,13 @@ fn a_pad_is_an_entry_and_its_padding_a_transaction_on_its_date() {
 
 #[test]
 fn a_balance_with_pad_reports_the_discrepancy_a_later_pad_of_its_time_leaves() {
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Assets:Bank:Checking\n1970-01-01 open Equity:Opening\n\
          2024-01-02 * \"init\"\n  Assets:Bank 345 CNY\n  Assets:Bank:Checking 155 CNY\n  Equity:Opening\n\
          2024-01-10 balance Assets:Bank 500 CNY with pad Equity:Opening\n\
          2024-01-10 balance Assets:Bank:Checking 200 CNY with pad Equity:Opening\n",
     );
-    let result = Query::compile("SELECT account, discrepancy FROM #balances")
+    let result = crate::compile("SELECT account, discrepancy FROM #balances")
         .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
         .unwrap();
     let rows_of = result
@@ -520,7 +520,7 @@ fn a_balance_with_pad_reports_the_discrepancy_a_later_pad_of_its_time_leaves() {
 /// same values.
 #[test]
 fn directive_tables_have_the_columns_of_their_entries() {
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 1970-01-01 commodity USD
   name: "US Dollar"
@@ -534,7 +534,7 @@ fn directive_tables_have_the_columns_of_their_entries() {
 "#,
     );
     let run = |sql: &str| -> Vec<Vec<String>> {
-        let result = Query::compile(sql)
+        let result = crate::compile(sql)
             .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
             .unwrap_or_else(|err| panic!("{}: {}", sql, err));
         result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
@@ -594,7 +594,7 @@ fn accounts_expose_open_and_close_as_structures() {
         on_directives("SELECT open.meta, close.meta, meta('budget'), entry_meta('note') FROM #accounts WHERE account = 'Expenses:Food'"),
         rows(&[&["budget: \"food\", note: \"say \\\"hi\\\"\"", "", "food", "say \"hi\""]])
     );
-    let types = Query::compile("SELECT open, open.date, open.currencies, close.meta FROM #accounts")
+    let types = crate::compile("SELECT open, open.date, open.currencies, close.meta FROM #accounts")
         .unwrap()
         .columns();
     let types = types.iter().map(|it| it.ty).collect::<Vec<_>>();
@@ -605,7 +605,7 @@ fn accounts_expose_open_and_close_as_structures() {
 /// the instant its lifecycle starts at, the one `account_status` compares with.
 #[test]
 fn open_time_is_the_time_written_in_the_open() {
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 option "timezone" "Asia/Shanghai"
 1970-01-01 open Assets:Plain
@@ -617,7 +617,7 @@ option "timezone" "Asia/Shanghai"
 "#,
     );
     let run = |sql: &str| {
-        let result = Query::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap();
+        let result = crate::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap();
         result
             .rows
             .iter()
@@ -642,7 +642,7 @@ option "timezone" "Asia/Shanghai"
         run("SELECT account FROM #accounts WHERE open.date < 2024-01-05 OR (open.date = 2024-01-05 AND open.time <= '09:30:00') ORDER BY account"),
         rows(&[&["Assets:Plain"], &["Assets:Reopened"], &["Assets:Timed"]])
     );
-    let columns = Query::compile("SELECT open.time FROM #accounts").unwrap().columns();
+    let columns = crate::compile("SELECT open.time FROM #accounts").unwrap().columns();
     assert_eq!(columns[0].ty, DataType::Str);
 }
 
@@ -651,7 +651,7 @@ option "timezone" "Asia/Shanghai"
 /// for a value that is not a method zhang books with.
 #[test]
 fn open_booking_is_the_method_booking_uses() {
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 option "operating_currency" "USD"
 1970-01-01 commodity USD
@@ -683,7 +683,7 @@ option "operating_currency" "USD"
 "#,
     );
     let run = |sql: &str| {
-        let result = Query::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap();
+        let result = crate::compile(sql).unwrap().execute_at(&ledger, &Params::new(), today()).unwrap();
         result
             .rows
             .iter()
@@ -706,7 +706,7 @@ option "operating_currency" "USD"
 
 #[test]
 fn attribute_errors_point_at_the_attribute() {
-    let attribute_error = |sql: &str| match Query::compile(sql) {
+    let attribute_error = |sql: &str| match crate::compile(sql) {
         Ok(_) => panic!("{} should not compile", sql),
         Err(err) => (err.kind, err.column, err.message),
     };
@@ -732,7 +732,7 @@ fn attribute_errors_point_at_the_attribute() {
         (QueryErrorKind::Compile, Some(8), "unknown column 'open'".to_owned())
     );
     // a parse error for a dangling dot
-    let err = Query::compile("SELECT open. FROM #accounts").err().unwrap();
+    let err = crate::compile("SELECT open. FROM #accounts").err().unwrap();
     assert_eq!(err.kind, QueryErrorKind::Parse);
 }
 
@@ -745,7 +745,7 @@ fn having_and_pivot_by_work_over_tables() {
         ),
         rows(&[&["balance", "NULL", "2"], &["open", "3", "NULL"], &["transaction", "NULL", "2"]])
     );
-    let result = Query::compile("SELECT type, year(date) AS y, count(*) AS n FROM #entries GROUP BY 1, 2 HAVING count(*) > 1 PIVOT BY type, y")
+    let result = crate::compile("SELECT type, year(date) AS y, count(*) AS n FROM #entries GROUP BY 1, 2 HAVING count(*) > 1 PIVOT BY type, y")
         .unwrap()
         .execute_at(directives_ledger(), &Params::new(), today())
         .unwrap();
@@ -756,7 +756,7 @@ fn having_and_pivot_by_work_over_tables() {
 #[test]
 fn the_paddings_of_a_pad_follow_it_each_with_its_own_id_as_beancount_orders_a_day() {
     // a pad between two transactions of its day, padding two commodities
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 open Equity:Opening\n\
          2024-01-05 * \"before pad\"\n  Assets:Bank -10 CNY\n  Expenses:Food\n\
          2024-01-05 pad Assets:Bank Equity:Opening\n\
@@ -766,7 +766,7 @@ fn the_paddings_of_a_pad_follow_it_each_with_its_own_id_as_beancount_orders_a_da
          2024-01-06 balance Assets:Bank 7 USD\n",
     );
     let query = |sql: &str| -> Vec<Vec<String>> {
-        let result = Query::compile(sql)
+        let result = crate::compile(sql)
             .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
             .unwrap_or_else(|err| panic!("{}: {}", sql, err));
         result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
@@ -820,7 +820,7 @@ fn the_paddings_of_a_pad_follow_it_each_with_its_own_id_as_beancount_orders_a_da
 fn a_pad_is_processed_after_the_balance_entries_of_its_day() {
     // a pad written at 9:00, before a balance at noon: zhang processes it after every balance entry of its day, at
     // the time of the last one, with its padding right after it
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         "1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 open Equity:Opening\n\
          2024-01-05 09:00:00 pad Assets:Bank Equity:Opening\n\
          2024-01-05 08:00:00 * \"breakfast\"\n  Assets:Bank -10 CNY\n  Expenses:Food\n\
@@ -828,7 +828,7 @@ fn a_pad_is_processed_after_the_balance_entries_of_its_day() {
          2024-01-06 balance Assets:Bank 100 CNY\n",
     );
     let query = |sql: &str| -> Vec<Vec<String>> {
-        let result = Query::compile(sql)
+        let result = crate::compile(sql)
             .and_then(|query| query.execute_at(&ledger, &Params::new(), today()))
             .unwrap_or_else(|err| panic!("{}: {}", sql, err));
         result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()

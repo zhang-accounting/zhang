@@ -67,74 +67,12 @@ pub fn analysis_host() -> Arc<dyn AnalysisHost> {
 }
 
 /// The options the server loads a ledger with: `plugin_policy`, the operator's, the host of the analyses, and the
-/// bundled script `zhang:budget` as a default plugin, the only implementation of budgets (RFC #698 P3.3).
-///
-/// A build with the feature `budget-switch` (tests and benches only: RFC #698's test switch) reads which implementation
-/// computes budgets from [`BudgetImpl::ENV`] instead, the script when it is unset, and panics on a value it does not
-/// know.
+/// bundled script `zhang:budget` as a default plugin, the only implementation of budgets (RFC #698).
 pub fn load_options(plugin_policy: Arc<PluginPolicy>) -> LoadOptions {
-    #[cfg(feature = "budget-switch")]
-    let budgets = BudgetImpl::from_env().unwrap_or_else(|error| panic!("{error}"));
-    #[cfg(not(feature = "budget-switch"))]
-    let budgets = BudgetImpl::Plugin;
-    load_options_for(plugin_policy, budgets)
-}
-
-/// Which implementation computes the budgets of a load: RFC #698's test switch, until P5 deletes the native code. Every
-/// build serves budgets with the bundled script, [`BudgetImpl::Plugin`]; tests and benches choose, to compare the two.
-// TODO(P5): goes with the native budget code
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BudgetImpl {
-    /// zhang's native budget code: the in-process provider of the budget tables, and the fold's budget checks
-    /// ([`LoadOptions::native_budgets`]). Only tests and benches load with it
-    Native,
-    /// the bundled Lua script `zhang:budget` (`plugins/budget/budget.lua`), an analyzer registered as a default plugin:
-    /// its snapshot serves the budget tables, and its diagnostics are the budget errors. The default
-    Plugin,
-    /// both, compared: a harness that compares (`zhang_testkit::budget_parity`, the budget fuzzer) loads the ledger
-    /// natively and with the script, and reports where they differ. A single load with it is the script's
-    Both,
-}
-
-impl BudgetImpl {
-    /// the environment variable a build with `budget-switch` reads the switch from: `native`, `plugin` (or unset) or
-    /// `both`
-    pub const ENV: &'static str = "ZHANG_BUDGET_IMPL";
-
-    /// the switch as [`BudgetImpl::ENV`] sets it: `plugin`, the default, when it is unset or empty, an error for a value
-    /// it does not know
-    pub fn from_env() -> Result<BudgetImpl, String> {
-        match std::env::var(Self::ENV).as_deref() {
-            Ok("native") => Ok(BudgetImpl::Native),
-            Err(_) | Ok("") | Ok("plugin") => Ok(BudgetImpl::Plugin),
-            Ok("both") => Ok(BudgetImpl::Both),
-            Ok(other) => Err(format!("{}={other:?}: expected native, plugin or both", Self::ENV)),
-        }
-    }
-
-    pub fn name(self) -> &'static str {
-        match self {
-            BudgetImpl::Native => "native",
-            BudgetImpl::Plugin => "plugin",
-            BudgetImpl::Both => "both",
-        }
-    }
-}
-
-/// [`load_options`] with the budgets computed by `budgets`: [`BudgetImpl::Plugin`] and [`BudgetImpl::Both`] register the
-/// bundled script `zhang:budget` as a default plugin; [`BudgetImpl::Native`] registers none and turns on the native
-/// budget code instead ([`LoadOptions::native_budgets`]).
-pub fn load_options_for(plugin_policy: Arc<PluginPolicy>, budgets: BudgetImpl) -> LoadOptions {
-    let options = LoadOptions {
+    LoadOptions {
         analysis: Some(analysis_host()),
+        default_plugins: vec![zhang_core::analysis::DefaultPlugin::budget()],
         ..LoadOptions::with_policy(plugin_policy)
-    };
-    match budgets {
-        BudgetImpl::Native => options.with_native_budgets(),
-        BudgetImpl::Plugin | BudgetImpl::Both => LoadOptions {
-            default_plugins: vec![zhang_core::analysis::DefaultPlugin::budget()],
-            ..options
-        },
     }
 }
 

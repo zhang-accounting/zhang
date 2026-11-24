@@ -1,11 +1,10 @@
 -- zhang:budget, the official budget plugin (RFC #698): zhang's budgets as an analyzer, a Lua script bundled with
--- zhang. Until RFC #698 P3.3 zhang computes budgets natively, and only the test switch native|plugin|both
--- (`zhang_server::analysis::BudgetImpl`) registers this script, as a default plugin; it answers exactly as the native
--- code does, which the budget contract and the differential tests check.
+-- zhang, and their only implementation: the server registers it as a default plugin for every ledger. It answers as
+-- zhang's native budget code did until RFC #698 P5 deleted it, which the budget contract and the differential fuzzer
+-- check, against the budget analyzer of zhang-plugin-sdk/examples/budget, written to the same rules.
 --
 -- It publishes the budget tables (#budgets, #budget_events, #budget_definitions), the `budgets` column of `postings`,
--- the budget pages' named queries and the budget errors, as zhang's native budget code computes them. It follows the
--- steps of RFC #698 Appendix A:
+-- the budget pages' named queries and the budget errors. It follows the steps of RFC #698 Appendix A:
 --
 --   1. the records, in the order zhang processed the ledger: the definitions, the events and the errors of the budget
 --      directives;
@@ -21,7 +20,7 @@
 --      amount in another commodity than its budget's that no price converts, once every price is known;
 --   6. what the budget directives put in, converted by zhang (zhang.convert) and added up exactly (zhang.decimal);
 --   7. the facts of #budgets: the months with something, with the running figures, which zhang fills between;
---   8. the output: the errors in the order zhang's native checks report them, then the tables, series and labels.
+--   8. the output: the errors in the order zhang has always reported them, then the tables, series and labels.
 --
 -- Nothing posting by posting crosses the boundary: zhang aggregates (`GROUP BY`, `sum`, `convert`), the script adds up
 -- the few sums it gets.
@@ -211,7 +210,7 @@ local function meta_one(record, key)
   return values and values[1] or null
 end
 
--- `a + b` as zhang's native budget code adds the running figures (BigDecimal's `&a + &b`): when one of them is zero,
+-- `a + b` as zhang's budgets have always added the running figures (BigDecimal's `&a + &b`): when one of them is zero,
 -- the other one, its scale unchanged. `a` is a decimal value, `b` one or the text of one; so is the sum
 local function add_running(a, b)
   if d.is_zero(b) then return a end
@@ -233,7 +232,7 @@ local function sorted(set)
   return list
 end
 
--- a diagnostic's place in the order zhang's native checks report them: by entry, then by posting as written (-1 for
+-- a diagnostic's place in the order zhang has always reported them: by entry, then by posting as written (-1 for
 -- a budget directive, or the side of a transfer: 0 `from`, 1 `to`), then by budget name in byte order
 local function by_place(a, b)
   if a.seq ~= b.seq then return a.seq < b.seq end
@@ -254,7 +253,7 @@ end
 -- ---- the running figures of a budget, month by month ----------------------------------------------------------
 -- For each month of `months` (sorted), what was added `added[month]` and spent `spent[month]` (each a decimal value,
 -- the text of one or nil for none): the assigned amount (the available amount before, plus what was added) and the
--- available amount after (assigned minus spent), as zhang's native budget code computes them with BigDecimal: a sum
+-- available amount after (assigned minus spent), as zhang's budgets have always computed them with BigDecimal: a sum
 -- keeps the larger scale of the two, but for `assigned` when one of them is zero, which is then the other one as it
 -- is (`&a + &b`, add_running). The texts are listed, 3 per month: assigned, available, and a spare slot.
 -- Fewer decimal values: the facts of #budgets are most of what an analysis computes in Lua.
@@ -417,7 +416,7 @@ function M.analyze(input)
       end
     elseif kind == "budget-transfer" then
       local from, to = budgets[fields.from], budgets[fields.to]
-      -- `from`, then `to`, as the native check reports them
+      -- `from`, then `to`, as zhang has always reported them
       if not from then
         undefined(record, fields.from)
       elseif not to then
@@ -1354,8 +1353,8 @@ function M.analyze(input)
         end, BY_POSTING)
     end
   end
-  -- a posting as written is checked whole, its booked lots summed, through the cost currency of its first lot, as the
-  -- native check does; only one with a lot that does not convert can fail so, and zhang.convert decides
+  -- a posting as written is checked whole, its booked lots summed, through the cost currency of its first lot, as zhang
+  -- always checked it; only one with a lot that does not convert can fail so, and zhang.convert decides
   for start = 1, #whole, 10000 do
     local batch = { table.unpack(whole, start, math.min(start + 9999, #whole)) }
     for index, converted in ipairs(zhang.convert(batch)) do
@@ -1451,7 +1450,7 @@ function M.analyze(input)
     if amount.event.unconverted then after_fold[#after_fold + 1] = amount end
   end
 
-  -- 8. the errors, in the order the native checks report them
+  -- 8. the errors, in the order zhang has always reported them
   local output = { diagnostics = {}, tables = {}, series = {}, labels = {} }
   local diagnostics = output.diagnostics
   sort(fold, by_place)

@@ -4,9 +4,9 @@
 //!
 //! Run one module with `cargo nextest run -p zhang-query -E 'binary(engine) & test(language::)'`.
 //!
-//! The modules that read the budget tables load their ledgers natively (`zhang_testkit::native`, RFC #698's test
-//! switch, until P5): they compile their queries against the core catalog, whose provider of the budget tables is the
-//! native one, where a ledger whose budgets the bundled script computes has a catalog of its own.
+//! The kit loads a ledger as `zhang serve` does (`zhang_testkit::ledger`, `zhang_testkit::fixtures`), with the bundled
+//! script `zhang:budget`, which computes the budget tables: a ledger with the script has a catalog of its own, which the
+//! modules that read the budget tables compile their queries against ([`compile`]).
 
 mod booked_rows;
 mod data_tables;
@@ -29,3 +29,28 @@ mod tables;
 mod typed_api;
 mod unnest;
 mod zhang_tables;
+
+use std::sync::{Arc, OnceLock};
+
+use zhang_query::{Catalog, ParamTypes, Query, QueryError};
+
+/// The catalog of a ledger the kit loads, with the tables of the bundled script `zhang:budget`: the same for every such
+/// ledger, so a query compiled against it runs on each of them.
+pub(crate) fn catalog() -> &'static Arc<Catalog> {
+    static CATALOG: OnceLock<Arc<Catalog>> = OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let catalog = Catalog::of_ledger(&zhang_testkit::ledger::load_text("1970-01-01 open Assets:Bank\n"));
+        assert_ne!(catalog.digest(), Catalog::standard().digest(), "the kit loads with the budget script");
+        catalog
+    })
+}
+
+/// `query` compiled against [`catalog`], as [`Query::compile`] compiles it against the standard catalog.
+pub(crate) fn compile(query: &str) -> Result<Query, QueryError> {
+    compile_with_params(query, &ParamTypes::new())
+}
+
+/// `query` with parameters of `params` compiled against [`catalog`], as [`Query::compile_with_params`] compiles it.
+pub(crate) fn compile_with_params(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
+    Query::compile_in(catalog(), query, params)
+}

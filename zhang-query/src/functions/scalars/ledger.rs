@@ -118,15 +118,14 @@ pub(crate) fn open_meta_has_at(data: &Dataset<'_>, account: &str, key: &str, val
     data.open_meta_values(account, key, at).is_some_and(|values| values.contains(value))
 }
 
-/// `account_budgets(account, date)`: the budgets a posting of the account at the start of the date
-/// counts in (a zhang extension), as a posting of that date without a time sees them. An alias of
-/// `open_meta_values(account, 'budget', date)`: the ledger's one rule of budget membership,
-/// [`Ledger::account_budgets`](zhang_core::ledger::Ledger::account_budgets), reads the metadata
-/// `budget` of the `open` in effect.
+/// `account_budgets(account, date)`, a legacy name kept for the budget system (RFC #698 §9.3): the values of the
+/// metadata `budget` of the account's `open` in effect at the start of the date, as a posting of that date without a
+/// time sees them. An alias of `open_meta_values(account, 'budget', date)`; which of them a posting counts toward is
+/// the plugin `zhang:budget`'s to say.
 pub(super) fn account_budgets(args: &[Value], data: &Dataset<'_>) -> Result<Value, String> {
     let account = name_arg(args, "account_budgets")?;
     let at = datetime_args(args, 1, "account_budgets")?;
-    Ok(values_set(data.account_budgets(account, at)))
+    Ok(values_set(data.open_meta_values(account, "budget", at)))
 }
 
 /// `account_status(account, date)` and `account_status(account, date, time)`: whether the account is `'open'` or

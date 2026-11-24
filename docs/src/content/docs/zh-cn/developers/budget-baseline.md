@@ -7,6 +7,13 @@ sidebar:
 
 [RFC #698](https://github.com/zhang-accounting/zhang/issues/698) 把预算从核心和查询引擎中移出，改由官方 WASM 插件提供。它的 P4 阶段在相同的账本和相同的请求上比较插件与原生实现。本页是 P0 阶段为此记录的基线：原生实现按 `zhang serve` 提供本地账本的方式运行时，加载、重载带预算和不带预算的账本要多久，单独以及八个同时回答预算页面的请求要多久，写入一笔交易要多久，用多少内存，以及页面和预算计算要传递多少数据。本页也说明这些数字是怎样测得的，以及如何再测一次。
 
+:::note[RFC #698 P5 之后]
+P5 删除了原生预算实现，`budget-switch` feature 和 `ZHANG_BUDGET_IMPL` 也随之删除。本页保留 P0 和 P4 当时测得的数字，包括原生实现和插件的。
+基准仍然可以运行，测量的是脚本：要测量一项改动，就把改动的构建与它所基于的提交的构建比较，即两个二进制文件（`budget_pairs` 的
+`--native <基线构建> --candidate <改动的构建>`；目录结构和参数中的 `native` 一方就是基线构建）。原生实现的数字只能用 P5 之前某个提交的构建重新测量，
+例如 P3.3 的合并提交（`f6d65156`），带 `--features budget-switch` 并设置 `ZHANG_BUDGET_IMPL=native`。
+:::
+
 :::caution[数字有噪声]
 这些数字测自一台与其他任务共用的构建机器。本页给出两轮的结果，数字在两轮之间、在同一轮之内都有波动。比较插件与原生实现时，请按[复现](#复现)所示在同一次会话中运行两者，而不要只拿本页的数字对比。
 :::
@@ -474,16 +481,18 @@ P4 在 1 万和 10 万笔交易上判定三条标准，每条都按规则成对�
 - **每个模式和账本得到各自的有效对数**：`e2e` 模式 `--pairs` 对（默认 10），`requests` 模式 `--requests-pairs` 对（60，每次运行 `--rounds` 200 轮）。如果一对中有运行被基准标记为无效（有构建在运行、cgroup 被限流、其任务等待 CPU 的时间达到 2%）、某个计时项的干净轮次少于 20 个，或者运行失败，这一对就被移到 `<out>/invalid/` 并重新运行，最多 `--max-invalid` 次。无效的运行按方和原因计数，写在 `<out>/invalid-runs.json` 中，并在运行结束时打印：基准读到的 CPU 压力是整个 pod 的，包括它自己的进程，所以较重的候选可能比原生一方更常被判为无效，这些计数会显示出来。
 - **然后它对收集到的结果运行 `budget_compare`**（`<out>/native`、`<out>/candidate`，每个模式、账本和对各一个目录）；只要某个计时项的结论是无结论、且它的账本的有效 `e2e` 对数少于 `--most-pairs`（15），就再运行至少 3 对，然后再次判定，这是第 3 步所允许的；p95 不会超过它的 60 对。它打印判定结果并保存在 `<out>/compare.txt` 和 `<out>/summary.json` 中，并把运行过的每一对记录在 `<out>/runs.jsonl` 中（所在槽位、每次运行的 CPU、退出状态、有效性）。
 - **然后它确认那些 `CONFIRM`**（第 8 步）：它们的模式和账本在 `<out>/sequential/` 中得到 `--confirm-pairs` 对（10 对）一次接一次运行的成对结果，以同样的方式判定，这些结论在 `<out>/verdicts.json` 中取代 `CONFIRM`。有算数的结论不通过或被拒绝时，它以失败退出。用同一个 `--out` 再次启动时，它保留找到的、构建、提交和配置都相同的有效对，把其余的移到一边，只运行缺少的部分。
-- **它比较的是插件与原生实现**：必须给出 `--expect-analyzer zhang:budget`，这样 `budget_compare` 会拒绝没有发布预算分析器的候选，以及发布了它的原生一方。`--no-expect-analyzer` 允许其他候选，用于自我比较或校准。
+- **它检查候选一方**：`--expect-analyzer zhang:budget` 让 `budget_compare` 拒绝没有显示预算分析器发布结果的候选；P5 之前它还会拒绝发布了它的原生一方，因为 P4 比较的是插件与原生实现。`--no-expect-analyzer` 允许其他候选，用于自我比较或校准。两者必须给出其一。
 
-在一个基准窗口中运行完整的 P4 集合，两方使用同一个二进制文件、以环境区分（在启用 `budget-switch` 特性的构建中用 `ZHANG_BUDGET_IMPL`），或者使用两个二进制文件（`--candidate <路径>`）：
+在一个基准窗口中运行完整的 P4 集合，使用两个二进制文件（`--candidate <路径>`），或者两方使用同一个二进制文件、以环境区分（`--native-env`、`--candidate-env`；P4 用的是一个带 `budget-switch` 特性的 P3.3 构建，`ZHANG_BUDGET_IMPL=native` 对 `plugin`，P5 已将其删除）。P5 之后，比较改动所基于的提交的构建与改动的构建：
 
 ```sh
-kbuild <lane> <worktree> 'CARGO_TARGET_DIR=/cache/target/<lane> cargo build --release -p zhang --examples --features budget-switch'
+kbuild <lane> <基线的-worktree> 'CARGO_TARGET_DIR=/cache/target/<lane> cargo build --release -p zhang --examples'
+kbuild <lane> --no-sync 'mkdir -p /cache/<lane>-base && cp /cache/target/<lane>/release/examples/budget_{baseline,compare,pairs} /cache/<lane>-base/'
+kbuild <lane> <改动的-worktree> 'CARGO_TARGET_DIR=/cache/target/<lane> cargo build --release -p zhang --examples'
 kbuild <lane> --no-sync 'mkdir -p /cache/<lane>-bin && cp /cache/target/<lane>/release/examples/budget_{baseline,compare,pairs} /cache/<lane>-bin/'
 kbuild --bench <lane> --no-sync '/cache/<lane>-bin/budget_pairs --out /cache/<lane>-p4 \
-  --native /cache/<lane>-bin/budget_baseline --env ZHANG_BUDGET_BASELINE_COMMIT=<commit> \
-  --native-env ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin --expect-analyzer zhang:budget'
+  --native /cache/<lane>-base/budget_baseline --candidate /cache/<lane>-bin/budget_baseline \
+  --env ZHANG_BUDGET_BASELINE_COMMIT=<commit> --expect-analyzer zhang:budget'
 ```
 
 默认值就是 P4 集合：`--ledgers 10000tx-30b-60m,100000tx-30b-60m --modes e2e,requests --pairs 10 --most-pairs 15 --requests-pairs 60 --rounds 200 --cpus 16-63 --cpus-per-side 8`。先把二进制文件从目标目录中复制出来，这样运行期间这个 lane 的构建不会替换它们。比终端存活更久的运行可以在 pod 中以分离的方式启动（`nohup setsid`），前面加一个像 `kbuild --bench` 那样占用基准窗口的脚本。
@@ -539,7 +548,7 @@ kbuild --bench <lane> --no-sync '/cache/<lane>-bin/budget_pairs --out /cache/<la
 
 ## 复现
 
-在要测量的提交的检出目录中运行，尽量不要同时运行其他任务。自 RFC #698 的 P3.3 起，每个构建都由内置脚本 `zhang:budget` 计算预算：要测量原生实现，请使用带 `budget-switch` feature（`--features budget-switch`）的构建并设置 `ZHANG_BUDGET_IMPL=native`；不带该 feature 的构建测量的是脚本。
+在要测量的提交的检出目录中运行，尽量不要同时运行其他任务。自 RFC #698 的 P3.3 起，每个构建都由内置脚本 `zhang:budget` 计算预算。P5 之前，原生实现用带 `budget-switch` feature 的构建并设置 `ZHANG_BUDGET_IMPL=native` 测量；P5 之后只有脚本，改动与它所基于的提交比较，各用一个构建。
 
 ```sh
 # 机器信息
@@ -567,9 +576,10 @@ ZHANG_BUDGET_BASELINE_ONLY=requests cargo run --release -p zhang --example budge
 
 # 完整的 P4 集合，每一对的两方同时运行，然后判定（在构建 pod 上请在基准窗口中运行：
 # 见"P4 的快速流程"）
-cargo build --release -p zhang --examples --features budget-switch
-target/release/examples/budget_pairs --out /tmp/p4 --native target/release/examples/budget_baseline \
-  --native-env ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin --expect-analyzer zhang:budget
+# 基线构建对改动的构建
+cargo build --release -p zhang --examples
+target/release/examples/budget_pairs --out /tmp/p4 --native /tmp/baseline/budget_baseline \
+  --candidate target/release/examples/budget_baseline --expect-analyzer zhang:budget
 
 # 只运行一个账本的加载和写入，用于重复测量
 ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m
@@ -580,4 +590,4 @@ cd /tmp/budget-ledgers/100000tx-30b-60m && LC_ALL=C sha256sum *.zhang | sha256su
 
 每个账本在 stderr 上把它的数字打印成一张表，在 stdout 上打印一行 `BASELINE {...}` 形式的 JSON，其中包含按采集顺序排列的每个样本（最多 200 个）、机器信息和运行前后的负载。`ZHANG_BUDGET_BASELINE_OUT` 把同样的 JSON 写到 `<dir>/<ledger>.json`。`ZHANG_BUDGET_BASELINE_KEEP` 把每个账本按生成时的样子写到 `<dir>/<ledger>/`，也可以用 `zhang serve` 打开。`ZHANG_BUDGET_BASELINE_SOURCE=local` 改用 `LocalFileSystemDataSource` 而不是 `zhang serve` 的数据源读取文件，用于对比。`ZHANG_BUDGET_BASELINE_ONLY=writes` 只测量加载和写入，`ZHANG_BUDGET_BASELINE_ONLY=e2e` 只测量加载和端到端计时项，`ZHANG_BUDGET_BASELINE_ONLY=requests` 只测量加载和热请求；其他值会被拒绝。`ZHANG_BUDGET_BASELINE_ROUNDS=<n>` 设置热请求的轮数（30）。`ZHANG_BUDGET_BASELINE_BURDEN_MIB=<n>` 构造一个用于校准的合成的较重候选：端到端计时项的每一轮还要写入 `n` MiB 新分配的内存并读回，计入时间。设置了 `ZHANG_BUDGET_BASELINE_OUT` 时，每次运行都会把报告写到那里，单个账本的运行也是如此。每次运行固定在 `ZHANG_BUDGET_BASELINE_CPUS`（`8-15`）上，使用 `ZHANG_BUDGET_BASELINE_WORKERS` 个工作线程（8 个），记录 `ZHANG_BUDGET_BASELINE_COMMIT` 指定的提交；受到构建、限流或 CPU 压力干扰的运行会被标记为无效。`ZHANG_BUDGET_BASELINE_IDLE=<秒数>` 在运行结束后空闲这么长时间，再读一次常驻内存。基准使用二进制的分配器：mimalloc，或用 `--no-default-features` 时系统的分配器。
 
-整个基准至少运行两轮，并在同一次会话中交替运行插件和原生实现进行比较。
+整个基准至少运行两轮，并在同一次会话中交替运行两个构建进行比较，或者像 `budget_pairs` 那样两方同时运行。

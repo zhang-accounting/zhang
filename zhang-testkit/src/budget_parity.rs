@@ -5,8 +5,8 @@
 //!
 //! The oracle ([`Budgets::Oracle`]) is the budget analyzer of `zhang-plugin-sdk/examples/budget`, built for wasm32: an
 //! implementation of the budgets in Rust, written to zhang's native budget code (RFC #698 P1.4), which answered as the
-//! native code did on #835's contract and on the fuzzer's seeds 1 to 10,000, and which stands for that code once RFC
-//! #698 P5 deletes it. [`BASELINE_ENV`] names another module in its place, such as an earlier `budget.lua`, to compare
+//! native code did on #835's contract and on the fuzzer's seeds 1 to 10,000, and which stands for that code since RFC
+//! #698 P5 deleted it. [`BASELINE_ENV`] names another module in its place, such as an earlier `budget.lua`, to compare
 //! a change of the script with the script it changes.
 //!
 //! A difference is classified by the rules of the testing guide ("The budget contract", allowed differences): the scale
@@ -30,7 +30,6 @@ use zhang_core::clock::Clock;
 use zhang_core::extensions::SnapshotStatus;
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin_policy::PluginPolicy;
-use zhang_server::analysis::{load_options_for, BudgetImpl};
 
 use crate::fixtures::{data_source_for, repo_root};
 use crate::http::{app, call, router_of, serve_config, Settings};
@@ -290,7 +289,7 @@ pub fn oracle() -> Result<Option<Module>, String> {
 /// The options the server loads a ledger with (`zhang_server::analysis::load_options`), the default plugin
 /// `zhang:budget` being the module `content`, a file named `file`, in place of the bundled script.
 pub fn with_budget_plugin(file: &str, content: Arc<[u8]>) -> LoadOptions {
-    let mut options = load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Plugin);
+    let mut options = zhang_server::analysis::load_options(Arc::new(PluginPolicy::default()));
     let budget = options
         .default_plugins
         .iter_mut()
@@ -310,7 +309,7 @@ pub fn with_budget_plugin(file: &str, content: Arc<[u8]>) -> LoadOptions {
 pub async fn serve(dir: &Path, entry: &str, clock: Clock, budgets: Budgets) -> Result<(Router, Arc<RwLock<Ledger>>), String> {
     let source = data_source_for(entry);
     let options = match budgets {
-        Budgets::Script => load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Plugin),
+        Budgets::Script => zhang_server::analysis::load_options(Arc::new(PluginPolicy::default())),
         Budgets::Oracle => {
             let (file, content) = oracle()?.ok_or("no oracle to compare the budget script with: the wasm32 target is not installed")?;
             with_budget_plugin(&file, content)

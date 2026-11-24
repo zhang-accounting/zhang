@@ -9,9 +9,10 @@
 //! ([`TableRef::Shared`]), whose names and columns it owns: the tables of the catalog's extensions,
 //! and its `postings` table when the extensions add columns to it.
 //!
-//! [`Catalog::core`] has the core tables only. [`Catalog::standard`] adds the tables of the native
-//! providers, the budget tables of `zhang:budget`: it is the catalog of a ledger without tables of
-//! its own and the one [`crate::Query::compile`] compiles against. A ledger whose analyzers provide
+//! [`Catalog::core`] has the core tables only. [`Catalog::standard`] adds the tables zhang declares
+//! for the official default plugin `zhang:budget`, its legacy names, which answer that they are
+//! unavailable when the plugin does not run: it is the catalog of a ledger without tables of its
+//! own and the one [`crate::Query::compile`] compiles against. A ledger whose analyzers provide
 //! tables has a catalog of its own, built while it loads and kept with it ([`Catalog::of_ledger`]):
 //! a query to run on a ledger compiles against that ledger's catalog. A handle holds a table's
 //! schema, never its rows, which an execution looks up in the ledger it runs on.
@@ -47,12 +48,12 @@ impl Catalog {
         &CORE
     }
 
-    /// The core tables and those of the native providers, compiled into zhang: the catalog of a ledger without tables
-    /// of its own, which [`crate::Query::compile`] compiles against.
+    /// The core tables and those zhang declares ([`extension::DECLARED`]): the catalog of a ledger without tables of its
+    /// own, which [`crate::Query::compile`] compiles against.
     pub fn standard() -> &'static Arc<Catalog> {
         static STANDARD: LazyLock<Arc<Catalog>> = LazyLock::new(|| {
             // the tests build it from the same manifests, so this cannot fail in a release
-            Arc::new(Catalog::with_extensions(extension::native_providers()).unwrap_or_else(|err| panic!("a native provider is invalid: {err}")))
+            Arc::new(Catalog::with_extensions(extension::declared_providers()).unwrap_or_else(|err| panic!("a declared provider is invalid: {err}")))
         });
         &STANDARD
     }
@@ -83,7 +84,7 @@ impl Catalog {
     /// after its own, and the catalog their named queries. A provider whose manifest does not hold, whose tables and
     /// columns cannot all be had (a name is taken, or a limit is reached), or one of whose named queries does not compile
     /// against the catalog with the parameters it declares, has none of them, and is among the providers skipped, with
-    /// why. The named queries of a native provider are checked by the tests, against the standard catalog.
+    /// why. The named queries of a declared provider are checked by the tests, against the standard catalog.
     pub(crate) fn build(providers: &[Provider]) -> (Catalog, Vec<Skipped>) {
         // the positions in `providers` of those the catalog is built from: a provider whose query does not compile
         // against the catalog is left out, and the catalog built again without it, which the queries of the others

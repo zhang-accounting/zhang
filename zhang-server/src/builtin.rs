@@ -458,7 +458,7 @@ impl Compiled {
     /// a query in a namespace of zhang's own ([`zhang_query::BUILTIN_QUERY_NAMESPACES`], which a test keeps to the
     /// namespaces of [`BUILTINS`]), and the ledger reports that on the analyzer's `plugin` directive, as a
     /// `PluginAnalysisFailed` error (`manifest`). So a namespace zhang takes in a later version stops an analyzer that
-    /// had it loudly, never by hiding its queries. The native providers' queries are checked by the tests.
+    /// had it loudly, never by hiding its queries. The queries zhang declares for `zhang:budget` are checked by the tests.
     fn of(catalog: &Catalog) -> Compiled {
         let mut own = BUILTINS.iter().map(|builtin| (builtin.named(), None)).collect::<Vec<_>>();
         let (provided, named_like_own): (Vec<_>, Vec<_>) = catalog.named_queries().partition(|(_, query)| get(&query.name).is_none());
@@ -524,8 +524,8 @@ static STANDARD: LazyLock<Arc<Compiled>> = LazyLock::new(|| {
 /// The built-in queries compiled against other catalogs, the latest last.
 static COMPILED: Mutex<Vec<Arc<Compiled>>> = Mutex::new(Vec::new());
 
-/// The built-in queries of the standard catalog, that of a ledger without tables of its own: zhang's own and the
-/// native providers'.
+/// The built-in queries of the standard catalog, that of a ledger without tables of its own: zhang's own and those it
+/// declares for `zhang:budget`.
 pub fn standard() -> &'static Compiled {
     &STANDARD
 }
@@ -652,7 +652,7 @@ mod test {
     use super::{compiled, json_params, standard, text, BUILTINS, PROVIDED_BEFORE};
     use crate::request::BuiltinParamValue;
 
-    /// Every built-in query of a ledger without tables of its own, zhang's and the native providers', in order.
+    /// Every built-in query of a ledger without tables of its own, zhang's and those declared for `zhang:budget`, in order.
     fn every_builtin() -> impl Iterator<Item = &'static NamedQuery> {
         standard().queries().iter().map(|registered| &registered.query)
     }

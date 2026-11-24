@@ -1,6 +1,6 @@
 //! Tests of the extension tables: the checks of a manifest, the catalog, label columns, and the digest a query keeps.
-//! The series generation is tested in [`super::series`], `zhang:budget` in [`super::budget`] and, through BQL, by the
-//! engine's budget suites and #835's budget contract.
+//! The series generation is tested in [`super::series`], the legacy names of `zhang:budget` in [`super::compat`], and
+//! the budget plugin, through BQL, by the engine's budget suites and #835's budget contract.
 
 use std::sync::Arc;
 
@@ -10,22 +10,20 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 
 use super::*;
-use crate::catalog::{Catalog, TableRef};
+use crate::catalog::Catalog;
 use crate::params::Params;
-use crate::projector::{set_membership, Projection};
-use crate::table::{Dataset, RowRef};
+use crate::projector::Projection;
+use crate::table::Dataset;
 use crate::value::Value;
 use crate::{ParamTypes, Query, QueryErrorKind};
 
-/// A ledger of `text`, its main file, its budgets interpreted by the native code through RFC #698's test switch (a bare
-/// load runs no budget code): the native provider of the budget tables these tests read.
-// TODO(P5): the native provider goes, and with it its tests
+/// A ledger of `text`, its main file, as a bare load loads it: it runs no plugin, so the budget tables zhang declares
+/// answer that they are unavailable.
 pub(crate) fn ledger(text: &str) -> Ledger {
     let dir = tempfile::tempdir().expect("tempdir").keep().canonicalize().expect("tempdir");
     std::fs::write(dir.join("main.zhang"), text).expect("write ledger");
     let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-    let options = zhang_core::analysis::LoadOptions::default().with_native_budgets();
-    Ledger::load_with_options(dir, "main.zhang".to_owned(), source, zhang_core::clock::Clock::System, options).expect("cannot load ledger")
+    Ledger::load_with_data_source(dir, "main.zhang".to_owned(), source).expect("cannot load ledger")
 }
 
 fn column(name: &str, ty: DataType, fill: Option<Fill>) -> ColumnDecl {
@@ -282,7 +280,7 @@ fn a_digest_follows_the_manifests_and_their_sources() {
     };
     assert_eq!(digest(&[manifest()]), digest(&[manifest()]));
     assert_eq!(Catalog::core().digest(), digest(&[]));
-    assert_eq!(Catalog::standard().digest(), Catalog::with_extensions(native_providers()).unwrap().digest());
+    assert_eq!(Catalog::standard().digest(), Catalog::with_extensions(declared_providers()).unwrap().digest());
     assert_ne!(Catalog::standard().digest(), Catalog::core().digest());
     let mut described = manifest();
     described.tables[0].columns[0].description = "Another.".to_owned();
@@ -290,8 +288,11 @@ fn a_digest_follows_the_manifests_and_their_sources() {
     let mut predicate = manifest();
     predicate.labels[0].predicate = "account IN :accounts".to_owned();
     assert_ne!(digest(&[manifest()]), digest(&[predicate]));
-    // the native provider's tables served from a snapshot published into the ledger are other tables
-    let republished = native_providers().iter().map(|native| published(native.manifest.clone())).collect::<Vec<_>>();
+    // the declared provider's tables served from a snapshot published into the ledger are other tables
+    let republished = declared_providers()
+        .iter()
+        .map(|declared| published(declared.manifest.clone()))
+        .collect::<Vec<_>>();
     assert_ne!(Catalog::with_extensions(&republished).unwrap().digest(), Catalog::standard().digest());
     assert_ne!(published(manifest()).digest(), published(predicate_changed()).digest());
 }
@@ -325,42 +326,16 @@ fn a_query_of_an_extensions_data_runs_only_on_a_catalog_with_its_digest() {
     for sql in ["SELECT count(*)", "SELECT account FROM #accounts"] {
         assert!(compile(sql).execute_at(&ledger, &Params::new(), today).is_ok(), "{sql}");
     }
-    // the ledger's own catalog
+    // the ledger's own catalog: the declared column is the ledger's, and says that zhang:budget does not run for it
     let budgets = Query::compile("SELECT budgets").unwrap();
-    assert!(budgets.execute_at(&ledger, &Params::new(), today).is_ok());
+    let err = budgets.execute_at(&ledger, &Params::new(), today).unwrap_err();
+    assert!(
+        err.message
+            .starts_with("column postings.budgets is unavailable: plugin zhang:budget does not run: "),
+        "{}",
+        err.message
+    );
     assert_eq!(Catalog::of_ledger(&ledger).digest(), Catalog::standard().digest());
-}
-
-#[test]
-fn a_query_compiled_once_reads_the_rows_of_the_ledger_it_runs_on() {
-    // the tables of a provider, and postings with its label column, are tables the catalog owns and shares: a compiled
-    // query keeps handles to them, never their rows
-    let catalog = Catalog::standard();
-    for table in ["budget_definitions", "budgets", "postings"] {
-        assert!(matches!(catalog.find(table), Some(TableRef::Shared(_))), "{table}");
-    }
-    let today = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
-    let text = |name: &str| {
-        format!(
-            "1970-01-01 open Expenses:Food\n  budget: {name}\n1970-01-01 open Assets:Bank\n\
-             2024-01-01 budget {name} CNY\n\
-             2024-01-02 * \"lunch\"\n  Expenses:Food 10 CNY\n  Assets:Bank -10 CNY\n"
-        )
-    };
-    let (before, after) = (ledger(&text("Food")), ledger(&text("Meals")));
-    for sql in [
-        "SELECT name FROM #budget_definitions",
-        "SELECT name, activity FROM #budgets WHERE date = 2024-01-01",
-        "SELECT budgets",
-        "SELECT count(*) WHERE 'Food' IN budgets",
-    ] {
-        let query = Query::compile(sql).unwrap();
-        let run = |ledger: &Ledger| format!("{:?}", query.execute_at(ledger, &Params::new(), today).unwrap().rows);
-        let fresh = |ledger: &Ledger| format!("{:?}", Query::compile(sql).unwrap().execute_at(ledger, &Params::new(), today).unwrap().rows);
-        assert_eq!(run(&before), fresh(&before), "{sql}");
-        assert_eq!(run(&after), fresh(&after), "{sql}");
-        assert_ne!(run(&before), run(&after), "{sql}");
-    }
 }
 
 /// The labels of `predicate` on every row of a ledger: the column's value, and the in-place test of every label.
@@ -442,43 +417,6 @@ fn a_label_column_holds_the_labels_whose_predicate_holds() {
     assert!(by_label.iter().all(|(_, set)| !set.contains(&"big".to_owned())));
 }
 
-#[test]
-fn the_budgets_column_reads_in_place_as_its_value() {
-    let ledger = ledger(
-        "1970-01-01 open Expenses:Food\n  budget: Food\n  budget: Treats\n1970-01-01 open Assets:Bank\n\
-         2024-01-01 budget Food CNY\n2024-01-01 budget Treats CNY\n2024-01-05 budget-close Treats\n\
-         2024-01-02 * \"a\"\n  Expenses:Food 10 CNY\n  Assets:Bank -10 CNY\n\
-         2024-01-07 * \"b\"\n  Expenses:Food 10 CNY\n  Assets:Bank -10 CNY\n",
-    );
-    let all = Projection::all();
-    let data = Dataset::new(&ledger, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap().and_time(chrono::NaiveTime::MIN), &all);
-    let budgets = Catalog::standard().postings().column("budgets").unwrap();
-    let params = Params::new();
-    let regexes = crate::executor::RegexCache::default();
-    let mut seen = vec![];
-    for row in &data.rows {
-        let Value::Set(set) = budgets.value(&data, RowRef::Posting(row)) else {
-            panic!("a set")
-        };
-        let env = crate::executor::Env {
-            data: Some(&data),
-            row: Some(RowRef::Posting(row)),
-            aggregates: &[],
-            cells: &[],
-            running: None,
-            params: &params,
-            regexes: &regexes,
-        };
-        let expr = crate::compiler::CExpr::Column(budgets.clone());
-        let contains = set_membership(&expr, &env).expect("an in-place test");
-        for name in ["Food", "Treats", "Other"] {
-            assert_eq!(contains(name), set.contains(name), "{name}");
-        }
-        seen.push(set.into_iter().collect::<Vec<_>>().join(","));
-    }
-    assert_eq!(seen, ["Food,Treats", "", "Food", ""]);
-}
-
 /// A label predicate that fails with an error is a provider's bug: a debug build panics (a release build reads the label
 /// as not holding).
 #[test]
@@ -537,8 +475,8 @@ fn a_catalog_has_at_most_16_label_columns_shared_by_its_providers() {
     assert_eq!(messages, ["test:two: column postings.tag16: a catalog has at most 16 label columns"]);
     assert_eq!(extensions.labels.len(), 16);
     assert_eq!(extensions.labels.last().unwrap().0.name, "tag25");
-    // the native providers leave room: zhang:budget has one
-    assert_eq!(native_providers().iter().map(|it| it.manifest.labels.len()).sum::<usize>(), 1);
+    // the declared providers leave room: zhang:budget has one
+    assert_eq!(declared_providers().iter().map(|it| it.manifest.labels.len()).sum::<usize>(), 1);
 }
 
 /// A named query `name` of `bql` with `params`.
@@ -726,7 +664,7 @@ fn the_standard_catalog_has_the_queries_of_the_budget_pages_from_zhang_budget() 
         ]
     );
     assert_eq!(names.iter().map(|(_, name)| *name).collect::<Vec<_>>(), abi::LEGACY_QUERIES);
-    // a native provider's queries are checked here, as the catalog checks an analyzer's
+    // a declared provider's queries are checked here, as the catalog checks an analyzer's
     for (_, query) in catalog.named_queries() {
         query.check(catalog).unwrap_or_else(|err| panic!("{err}"));
     }

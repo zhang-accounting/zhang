@@ -169,7 +169,6 @@ mod test {
                 file: "router_now.wat".to_owned(),
                 content: Arc::from(content),
             }],
-            native_budgets: false,
         }
     }
 

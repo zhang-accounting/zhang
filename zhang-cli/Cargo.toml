@@ -13,9 +13,6 @@ build = "build.rs"
 default = ["mimalloc"]
 # the allocator of the binary (`src/allocator.rs`); without it, the system's
 mimalloc = ["dep:mimalloc"]
-# RFC #698's test switch, for the budget baseline (`examples/budget_baseline.rs`): ZHANG_BUDGET_IMPL (`native`,
-# `plugin`) chooses which implementation computes the budgets of the ledgers it loads. Never in a release build
-budget-switch = ["zhang-server/budget-switch"]
 
 [dependencies]
 zhang-core = { version = "0.1", path = "../zhang-core" }

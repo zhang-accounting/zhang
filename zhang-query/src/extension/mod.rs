@@ -4,10 +4,10 @@
 //! A provider declares them in a static [`Manifest`]. A catalog is built from the manifests before any snapshot
 //! exists ([`build`]), and a compiled query keeps their schema only, the handles of [`crate::catalog`], never rows.
 //! Where the rows of a provider come from is decided when the catalog is built, and kept with each of its tables and
-//! columns ([`Source`]): a native provider's snapshot of a ledger is built from the ledger in the query cache, an
-//! analyzer's is the one it published into the ledger while the ledger loaded. A query compiled once reads the rows
-//! of every ledger it runs on, as long as the catalog of that ledger has the digest the query was compiled against
-//! ([`CatalogDigest`]); on another one it fails with an error that asks to compile it again, never with a wrong read.
+//! columns ([`Source`]): an analyzer's are in the snapshot it published into the ledger while the ledger loaded, and a
+//! provider zhang only declares has none. A query compiled once reads the rows of every ledger it runs on, as long as
+//! the catalog of that ledger has the digest the query was compiled against ([`CatalogDigest`]); on another one it
+//! fails with an error that asks to compile it again, never with a wrong read.
 //!
 //! There are three kinds:
 //!
@@ -26,11 +26,11 @@
 //! server lists and runs with its own built-in queries, `zhang:budget`'s `budgets.*` among them. They are part of the
 //! catalog, checked when it is built: each compiles against it with exactly the parameters it declares.
 //!
-//! The native providers are compiled into zhang ([`NATIVE`]): `zhang:budget` serves `#budgets`, `#budget_events`,
-//! `#budget_definitions` and the `budgets` column of `postings` with the native budget code ([`budget`]). A native
-//! snapshot is built from the ledger on first use and kept with it, like the query cache. The other providers are
-//! analyzers ([`abi`]): plugins that analyse a ledger while it loads and publish what they found as a snapshot, which
-//! the host checks against their manifest before anything of it is published ([`snapshot::publish`]).
+//! The providers are analyzers ([`abi`]): plugins that analyse a ledger while it loads and publish what they found as a
+//! snapshot, which the host checks against their manifest before anything of it is published ([`snapshot::publish`]).
+//! zhang also declares the tables of the official default plugin `zhang:budget`, its legacy names ([`DECLARED`],
+//! [`compat`]), which every catalog has: they answer that they are unavailable, saying why, when the plugin does not
+//! run for a ledger, and the plugin's own tables, which it publishes, take their place when it runs.
 //!
 //! Names follow §3.4 of the RFC: a core table or column always keeps its name, and of two providers declaring one
 //! name the first keeps it. A provider that cannot have all of its tables and columns, because a name is taken or
@@ -43,7 +43,6 @@
 //! provider past either limit is skipped.
 
 pub(crate) mod abi;
-pub(crate) mod budget;
 mod compat;
 pub(crate) mod labels;
 pub(crate) mod reader;
@@ -56,11 +55,9 @@ use std::fmt;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 
-use zhang_core::ledger::Ledger;
-
 pub(crate) use self::labels::{LabelColumn, Labels};
 pub(crate) use self::series::{FillRead, SeriesRow, SeriesSpec};
-pub(crate) use self::snapshot::{native_snapshots, Cause, FactRow, Label, NativeSnapshot, Partition, RecordRow, TableData};
+pub(crate) use self::snapshot::{Label, RecordRow, TableData};
 use crate::catalog::{Catalog, TableRef};
 use crate::params::JSON_TYPES;
 use crate::table::{self, Borrow, ColumnDef, Get, Names, Rows, Table};
@@ -132,7 +129,7 @@ pub(crate) struct TableDecl {
     /// the name after `#`: `[a-z][a-z0-9_]*`
     pub name: String,
     /// the name its rows are published under: an analyzer's name for it, which the catalog's starts with the
-    /// analyzer's namespace ([`abi`]); the name for a native provider
+    /// analyzer's namespace ([`abi`]); the name for a declared provider
     pub published_as: String,
     pub description: String,
     pub kind: TableKind,
@@ -229,25 +226,16 @@ pub(crate) struct LabelDecl {
     pub params: Vec<(String, DataType)>,
 }
 
-/// A provider compiled into zhang: its manifest, and the parts of its snapshot of a ledger, which the host builds
-/// from the ledger on first use.
-pub(crate) struct NativeProvider {
-    pub manifest: fn() -> Manifest,
-    /// the rows of its table `name` of the ledger
-    pub table: fn(&Ledger, &str) -> TableData,
-    /// the labels of its label column `name` of the ledger
-    pub labels: fn(&Ledger, &str) -> Vec<Label>,
-}
-
-/// The native providers, in the order their tables are listed.
-pub(crate) static NATIVE: &[&NativeProvider] = &[&budget::PROVIDER];
+/// The manifests of the providers zhang declares without serving their rows, in the order their tables are listed:
+/// the legacy names of `zhang:budget` ([`compat::budget_manifest`]).
+pub(crate) static DECLARED: &[fn() -> Manifest] = &[compat::budget_manifest];
 
 /// Where the rows of a provider's tables and columns come from, decided when a catalog is built.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Source {
-    /// a provider compiled into zhang: its snapshot of a ledger is built from the ledger, part by part on first use,
-    /// and kept in the ledger's query cache
-    Native(&'static NativeProvider),
+    /// a provider zhang declares ([`DECLARED`]) but does not serve: an official default plugin that does not run for
+    /// the ledger, whose tables and columns answer that they are unavailable, saying why
+    Declared,
     /// an analyzer: its snapshot is the one it published into the ledger while the ledger loaded
     /// ([`zhang_core::extensions::Extensions`])
     Published,
@@ -258,18 +246,9 @@ pub(crate) enum Source {
 impl Hash for Source {
     fn hash<H: Hasher>(&self, state: &mut H) {
         match self {
-            Source::Native(_) => 0u8.hash(state),
+            Source::Declared => 0u8.hash(state),
             Source::Published => 1u8.hash(state),
         }
-    }
-}
-
-impl fmt::Debug for Source {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Source::Native(_) => "Native",
-            Source::Published => "Published",
-        })
     }
 }
 
@@ -290,14 +269,14 @@ impl Provider {
     }
 }
 
-/// The native providers, as [`NATIVE`] lists them.
-pub(crate) fn native_providers() -> &'static [Provider] {
+/// The providers zhang declares, as [`DECLARED`] lists them.
+pub(crate) fn declared_providers() -> &'static [Provider] {
     static PROVIDERS: LazyLock<Vec<Provider>> = LazyLock::new(|| {
-        NATIVE
+        DECLARED
             .iter()
-            .map(|native| Provider {
-                manifest: (native.manifest)(),
-                source: Source::Native(native),
+            .map(|manifest| Provider {
+                manifest: manifest(),
+                source: Source::Declared,
             })
             .collect()
     });

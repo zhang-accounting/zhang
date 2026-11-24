@@ -61,8 +61,10 @@ use zhang_core::ledger::Ledger;
 pub(crate) use self::cache::{Head, LedgerCache};
 pub(crate) use self::directives::date_of;
 pub(crate) use self::entries::entry_type;
+#[cfg(test)]
+pub(crate) use self::postings::time_value;
 pub use self::postings::COLUMNS;
-pub(crate) use self::postings::{position, time_value, Entry, MaybeOwned, Row, Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
+pub(crate) use self::postings::{position, Entry, MaybeOwned, Row, Scope, ACCOUNT_BALANCE_COLUMN, BALANCE_COLUMN};
 #[cfg(test)]
 use crate::catalog::ColumnRef;
 use crate::catalog::TableRef;
@@ -616,12 +618,6 @@ impl<'a> Dataset<'a> {
     /// The `open` and `close` directives of `account`, for `open_date()`, `open_meta()`, ...
     pub fn account_directives(&self, account: &str) -> Option<AccountDirectives<'a>> {
         self.cache.lookups(self.ledger).account(self.ledger, account)
-    }
-
-    /// The budgets a posting of `account` at the wall-clock time `at` counts in, for `account_budgets()`: the ledger's
-    /// one rule of budget membership ([`Ledger::account_budgets`]).
-    pub fn account_budgets(&self, account: &str, at: NaiveDateTime) -> Option<&'a BTreeSet<String>> {
-        self.ledger.account_budgets(account, at)
     }
 
     /// The status of `account` at `at`, for `account_status()`: the ledger's account lifecycle.

@@ -9,7 +9,8 @@ description = "Shared test support for the zhang workspace: the fixture ledgers,
 doctest = false
 
 [features]
-# the HTTP harness of the zhang-server tests (`http`): only zhang-server's own tests turn it on, as it depends on
+# the HTTP harness of the zhang-server tests (`http`), and the loaders that load as the server does, with the bundled
+# script zhang:budget: the tests of zhang-server, zhang-query and zhang turn it on, never zhang-core's, as it depends on
 # zhang-server, which enables zhang-core's plugin runtime
 server = ["dep:zhang-server", "dep:axum", "dep:gotcha", "dep:tokio", "dep:tower", "dep:bytes"]
 # the beanquery oracle harness (`oracle`): only the crates that test the query engine turn it on

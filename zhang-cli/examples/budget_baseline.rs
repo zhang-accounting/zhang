@@ -1,4 +1,5 @@
-//! The performance baseline of the native budget implementation, which #698 P4 compares the budget plugin against: on
+//! The performance baseline of budgets, which #698 P4 measured the budget plugin against the native code with, and which
+//! compares two builds since P5 deleted that code: on
 //! generated ledgers of 10,000 and 100,000 transactions ([`zhang_testkit::budget_ledger`]), with budgets and without,
 //! the load and reload times, the budget pages' requests (cold after a reload, and warm), the writes of transactions,
 //! what the file watcher does after each, readers during and after a write, readers concurrent with writes, the
@@ -646,7 +647,11 @@ fn machine() -> Value {
 /// accounts the `budget` metadata links.
 fn input_counts(ledger: &Ledger) -> Value {
     let mut counts = std::collections::BTreeMap::<&str, u64>::new();
-    let linked = ledger.budget_accounts().into_values().flatten().collect::<std::collections::BTreeSet<_>>();
+    let linked = ledger
+        .open_meta_accounts("budget")
+        .into_values()
+        .flatten()
+        .collect::<std::collections::BTreeSet<_>>();
     for directive in &ledger.directives {
         let kind = match &directive.data {
             Directive::Budget(_) => "budget",

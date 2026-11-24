@@ -675,8 +675,7 @@ fn with_default_budget(analyze: Analyze, manifest: Value) -> Ledger {
 }
 
 /// The bundled script is the only implementation of budgets: when the analysis of `zhang:budget` fails, the ledger has
-/// its one error and no budget error. The native budget checks run only with RFC #698's test switch, where they report
-/// what the script reports, with the same ids.
+/// its one error and no budget error.
 #[test]
 fn a_failed_zhang_budget_leaves_its_error_and_no_budget_error() {
     let kinds = |ledger: &Ledger| ledger.errors.iter().map(|it| it.error_type.to_string()).collect::<Vec<_>>();
@@ -688,19 +687,17 @@ fn a_failed_zhang_budget_leaves_its_error_and_no_budget_error() {
             .map(|it| it.id.clone())
             .collect::<Vec<_>>()
     };
-    let natively = zhang_server::analysis::load_options_for(Arc::new(PluginPolicy::default()), zhang_server::analysis::BudgetImpl::Native);
-    let native = load_with(&scratch(&[]), natively, Clock::System);
-    assert_eq!(kinds(&native), ["BudgetDoesNotExist", "BudgetDoesNotExist"]);
-    // the script: the same errors
+    // the script: its budget errors, each with its id
     let script = load(&scratch(&[]));
-    assert_eq!((kinds(&script), ids(&script)), (kinds(&native), ids(&native)));
+    assert_eq!(kinds(&script), ["BudgetDoesNotExist", "BudgetDoesNotExist"]);
+    assert_eq!(ids(&script).len(), 2);
     // failed: its error only
     let failed = with_default_budget(Analyze::Traps, budget_manifest());
     assert_eq!(kinds(&failed), ["PluginAnalysisFailed"]);
     // published: its own diagnostics only (here none)
     let published = with_default_budget(Analyze::Output(json!({})), budget_manifest());
     assert_eq!(kinds(&published), Vec::<String>::new());
-    // one that reports no budget error: no budget error either, the native checks run only with the test switch
+    // one that reports no budget error: no budget error either
     let mut quiet = budget_manifest();
     quiet["diagnostics"] = json!([]);
     let other = with_default_budget(Analyze::Output(json!({})), quiet);

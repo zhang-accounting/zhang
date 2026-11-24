@@ -1,10 +1,10 @@
-//! Compare two sets of runs of the budget baseline (`examples/budget_baseline.rs`), the native budget implementation
-//! against a candidate (the budget plugin), by the paired rule of the "Budget Baseline" page of the developer docs
+//! Compare two sets of runs of the budget baseline (`examples/budget_baseline.rs`), a baseline build against a candidate
+//! build, by the paired rule of the "Budget Baseline" page of the developer docs
 //! (`docs/src/content/docs/developers/budget-baseline.md`, "Comparing a build with the baseline"): the end-to-end
 //! timers and the memory of the runs with them, and the named-query p95 of the runs with warm requests.
 //!
 //! ```sh
-//! cargo run --release -p zhang --example budget_compare -- <native-dir> <candidate-dir> \
+//! cargo run --release -p zhang --example budget_compare -- <baseline-dir> <candidate-dir> \
 //!     [--expect-analyzer zhang:budget] [--include-invalid] [--summary <file>] [--p95-rule difference|ratio] \
 //!     [--p95-floor-ms 1]
 //! ```
@@ -54,8 +54,9 @@
 //! same known heavier candidate, one with its pairs at the same time and one with `--sequential`, and prints the gaps
 //! as `budget_calibration.json` holds them: for each ledger and timer, how far apart the two median differences are.
 //!
-//! The native runs must show no snapshot of the budget analyzer (`--expect-analyzer`, or `zhang:budget`): a plugin
-//! compared with a plugin is refused.
+//! The baseline is the side the layout and the messages call `native`: until RFC #698 P5 deleted zhang's native budget
+//! code, P4 compared the budget plugin with it, and a baseline that showed the budget analyzer was refused. Both sides
+//! now run the bundled script `zhang:budget`: `--expect-analyzer` checks that the candidate's runs show it publishing.
 //!
 //! `--summary <file>` writes every verdict as JSON too, for `budget_pairs`, which adds pairs while one is inconclusive
 //! and confirms the `CONFIRM`s.
@@ -103,8 +104,6 @@ const CONFIRM_MARGIN: f64 = 0.3;
 /// far apart the two ways put the median difference of a known heavier candidate (`gaps_ms`). Refreshed with
 /// `budget_compare --gaps <concurrent-out> <sequential-out>` ("Budget Baseline" page, "Calibration").
 const CALIBRATION: &str = include_str!("budget_calibration.json");
-/// the budget analyzer, which the native runs must not show publishing anything
-const BUDGET_ANALYZER: &str = "zhang:budget";
 /// The pairs the named-query p95 is judged on, all run before it is judged (no optional stopping). A `requests` run
 /// costs a few seconds, and the p95 of a request of a fraction of a millisecond moves by 10 to 50% from process to
 /// process, so the interval of the median ratio needs many pairs to be narrower than the bar.
@@ -510,22 +509,6 @@ fn refusals(natives: &[Run], candidates: &[Run], options: &Options) -> Vec<Strin
             refusals.push(format!("the native and the candidate runs differ in the {what}"));
         }
     }
-    // the native side must be native: no snapshot of the budget analyzer (or of the one expected of the candidate),
-    // or a plugin would be compared with a plugin
-    let analyzer = options.expect_analyzer.as_deref().unwrap_or(BUDGET_ANALYZER);
-    for (path, report) in natives {
-        for when in ["after_load", "at_end"] {
-            let snapshot = report["analyzers"][when].as_array().and_then(|analyzers| {
-                analyzers
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .find(|it| it.starts_with(&format!("{analyzer}: ")) && !it.ends_with(": not published"))
-            });
-            if let Some(snapshot) = snapshot {
-                refusals.push(format!("{} is not native: it shows the analyzer {snapshot} ({when})", path.display()));
-            }
-        }
-    }
     if let Some(expected) = &options.expect_analyzer {
         let published = format!("{expected}: ok");
         for (path, report) in candidates {
@@ -912,7 +895,7 @@ mod tests {
     }
 
     #[test]
-    fn a_native_side_that_shows_the_budget_analyzer_is_refused() {
+    fn a_candidate_that_does_not_show_the_expected_analyzer_is_refused() {
         let options = Options {
             expect_analyzer: Some("zhang:budget".to_owned()),
             include_invalid: false,
@@ -921,28 +904,26 @@ mod tests {
             p95_floor_ms: P95_FLOOR_MS,
         };
         let run = |path: &str, analyzers: &[&str]| vec![(PathBuf::from(path), report(analyzers))];
-        let candidates = run("candidate/01.json", &["zhang:budget: ok"]);
-        // a plugin against a plugin
-        let refused = refusals(&run("native/01.json", &["zhang:budget: ok"]), &candidates, &options);
+        let baseline = run("native/01.json", &["zhang:budget: ok"]);
+        // a build of the script against another
+        assert_eq!(
+            refusals(&baseline, &run("candidate/01.json", &["zhang:budget: ok"]), &options),
+            Vec::<String>::new()
+        );
+        // a candidate whose script did not publish
+        let refused = refusals(&baseline, &run("candidate/01.json", &["zhang:budget: failed (timeout)"]), &options);
         assert!(
             refused
                 .iter()
-                .any(|it| it == "native/01.json is not native: it shows the analyzer zhang:budget: ok (after_load)"),
+                .any(|it| it == "candidate/01.json does not show the analyzer zhang:budget publishing (after_load)"),
             "{refused:?}"
         );
-        // the native implementation against the plugin
-        assert_eq!(refusals(&run("native/01.json", &[]), &candidates, &options), Vec::<String>::new());
-        assert_eq!(
-            refusals(&run("native/01.json", &["zhang:budget: not published"]), &candidates, &options),
-            Vec::<String>::new()
-        );
-        // without --expect-analyzer, a native side with a snapshot of zhang:budget is refused all the same
+        // without --expect-analyzer, anything goes
         let options = Options {
             expect_analyzer: None,
             ..options
         };
-        let refused = refusals(&run("native/01.json", &["zhang:budget: failed (timeout)"]), &candidates, &options);
-        assert!(refused.iter().any(|it| it.contains("is not native")), "{refused:?}");
+        assert_eq!(refusals(&baseline, &run("candidate/01.json", &[]), &options), Vec::<String>::new());
     }
 
     #[test]

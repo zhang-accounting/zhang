@@ -6,9 +6,9 @@
 //! the manifest's, or the plugin's name with every character other than a lower-case letter, a digit or `_` written
 //! `_`. The names the budget system has always had (`#budgets`, `#budget_events`, `#budget_definitions`,
 //! `postings.budgets` and the `budgets.*` queries) are kept for `zhang:budget`: the analyzer granted them names them as
-//! they are, and it serves them instead of the native provider, whose other tables and queries stay; no other analyzer
-//! can have them, whatever its namespace. Nor can an analyzer name a query in the namespace of zhang's own built-in
-//! queries ([`BUILTIN_QUERY_NAMESPACES`]).
+//! they are, and it serves them instead of the ones zhang declares for it ([`super::compat`]), whose other tables and
+//! queries stay; no other analyzer can have them, whatever its namespace. Nor can an analyzer name a query in the
+//! namespace of zhang's own built-in queries ([`BUILTIN_QUERY_NAMESPACES`]).
 //!
 //! **Outputs.** A cell is JSON as the query API writes one ([`cell`]), checked against its column's type; a row of a
 //! record table has a cell per column and maybe its metadata, a fact of a series a cell per column but the partition

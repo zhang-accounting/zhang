@@ -129,9 +129,9 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
 /// its own: a default plugin runs once, whatever the ledger's `features.plugin`, so that no option of the ledger turns
 /// budgets off.
 ///
-/// An official plugin has no options, whichever implementation serves it: the bundled script the embedder registers
-/// for it (`zhang:budget`'s `plugins/budget/budget.lua` declares none), or the native code of RFC #698's test switch.
-/// Its directive configures nothing, and each of its arguments and metas says so ([`configure_default`]).
+/// An official plugin has no options: the bundled script the embedder registers for it (`zhang:budget`'s
+/// `plugins/budget/budget.lua`) declares none. Its directive configures nothing, and each of its arguments and metas
+/// says so ([`configure_default`]).
 pub(crate) fn register_all(ledger: &mut Ledger, directives: &[(Plugin, SpanInfo)]) -> ZhangResult<()> {
     ledger.extensions.unavailable = crate::extensions::unavailable(&ledger.load_options);
     let defaults = ledger.load_options.default_plugins.clone();
@@ -154,7 +154,7 @@ pub(crate) fn register_all(ledger: &mut Ledger, directives: &[(Plugin, SpanInfo)
         if official || registered(module) {
             let first = *configuring.entry(module).or_insert(span);
             let later = (!std::ptr::eq(first, span)).then_some(first);
-            // an official plugin has no options, served natively or by the script the embedder registers for it
+            // an official plugin has no options, whether the embedder registers its bundled script or not
             configure_default(plugin, ledger, span, later, official);
         } else {
             register(plugin, ledger, span)?;
@@ -165,8 +165,8 @@ pub(crate) fn register_all(ledger: &mut Ledger, directives: &[(Plugin, SpanInfo)
 
 /// A `plugin` directive naming a default plugin, at `span`. The first one configures the plugin, which
 /// [`register_default`] registered with its metas; a later one configures nothing, and says so naming the first,
-/// `configured_by`. An official plugin (`official`), such as `zhang:budget`, has no options, whether zhang serves it
-/// natively or the embedder registers its bundled script: each argument and meta of the first directive naming it
+/// `configured_by`. An official plugin (`official`), such as `zhang:budget`, has no options, whether the embedder
+/// registers its bundled script or not: each argument and meta of the first directive naming it
 /// configures nothing, and says so. Each says it with a
 /// [`PluginError`](zhang_ast::error::ErrorKind::PluginError), as a router plugin that serves nothing does, whose
 /// `message` says what to remove. With plugins off the directive says, whatever the ledger's `features.plugin`, that

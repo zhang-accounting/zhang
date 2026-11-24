@@ -1455,14 +1455,10 @@ fn errors_of_different_kinds_keep_stage_then_stream_order() {
 }
 
 #[test]
-fn budget_activity_of_implicit_postings_next_to_cost_postings() {
+fn implicit_postings_next_to_cost_postings_take_the_booked_cost() {
     let ledger = load(&formatdoc! {r#"
         1970-01-01 open Expenses:Food
-          budget: food
         1970-01-01 open Expenses:Fun
-          budget: fun
-        2024-05-01 budget food CNY
-        2024-05-01 budget fun CNY
         {BUY_10_AT_10}
         2024-05-17 * "pay with a dated cost sale"
           Assets:A -5 USD {{ 10 CNY, 2024-05-16 }}
@@ -1822,29 +1818,6 @@ fn a_rejected_transaction_counts_for_no_balance_assertion() {
     );
     assert!(ledger.outcomes.iter().all(|it| !matches!(it.detail, Detail::Assertion { passed: false, .. })));
     assert_eq!(ledger.transactions().len(), 1);
-}
-
-/// Final booking errors belong to the stage channel, before materialization errors. Both errors
-/// retain the transaction's span and metadata, even when their order changes from the old fold.
-#[test]
-fn final_validation_errors_precede_undefined_budget_activity() {
-    let ledger = load(indoc! {r#"
-        1970-01-01 open Expenses:Food
-          budget: missing
-        2024-01-01 * "unbalanced budget activity"
-          Expenses:Food 10 CNY
-          Income:I -9 CNY
-    "#});
-    assert_eq!(
-        ledger.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>(),
-        [&ErrorKind::UnbalancedTransaction, &ErrorKind::BudgetDoesNotExist]
-    );
-    let (id, _) = ledger.transactions()[0];
-    assert_eq!(ledger.errors[0].metas["txn_id"], id.to_string());
-    assert_eq!(ledger.errors[1].metas["budget_name"], "missing");
-    assert_eq!(ledger.errors[1].metas["account_name"], "Expenses:Food");
-    let span = &ledger.transaction_directive(&id).unwrap().span;
-    assert!(ledger.errors.iter().all(|it| it.span.as_ref() == Some(span)));
 }
 
 /// The numbers of the booking errors' metas are written in plain notation, like the queries and the exporter write

@@ -176,8 +176,9 @@ fn an_analyzers_tables_are_the_ledgers_own_and_read_its_snapshot() {
         texts(&[&["a", "Expenses:Food", "apple"], &["b", "Expenses:Food", "apple, pear"]])
     );
     assert_eq!(rows(&ledger, "SELECT count(*) WHERE 'pear' IN shop_items"), texts(&[&["1"]]));
-    // the native tables are the ledger's too
-    assert_eq!(rows(&ledger, "SELECT count(*) FROM #budgets"), texts(&[&["0"]]));
+    // the tables zhang declares are the ledger's too, and say that zhang:budget does not run for it
+    let err = run(&ledger, "SELECT count(*) FROM #budgets").unwrap_err();
+    assert!(err.starts_with("table #budgets is unavailable: plugin zhang:budget does not run: "), "{err}");
     // a query compiled for another catalog does not read them
     let standard = Query::compile("SELECT count(*) FROM #budgets").unwrap();
     let err = standard
@@ -187,6 +188,47 @@ fn an_analyzers_tables_are_the_ledgers_own_and_read_its_snapshot() {
     assert!(Query::compile("SELECT count(*)").unwrap().execute(&ledger, &Params::new()).is_ok());
     // nor does the standard catalog know them
     assert!(Query::compile("SELECT item FROM #shop_items").is_err());
+}
+
+/// The tables of a provider, and postings with its label column, are tables the catalog owns and shares: a query
+/// compiled once keeps handles to them, never their rows, and reads the snapshot of the ledger it runs on.
+#[test]
+fn a_query_compiled_once_reads_the_rows_of_the_ledger_it_runs_on() {
+    let catalog = shop_ledger()
+        .extensions
+        .catalog
+        .clone()
+        .and_then(|it| it.downcast::<Catalog>().ok())
+        .expect("a catalog");
+    for table in ["shop_items", "shop_stock", "postings"] {
+        assert!(matches!(catalog.find(table), Some(crate::catalog::TableRef::Shared(_))), "{table}");
+    }
+    let before = shop_ledger();
+    let mut after = ledger(TEXT);
+    attach(&mut after, &[("shop", shop(), false)]);
+    let mut output = shop_output();
+    output["tables"]["items"][0]["item"] = json!("banana");
+    output["series"]["stock"]["partitions"][0]["key"]["item"] = json!("banana");
+    output["labels"]["items"][0]["label"] = json!("banana");
+    publish(&after, "shop", output).unwrap();
+    assert_eq!(Catalog::of_ledger(&before).digest(), Catalog::of_ledger(&after).digest());
+    for sql in [
+        "SELECT item FROM #shop_items",
+        "SELECT item, closing FROM #shop_stock WHERE date = 2024-03-01",
+        "SELECT shop_items",
+        "SELECT count(*) WHERE 'apple' IN shop_items",
+    ] {
+        let query = Query::compile_in(&catalog, sql, &ParamTypes::default()).unwrap();
+        let today = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
+        let once = |ledger: &Ledger| format!("{:?}", query.execute_at(ledger, &Params::new(), today).unwrap().rows);
+        let fresh = |ledger: &Ledger| {
+            let query = Query::compile_in(&Catalog::of_ledger(ledger), sql, &ParamTypes::default()).unwrap();
+            format!("{:?}", query.execute_at(ledger, &Params::new(), today).unwrap().rows)
+        };
+        assert_eq!(once(&before), fresh(&before), "{sql}");
+        assert_eq!(once(&after), fresh(&after), "{sql}");
+        assert_ne!(once(&before), once(&after), "{sql}");
+    }
 }
 
 #[test]
@@ -538,7 +580,7 @@ fn an_analyzers_names_start_with_its_namespace() {
         .unwrap(),
         "shop: column postings.items: parameter :x: its type is 'amount', which is not one of bool, int, decimal, str, date, set"
     );
-    // the core's names, and the native provider's
+    // the core's names, and the declared provider's
     assert_eq!(
         skipped_with(&|_| {}, "zhang:budget").unwrap(),
         "zhang:budget: a provider of tables is named zhang:budget already"
@@ -563,8 +605,7 @@ fn of_two_analyzers_with_one_name_the_first_keeps_it() {
     assert_eq!(catalog.analyzers().collect::<Vec<_>>(), ["shop", "again"]);
 }
 
-/// The manifest of an analyzer standing in for the native budget provider's `#budget_definitions` and
-/// `postings.budgets`.
+/// The manifest of an analyzer standing in for `zhang:budget` with `#budget_definitions` and `postings.budgets` only.
 fn budget_definitions() -> abi::Manifest {
     serde_json::from_value(json!({
         "analysis_abi": 1,
@@ -575,7 +616,7 @@ fn budget_definitions() -> abi::Manifest {
 }
 
 #[test]
-fn zhang_budget_serves_the_legacy_names_instead_of_the_native_provider() {
+fn zhang_budget_serves_the_legacy_names_instead_of_the_declared_ones() {
     let text = format!("{TEXT}1970-01-01 open Expenses:Fun\n  budget: Fun\n2024-01-01 budget Fun USD\n");
     let mut fallback = ledger(&text);
     let mut ledger = ledger(&text);
@@ -597,9 +638,10 @@ fn zhang_budget_serves_the_legacy_names_instead_of_the_native_provider() {
         rows(&ledger, "SELECT account, budgets WHERE 'Plugged' IN budgets"),
         texts(&[&["Assets:Bank", "Plugged"], &["Assets:Bank", "Plugged"]])
     );
-    // from the native provider, which keeps the tables the plugin does not serve
-    assert_eq!(rows(&ledger, "SELECT name FROM #budgets WHERE date = 2024-01-01"), texts(&[&["Fun"]]));
-    // a zhang:budget whose tables the catalog cannot have leaves the native provider all of its own
+    // the tables the plugin does not serve stay those zhang declares, which have no data
+    let err = run(&ledger, "SELECT name FROM #budgets WHERE date = 2024-01-01").unwrap_err();
+    assert!(err.starts_with("table #budgets is unavailable: "), "{err}");
+    // a zhang:budget whose tables the catalog cannot have leaves the declared ones all of theirs
     let mut refused = budget_definitions();
     refused.columns[0].predicate = "nope".to_owned();
     let catalog = attach(&mut fallback, &[("zhang:budget", refused, true)]);
@@ -611,7 +653,8 @@ fn zhang_budget_serves_the_legacy_names_instead_of_the_native_provider() {
         "{:?}",
         catalog.skipped
     );
-    assert_eq!(rows(&fallback, "SELECT name FROM #budget_definitions"), texts(&[&["Fun"]]));
+    let err = run(&fallback, "SELECT name FROM #budget_definitions").unwrap_err();
+    assert!(err.starts_with("table #budget_definitions is unavailable: "), "{err}");
     assert_eq!(Catalog::of_ledger(&fallback).digest(), Catalog::standard().digest());
 }
 

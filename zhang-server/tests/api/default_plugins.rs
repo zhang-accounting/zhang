@@ -314,3 +314,78 @@ async fn the_plugin_list_shows_the_budget_script() {
     let (_, body) = answer(&off, &(Method::GET, "/api/plugins", Value::Null)).await;
     assert_eq!(body["data"], json!([]), "{body}");
 }
+
+/// The errors of the budget directives keep the order of the directives, each with its kind: a directive naming a
+/// budget not defined yet, the second definition of a budget, a transfer from or to one not defined (moved from
+/// zhang-core with the native budget checks, RFC #698 P5).
+#[test]
+fn the_budget_directives_report_in_their_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = served(
+        dir.path(),
+        "2024-01-01 budget-add food 10 CNY
+2024-01-02 budget-close food
+2024-01-03 budget-transfer absent other 1 CNY
+2024-01-04 budget food CNY
+2024-01-05 budget food USD
+2024-01-06 budget-transfer food absent 1 CNY
+2024-01-07 budget-add food 10 CNY
+2024-01-08 budget-close food
+2024-01-09 budget-close food
+",
+        PluginLevel::Read,
+    );
+    assert_eq!(
+        kinds_and_lines(&ledger, ""),
+        [
+            (ErrorKind::BudgetDoesNotExist, 1),
+            (ErrorKind::BudgetDoesNotExist, 2),
+            (ErrorKind::BudgetDoesNotExist, 3),
+            (ErrorKind::DefineDuplicatedBudget, 5),
+            (ErrorKind::BudgetDoesNotExist, 6),
+        ]
+    );
+}
+
+/// A reload interprets the budgets of the files as they are now: a budget the files no longer define is not defined
+/// any more.
+#[test]
+fn a_reload_interprets_the_budgets_anew() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut ledger = served(dir.path(), "2024-01-01 budget food CNY\n2024-01-02 budget-add food 10 CNY\n", PluginLevel::Read);
+    ledger.reload().unwrap();
+    assert_eq!(kinds_and_lines(&ledger, ""), []);
+    std::fs::write(dir.path().join("main.zhang"), "2024-01-02 budget-add food 10 CNY\n").unwrap();
+    ledger.reload().unwrap();
+    assert_eq!(kinds_and_lines(&ledger, ""), [(ErrorKind::BudgetDoesNotExist, 1)]);
+}
+
+/// The errors of a transaction's final booking come before the budget errors at it, which `zhang:budget` places with
+/// the fold's, and both carry the transaction's span and id (moved from zhang-core with the native budget checks, RFC
+/// #698 P5).
+#[test]
+fn final_validation_errors_precede_the_budget_errors_of_a_transaction() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = served(
+        dir.path(),
+        "1970-01-01 commodity CNY
+1970-01-01 open Expenses:Food
+  budget: missing
+1970-01-01 open Income:I
+2024-01-01 * \"unbalanced budget activity\"
+  Expenses:Food 10 CNY
+  Income:I -9 CNY
+",
+        PluginLevel::Read,
+    );
+    assert_eq!(
+        ledger.errors.iter().map(|it| &it.error_type).collect::<Vec<_>>(),
+        [&ErrorKind::UnbalancedTransaction, &ErrorKind::BudgetDoesNotExist]
+    );
+    let (id, _) = ledger.transactions()[0];
+    assert_eq!(ledger.errors[0].metas["txn_id"], id.to_string());
+    assert_eq!(ledger.errors[1].metas["budget_name"], "missing");
+    assert_eq!(ledger.errors[1].metas["account_name"], "Expenses:Food");
+    let span = &ledger.transaction_directive(&id).unwrap().span;
+    assert!(ledger.errors.iter().all(|it| it.span.as_ref() == Some(span)));
+}

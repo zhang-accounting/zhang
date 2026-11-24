@@ -1070,8 +1070,8 @@ mod ledger_catalog_test {
             data_source: Arc::new(LocalFileSystemDataSource::new(ZhangDataType {})),
             clock: Clock::System,
         };
-        // the native budget tables, through RFC #698's test switch: a bare load runs no budget code
-        let mut ledger = Ledger::process_with_options(context, zhang_core::analysis::LoadOptions::default().with_native_budgets()).unwrap();
+        // a bare load: zhang:budget does not run for it, and the budget tables say so
+        let mut ledger = Ledger::process_with_options(context, zhang_core::analysis::LoadOptions::default()).unwrap();
         let manifest = serde_json::from_value(json!({
             "analysis_abi": 1,
             "tables": [{"name": "items", "kind": "records", "columns": [{"name": "item", "type": "str"}]}],
@@ -1102,14 +1102,19 @@ mod ledger_catalog_test {
         let shared = SharedLedger(Arc::new(tokio::sync::RwLock::new(ledger())));
         let rows = body(run(&shared, "SELECT item FROM #shop_items".to_owned(), 100, false).await).await;
         assert_eq!(rows["data"]["rows"], json!([["apple"]]));
-        // the built-in queries too: those reading the native tables run, compiled once for the ledger's catalog
+        // the built-in queries too, compiled once for the ledger's catalog: those of zhang:budget, which does not run for
+        // the ledger, say so
         let month = HashMap::from([("month".to_owned(), Some(BuiltinParamValue::Text("2024-01-01".to_owned())))]);
         let request = BuiltinQueryRunRequest {
             params: month,
             count_total: None,
         };
         let budgets = body(run_builtin(&shared, "budgets.month", request).await).await;
-        assert_eq!(budgets["data"]["rows"], json!([]), "{budgets}");
+        let message = budgets["message"].as_str().unwrap_or_default();
+        assert!(
+            message.starts_with("table #budgets is unavailable: plugin zhang:budget does not run: "),
+            "{budgets}"
+        );
         let served = shared.read().await;
         let compiled = builtin::compiled_for(&served);
         assert!(Arc::ptr_eq(&compiled, &builtin::compiled_for(&served)), "compiled once per catalog");

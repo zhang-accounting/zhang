@@ -6,13 +6,11 @@ use zhang_ast::SpanInfo;
 use crate::ledger::Ledger;
 use crate::utils::hashmap::HashMapOfExt;
 
-pub(crate) mod budget;
 pub(crate) mod commodity;
 pub(crate) mod document;
 pub(crate) mod open;
 pub(crate) mod plugin;
 pub(crate) mod price;
-pub(crate) mod transaction;
 
 /// report `commodity_name` at `span` when it is not defined yet
 fn check_commodity_define(commodity_name: &str, ledger: &mut Ledger, span: &SpanInfo) {

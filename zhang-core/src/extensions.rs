@@ -35,11 +35,10 @@ pub const NOT_RUN_BY_EMBEDDER: &str = "this zhang does not run the bundled zhang
 /// - every one of them when the operator turned plugins off ([`stopped_by`]);
 /// - `zhang:budget`, when the load cannot run its bundled script: in a build without the plugin runtime
 ///   ([`NO_PLUGIN_RUNTIME`]), or when the embedder does not register it or has no analysis host
-///   ([`NOT_RUN_BY_EMBEDDER`]), unless RFC #698's test switch has the native budget code interpret the budgets
-///   ([`crate::analysis::LoadOptions::native_budgets`]).
+///   ([`NOT_RUN_BY_EMBEDDER`]).
 pub fn unavailable(options: &crate::analysis::LoadOptions) -> Vec<Unavailable> {
     let stopped = stopped_by(&options.plugin_policy);
-    if !stopped.is_empty() || options.native_budgets {
+    if !stopped.is_empty() {
         return stopped;
     }
     let budget = crate::analysis::BUDGET;

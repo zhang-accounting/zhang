@@ -1494,8 +1494,8 @@ mod generation_test {
             let fingerprint = ledger_fingerprint(&ledger);
             assert_eq!(ledger_fingerprint(&load(content, options())), fingerprint, "the same script");
             assert_ne!(ledger_fingerprint(&load(content, edited())), fingerprint, "a comment added to the script");
-            let native = zhang_core::analysis::LoadOptions::with_policy(Arc::new(PluginPolicy::default())).with_native_budgets();
-            assert_ne!(ledger_fingerprint(&load(content, native)), fingerprint, "no script");
+            let without = zhang_core::analysis::LoadOptions::with_policy(Arc::new(PluginPolicy::default()));
+            assert_ne!(ledger_fingerprint(&load(content, without)), fingerprint, "no script");
         }
 
         // a reload: the same generation, the analysis published again, nothing compiled (the count of the script's
