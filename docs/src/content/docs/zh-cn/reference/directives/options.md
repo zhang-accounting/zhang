@@ -42,7 +42,7 @@ option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 |---|---|---|
 | [`title`](#title) | 任意文本 | 无 |
 | [`operating_currency`](#operating_currency) | 一种货币 | `CNY` |
-| [`timezone`](#timezone) | IANA 时区名称 | 系统的时区 |
+| [`timezone`](#timezone) | IANA 时区名称 | `TZ`，否则为系统的时区，再否则为 `UTC` |
 | [`default_booking_method`](#default_booking_method) | `STRICT`、`FIFO` 或 `LIFO` | `FIFO` |
 | [`default_commodity_precision`](#default_commodity_precision) | 整数 | `2` |
 | [`default_rounding`](#default_rounding) | `RoundDown` 或 `RoundUp` | `RoundDown` |
@@ -71,7 +71,15 @@ option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 - 在网页界面中创建的条目，以该时区的当前时间作为日期。
 - 插件按这个时区读取当前时间；如果账本依赖日期，`zhang serve` 会在该时区的午夜重新加载它。
 
-没有这个选项时，张记账使用系统的时区；无法检测系统时区时使用 `Asia/Hong_Kong`。不是有效时区的名称会被忽略，服务器日志中会留下一条消息，此时使用系统的时区。
+没有这个选项时，账本使用默认时区，即以下第一个可用的时区：
+
+1. 环境变量 `TZ`：IANA 名称，例如 `Europe/Berlin` 或 `UTC`，也可以带前导冒号（`:Europe/Berlin`）。张记账不读取 `TZ` 的其他写法：POSIX 规则（例如 `UTC0` 或 `CET-1CEST`）或文件路径（例如 `:/etc/localtime`）会被忽略，服务器日志中会留下一条警告；
+2. 系统的时区：在 Linux 上是 `/etc/localtime` 链接到的时区；
+3. `UTC`，服务器日志中会留下一条警告，说明如何设置时区。[Docker 镜像](/zh-cn/getting-started/installation/#docker)就是这种情况，因为镜像中没有系统时区：请传入 `-e TZ=Asia/Shanghai`，或者写上这个选项。
+
+加载没有这个选项的账本时，服务器日志会记录默认时区及其来源。这个选项总是优先于 `TZ` 和系统的时区。不是有效时区的名称会被忽略，服务器日志中会留下一条消息，此时使用默认时区。张记账自带一份 IANA 时区数据库，所以在没有时区数据库的系统上（例如 Docker 镜像中）这些名称同样可用。在在线 Playground 中，默认时区是浏览器的时区。
+
+0.3.0 之前，张记账不读取 `TZ`，无法检测系统时区时使用 `Asia/Hong_Kong`（UTC+8）；见[升级](/zh-cn/deployment/upgrading/#升级之后)。
 
 ### `default_booking_method`
 

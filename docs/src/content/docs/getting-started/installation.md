@@ -30,6 +30,11 @@ docker run --name zhang -v "/path/to/ledger:/data" -p "8000:8000" \
   kilerd/zhang:latest --endpoint main.bean
 ```
 
+The image has no system timezone. A ledger without the [`timezone` option](/reference/directives/options/#timezone) is
+in UTC there, unless `TZ` gives its timezone, an IANA name such as `Europe/Berlin`: "today", "this month" and the time
+of a new transaction are then those of that timezone. Add `-e "TZ=Europe/Berlin"` to the `docker run` command, or set
+`TZ` in the `environment` of the Compose file below. The option in the ledger wins over `TZ`.
+
 With Docker Compose:
 
 ```yaml
@@ -45,6 +50,7 @@ services:
       - zhang-cache:/root/.cache/zhang
     environment:
       ZHANG_AUTH: "admin:change-me"
+      TZ: "Europe/Berlin"
     restart: unless-stopped
 
 volumes:
@@ -124,6 +130,7 @@ Other environment variables:
 | `ZHANG_PLUGIN_MAX_MEMORY` | The most memory one instance of a [plugin](/guides/plugins/) may use, such as `512MiB`. Default `256MiB`. |
 | `ZHANG_PLUGIN_CACHE_DIR` | The directory where [plugins](/guides/plugins/#compiled-code) keep their compiled code between starts, in its subdirectory `zhang-wasmtime-cache`, about 128 MiB at most. Default: `$XDG_CACHE_HOME/zhang`, else `~/.cache/zhang`. Set it to nothing to turn the cache off. It holds code the server runs: it must belong to the user running Zhang, be writable by that user only, and lie outside the ledger's folder, or Zhang runs without the cache. |
 | `ZHANG_PLUGIN_MAX_BODY`, `ZHANG_PLUGIN_MAX_CONCURRENCY` | The largest request body a [router plugin](/guides/router-plugins/#limits) receives (default `4MiB`), and how many requests one router plugin handles at once (default `4`). |
+| `TZ` | The timezone of a ledger without the [`timezone` option](/reference/directives/options/#timezone), an IANA name such as `Europe/Berlin` or `UTC`. Default: the system's timezone, else `UTC` (in the Docker image, which has no system timezone, `UTC`). A value that is not an IANA name, such as the POSIX rule `UTC0`, is ignored with a warning. |
 | `ZHANG_LOG` | The log filter, such as `info`, `debug` or `zhang_core=trace` ([env_logger syntax](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)). When it is not set, `RUST_LOG` is used; without either, the level is `info`. The Docker image sets `RUST_LOG=info`. The internals of some dependencies (`wasmtime_wasi`, `gotcha`, `tracing::span`) show warnings and errors only, unless the filter names them, as `info,wasmtime_wasi=trace` does. Lines are coloured only when the output is a terminal; `RUST_LOG_STYLE=always` or `never` overrides that. |
 
 When the ledger cannot be loaded at startup, for example because of a syntax error, or the port is already in use, `zhang serve` prints the reason on stderr and exits with code 1, so systemd, Docker and hosting platforms see a failed start. Problems in the books themselves, such as an unbalanced transaction, do not stop the server: they are listed in the web UI.
