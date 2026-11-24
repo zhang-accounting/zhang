@@ -59,7 +59,7 @@ sidebar:
   Expenses:Food 48 CNY
 ```
 
-- 时间使用账本的时区，即 [`timezone` 选项](/zh-cn/reference/directives/options/#timezone)。它默认是运行张记账的机器的时区。
+- 时间使用账本的时区，即 [`timezone` 选项](/zh-cn/reference/directives/options/#timezone)。没有这个选项时，它是 `TZ` 指定的时区，否则是运行张记账的机器的时区，再否则是 UTC。
 - 条目按日期和时间排序。没有时间的条目视为当天的开始（`00:00:00`）。日期和时间相同的条目保持它们在文件中的顺序。
 - 时间对[余额断言](/zh-cn/guides/balances/)最重要，余额断言检查的是它所标注时刻的余额。
 - Beancount 的日期没有时间。在 Beancount 账本中，张记账把 `time: "12:30:00"` 元数据读作时间，写入时也用这种方式记录时间。

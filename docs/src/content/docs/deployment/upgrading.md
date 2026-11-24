@@ -63,6 +63,16 @@ Open the web UI, check the version on the **Settings** page, and look at the err
 - **Plugins run read-only, without network and for at most 30 seconds a call, unless the server allows more.** A plugin whose directive grants `allowed_hosts` (an exchange-rate plugin, say) loses its network until you allow its hosts with `ZHANG_PLUGIN_ALLOWED_HOSTS`, and a `timeout` above 30 seconds is lowered unless `ZHANG_PLUGIN_MAX_TIMEOUT` allows it; the error list shows a [`PluginCapabilityReduced`](/reference/error-codes/#plugincapabilityreduced) error on each such directive, naming the setting. A plugin also no longer follows redirects nor reaches private or loopback addresses. See [What the server allows](/guides/plugins/#what-the-server-allows).
 - [Router plugin](/guides/router-plugins/) pages are sandboxed: their scripts can no longer use your session, and a page that loads scripts, styles, images or JSON from Zhang needs them inlined. A plugin receives only an allowlist of request headers and sends only an allowlist of response headers, a request may run for 30 seconds at most, and every plugin instance may use 256 MiB of memory unless `ZHANG_PLUGIN_MAX_MEMORY` allows more.
 
+- **A ledger without the [`timezone` option](/reference/directives/options/#timezone) takes its timezone from `TZ`
+  first, and falls back to UTC instead of UTC+8.** Before, Zhang read the system's timezone only, and used
+  `Asia/Hong_Kong` (UTC+8) where it could not, logging `cannot get timezone, fall back to use GMT+8` at every start.
+  That is the case in the Docker image, which has no system timezone: there, such a ledger is now in UTC. What depends
+  on the timezone moves with it: "today" and "this month" (the budget pages, the reports, `today()` in queries), the
+  time of a transaction recorded in the web UI, and the instant a date or time written in the ledger stands for (the
+  `timestamp` column of queries, the times plugins read). If you relied on the fallback, write the option in the
+  ledger, such as `option "timezone" "Asia/Shanghai"`, or pass your timezone to the container, such as
+  `-e TZ=Asia/Shanghai`. On a machine where `TZ` is set, it now wins over the system's timezone; the option wins over
+  both. The server logs at start which timezone such a ledger uses, and where it comes from.
 - **`ZHANG_PLUGINS=off` turns budgets off too.** Budgets are interpreted by the official plugin `zhang:budget`, which
   every ledger has, without a `plugin` directive and whatever its `features.plugin` option says, and which the
   operator's switch stops as it stops every plugin. A server run with `--plugins off` or `ZHANG_PLUGINS=off` logs that

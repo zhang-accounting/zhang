@@ -555,27 +555,32 @@ mod test {
     mod timezone {
         use indoc::indoc;
 
+        use crate::options::default_timezone;
         use crate::test::load_from_text;
 
+        /// without the option, the default time zone: `TZ`, else the system's, else UTC (see `options::test`)
         #[test]
-        fn should_get_system_timezone() -> Result<(), Box<dyn std::error::Error>> {
+        fn should_get_the_default_timezone() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                     1970-01-01 open Assets:MyCard CNY
                 "#});
 
             let timezone: String = ledger.options.option("timezone")?.unwrap();
-            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone);
+            assert_eq!(default_timezone().name(), timezone);
+            assert_eq!(ledger.options.timezone, default_timezone());
             Ok(())
         }
 
         #[test]
-        fn should_fallback_to_use_system_timezone_given_invalid_timezone() -> Result<(), Box<dyn std::error::Error>> {
+        fn should_fallback_to_use_the_default_timezone_given_invalid_timezone() -> Result<(), Box<dyn std::error::Error>> {
             let ledger = load_from_text(indoc! {r#"
                     option "timezone" "MYZone"
                 "#});
 
             let timezone: String = ledger.options.option("timezone")?.unwrap();
-            assert_eq!(iana_time_zone::get_timezone().unwrap(), timezone);
+            assert_eq!(default_timezone().name(), timezone);
+            // the time zone used, not only the value shown
+            assert_eq!(ledger.options.timezone, default_timezone());
             Ok(())
         }
         #[test]

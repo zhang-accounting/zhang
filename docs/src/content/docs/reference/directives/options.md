@@ -47,7 +47,7 @@ option "directive_output_path" "data/{{year}}/{{month_str}}.{{ext}}"
 |---|---|---|
 | [`title`](#title) | any text | none |
 | [`operating_currency`](#operating_currency) | a commodity | `CNY` |
-| [`timezone`](#timezone) | an IANA timezone name | the system's timezone |
+| [`timezone`](#timezone) | an IANA timezone name | `TZ`, else the system's timezone, else `UTC` |
 | [`default_booking_method`](#default_booking_method) | `STRICT`, `FIFO` or `LIFO` | `FIFO` |
 | [`default_commodity_precision`](#default_commodity_precision) | a whole number | `2` |
 | [`default_rounding`](#default_rounding) | `RoundDown` or `RoundUp` | `RoundDown` |
@@ -82,8 +82,24 @@ The timezone of the ledger, an IANA name such as `Asia/Shanghai`, `Europe/London
 - Entries created in the web UI are dated with the current time in this timezone.
 - Plugins read the current time in it, and `zhang serve` reloads a ledger that depends on the date at midnight in it.
 
-Without the option, Zhang uses the system's timezone, or `Asia/Hong_Kong` if it cannot detect it. A name that is not a
-valid timezone is ignored with a message in the server log, and the system's timezone is used.
+Without the option, the ledger is in the default timezone, the first of:
+
+1. the `TZ` environment variable, an IANA name such as `Europe/Berlin` or `UTC`, also with a leading colon
+   (`:Europe/Berlin`). Zhang reads no other form of `TZ`: a POSIX rule such as `UTC0` or `CET-1CEST`, or a file path
+   such as `:/etc/localtime`, is ignored with a warning in the server log;
+2. the system's timezone: on Linux, the zone `/etc/localtime` links to;
+3. `UTC`, with a warning in the server log saying how to set the timezone. This is the case in the
+   [Docker image](/getting-started/installation/#docker), which has no system timezone: pass `-e TZ=Europe/Berlin` or
+   write the option.
+
+The server logs the default timezone and where it comes from when it loads a ledger without the option. The option
+always wins over `TZ` and the system's timezone. A name that is not a valid timezone is ignored with a message in the
+server log, and the default timezone is used. Zhang carries its own copy of the IANA timezone database, so these names
+work on a system without one, such as the Docker image. In the online playground, the default timezone is the
+browser's.
+
+Before 0.3.0, Zhang did not read `TZ`, and used `Asia/Hong_Kong` (UTC+8) when it could not detect the system's
+timezone; see [Upgrading](/deployment/upgrading/#after-upgrading).
 
 ### `default_booking_method`
 

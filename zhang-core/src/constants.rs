@@ -12,7 +12,9 @@ pub const DEFAULT_COMMODITY_PRECISION: i32 = 2;
 pub const DEFAULT_OPERATING_CURRENCY: &str = "CNY";
 pub const DEFAULT_ROUNDING: Rounding = Rounding::RoundDown;
 pub const DEFAULT_BALANCE_TOLERANCE_PRECISION: i32 = 2;
-pub const DEFAULT_TIMEZONE: &str = "Asia/Hong_Kong";
+/// the time zone of a ledger without a valid `timezone` option when neither the `TZ` environment variable nor the
+/// system gives one (see [`crate::options::default_timezone`])
+pub const DEFAULT_TIMEZONE: &str = "UTC";
 
 pub const DEFAULT_ROUNDING_PLAIN: &str = "RoundDown";
 pub const DEFAULT_COMMODITY_PRECISION_PLAIN: &str = "2";

@@ -60,26 +60,92 @@ pub enum BuiltinOption {
     DirectiveOutputPath,
 }
 
-fn detect_timezone() -> String {
+/// The time zone of a ledger without a valid `timezone` option, decided once per process by
+/// [`decide_default_timezone`] from the `TZ` environment variable and the system's time zone, and logged then.
+pub fn default_timezone() -> Tz {
+    static DEFAULT_TZ: OnceCell<Tz> = OnceCell::new();
+    *DEFAULT_TZ.get_or_init(|| {
+        let tz_variable = match std::env::var("TZ") {
+            Ok(value) => Some(value),
+            Err(std::env::VarError::NotPresent) => None,
+            // not UTF-8: with its replacement characters it names no time zone, so it is ignored with a warning
+            Err(std::env::VarError::NotUnicode(value)) => Some(value.to_string_lossy().into_owned()),
+        };
+        let decided = decide_default_timezone(tz_variable.as_deref(), system_timezone);
+        for (level, line) in &decided.log {
+            log::log!(*level, "{line}");
+        }
+        decided.timezone
+    })
+}
+
+/// The system's time zone: on Linux the zone `/etc/localtime` links to, else `/etc/timezone`; in a browser the one
+/// `Intl` gives
+fn system_timezone() -> Result<String, String> {
     cfg_if! {
         if #[cfg(feature = "iana-time-zone")] {
-            static DETECTED_TZ: OnceCell<String> = OnceCell::new();
-            DETECTED_TZ
-                .get_or_init(|| match iana_time_zone::get_timezone() {
-                    Ok(timezone) => {
-                        log::info!("detect system timezone is {}", timezone);
-                        timezone
-                    }
-                    Err(e) => {
-                        log::warn!("cannot get timezone, fall back to use GMT+8 as default timezone: {}", e);
-                        DEFAULT_TIMEZONE.to_owned()
-                    }
-                })
-                .to_string()
-        }else {
-             crate::constants::DEFAULT_TIMEZONE.to_owned()
+            iana_time_zone::get_timezone().map_err(|e| e.to_string())
+        } else {
+            Err("zhang-core is built without its feature iana-time-zone".to_owned())
         }
     }
+}
+
+/// The default time zone as [`decide_default_timezone`] decided it, and the lines to log about it
+#[derive(Debug, PartialEq, Eq)]
+struct DefaultTimezone {
+    timezone: Tz,
+    /// where the time zone comes from (`info`), or why `TZ` was ignored and the fallback is used (`warn`)
+    log: Vec<(log::Level, String)>,
+}
+
+/// The time zone of a ledger without a valid `timezone` option: the IANA name the `TZ` environment variable gives
+/// (`tz_variable`: its value when it is set), else the system's time zone (`system`), else [`DEFAULT_TIMEZONE`], UTC.
+///
+/// - An empty `TZ` counts as not set.
+/// - `TZ` is read as an IANA name, such as `Europe/Berlin` or `UTC`, with or without a leading `:` (`:Europe/Berlin`
+///   means the same zone to the C library). Any other value, a POSIX rule such as `UTC0` or `CET-1CEST`, or a file
+///   path such as `:/etc/localtime`, is ignored with a warning, and the system's time zone is used instead.
+fn decide_default_timezone(tz_variable: Option<&str>, system: impl FnOnce() -> Result<String, String>) -> DefaultTimezone {
+    const WITHOUT_OPTION: &str = "a ledger without option \"timezone\"";
+    let mut log = vec![];
+    let tz_variable = tz_variable.filter(|it| !it.is_empty());
+    if let Some(value) = tz_variable {
+        match value.strip_prefix(':').unwrap_or(value).parse::<Tz>() {
+            Ok(timezone) => {
+                log.push((log::Level::Info, format!("{WITHOUT_OPTION} is in {timezone}, from the TZ environment variable")));
+                return DefaultTimezone { timezone, log };
+            }
+            Err(_) => log.push((
+                log::Level::Warn,
+                format!(
+                    "the TZ environment variable {value:?} is ignored: zhang reads an IANA time zone name there, such as \
+                     Europe/Berlin or UTC, not a POSIX rule such as UTC0 nor a file path"
+                ),
+            )),
+        }
+    }
+    let system = match system() {
+        Ok(name) => match name.parse::<Tz>() {
+            Ok(timezone) => {
+                log.push((log::Level::Info, format!("{WITHOUT_OPTION} is in {timezone}, the system's time zone")));
+                return DefaultTimezone { timezone, log };
+            }
+            Err(_) => format!("the system's time zone {name:?} is not an IANA name zhang knows"),
+        },
+        Err(e) => format!("the system's time zone cannot be read ({e})"),
+    };
+    let timezone: Tz = DEFAULT_TIMEZONE.parse().expect("the default timezone");
+    let tz_variable = if tz_variable.is_some() { "TZ is ignored" } else { "TZ is not set" };
+    log.push((
+        log::Level::Warn,
+        format!(
+            "{tz_variable} and {system}, so {WITHOUT_OPTION} is in {timezone}. To set its time zone, set the TZ environment \
+             variable to an IANA name, such as TZ=Europe/Berlin (docker run -e TZ=Europe/Berlin), or write \
+             option \"timezone\" \"Europe/Berlin\" in the ledger"
+        ),
+    ));
+    DefaultTimezone { timezone, log }
 }
 
 impl BuiltinOption {
@@ -90,7 +156,7 @@ impl BuiltinOption {
             BuiltinOption::DefaultBalanceTolerancePrecision => DEFAULT_BALANCE_TOLERANCE_PRECISION_PLAIN.to_owned(),
             BuiltinOption::DefaultCommodityPrecision => DEFAULT_COMMODITY_PRECISION_PLAIN.to_owned(),
             BuiltinOption::DefaultBookingMethod => DEFAULT_BOOKING_METHOD.to_owned(),
-            BuiltinOption::Timezone => detect_timezone(),
+            BuiltinOption::Timezone => default_timezone().name().to_owned(),
             BuiltinOption::DirectiveOutputPath => DEFAULT_DIRECTIVE_OUTPUT_PATH.to_owned(),
         }
     }
@@ -170,8 +236,14 @@ impl InMemoryOptions {
                         self.timezone = tz;
                     }
                     Err(e) => {
-                        error!("timezone value '{value}' is not a valid timezone, fallback to use system timezone: {e}");
-                        return Ok(BuiltinOption::Timezone.default_value());
+                        // the default that stands for the option, as for a ledger without it
+                        self.timezone = default_timezone();
+                        error!(
+                            "option \"timezone\" \"{value}\" is not a valid IANA time zone name, the ledger uses {} instead (TZ, else the \
+                             system's time zone, else UTC): {e}",
+                            self.timezone
+                        );
+                        return Ok(self.timezone.name().to_owned());
                     }
                 },
                 BuiltinOption::DefaultBookingMethod => {
@@ -267,5 +339,118 @@ impl Default for InMemoryOptions {
             values: HashMap::new(),
             commodities: IndexMap::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use chrono_tz::Tz;
+    use log::Level;
+
+    use super::{decide_default_timezone, DefaultTimezone};
+
+    /// a system with this time zone
+    fn system(name: &str) -> impl FnOnce() -> Result<String, String> + '_ {
+        move || Ok(name.to_owned())
+    }
+
+    /// a system without a time zone, such as the Docker image: no `/etc/localtime`
+    fn no_system() -> Result<String, String> {
+        Err("No such file or directory (os error 2)".to_owned())
+    }
+
+    fn levels(decided: &DefaultTimezone) -> Vec<Level> {
+        decided.log.iter().map(|(level, _)| *level).collect()
+    }
+
+    #[test]
+    fn tz_comes_first() {
+        for (tz, timezone) in [("Europe/Berlin", Tz::Europe__Berlin), ("UTC", Tz::UTC), (":Asia/Tokyo", Tz::Asia__Tokyo)] {
+            let decided = decide_default_timezone(Some(tz), || -> Result<String, String> { panic!("TZ={tz}: the system is asked") });
+            assert_eq!(decided.timezone, timezone, "TZ={tz}");
+            assert_eq!(levels(&decided), [Level::Info], "TZ={tz}");
+            assert!(decided.log[0].1.contains("from the TZ environment variable"), "{:?}", decided.log);
+        }
+    }
+
+    #[test]
+    fn a_tz_that_is_not_an_iana_name_is_ignored_with_a_warning() {
+        for tz in [
+            "UTC0",
+            "CET-1CEST,M3.5.0,M10.5.0/3",
+            ":/etc/localtime",
+            "/usr/share/zoneinfo/Europe/Berlin",
+            "Mars/Olympus",
+            "europe/berlin",
+        ] {
+            let decided = decide_default_timezone(Some(tz), system("America/New_York"));
+            assert_eq!(decided.timezone, Tz::America__New_York, "TZ={tz}");
+            assert_eq!(levels(&decided), [Level::Warn, Level::Info], "TZ={tz}");
+            assert!(
+                decided.log[0].1.contains(&format!("the TZ environment variable {tz:?} is ignored")),
+                "{:?}",
+                decided.log
+            );
+            assert!(decided.log[1].1.contains("the system's time zone"), "{:?}", decided.log);
+        }
+    }
+
+    #[test]
+    fn an_empty_tz_is_not_set() {
+        let decided = decide_default_timezone(Some(""), system("Asia/Shanghai"));
+        assert_eq!(decided.timezone, Tz::Asia__Shanghai);
+        assert_eq!(levels(&decided), [Level::Info]);
+    }
+
+    #[test]
+    fn the_system_comes_second() {
+        let decided = decide_default_timezone(None, system("Europe/London"));
+        assert_eq!(decided.timezone, Tz::Europe__London);
+        assert_eq!(
+            decided.log,
+            [(
+                Level::Info,
+                "a ledger without option \"timezone\" is in Europe/London, the system's time zone".to_owned()
+            )]
+        );
+    }
+
+    /// neither `TZ` nor the system: UTC, not GMT+8 as before, with one line saying how to set the time zone
+    #[test]
+    fn without_tz_and_system_the_timezone_is_utc() {
+        let decided = decide_default_timezone(None, no_system);
+        assert_eq!(decided.timezone, Tz::UTC);
+        assert_eq!(levels(&decided), [Level::Warn]);
+        let line = &decided.log[0].1;
+        assert!(
+            line.starts_with("TZ is not set and the system's time zone cannot be read (No such file"),
+            "{line}"
+        );
+        assert!(line.contains("a ledger without option \"timezone\" is in UTC"), "{line}");
+        assert!(
+            line.contains("TZ=Europe/Berlin") && line.contains("option \"timezone\" \"Europe/Berlin\""),
+            "{line}"
+        );
+
+        // a TZ that is ignored, then the fallback
+        let decided = decide_default_timezone(Some("UTC0"), no_system);
+        assert_eq!(decided.timezone, Tz::UTC);
+        assert_eq!(levels(&decided), [Level::Warn, Level::Warn]);
+        assert!(
+            decided.log[1].1.starts_with("TZ is ignored and the system's time zone cannot be read"),
+            "{:?}",
+            decided.log
+        );
+
+        // a system time zone that chrono-tz does not know
+        let decided = decide_default_timezone(None, system("Local/Nowhere"));
+        assert_eq!(decided.timezone, Tz::UTC);
+        assert!(
+            decided.log[0]
+                .1
+                .contains("the system's time zone \"Local/Nowhere\" is not an IANA name zhang knows"),
+            "{:?}",
+            decided.log
+        );
     }
 }

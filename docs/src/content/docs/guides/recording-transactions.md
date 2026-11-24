@@ -59,7 +59,7 @@ A date in a Zhang ledger can carry a time of day, as `HH:MM` or `HH:MM:SS`:
   Expenses:Food 48 CNY
 ```
 
-- Times are in the ledger's timezone, the [`timezone` option](/reference/directives/options/#timezone). It defaults to the timezone of the machine Zhang runs on.
+- Times are in the ledger's timezone, the [`timezone` option](/reference/directives/options/#timezone). Without the option, it is the one `TZ` names, else the timezone of the machine Zhang runs on, else UTC.
 - Entries are ordered by date and time. An entry without a time counts as the start of its day (`00:00:00`). Entries with the same date and time keep the order of the files.
 - The time matters most for [balance assertions](/guides/balances/), which check the balance at the moment they are dated.
 - Beancount dates have no time of day. In a beancount ledger, Zhang reads a `time: "12:30:00"` metadata entry as the time, and writes the time that way too.

@@ -30,6 +30,8 @@ docker run --name zhang -v "/path/to/ledger:/data" -p "8000:8000" \
   kilerd/zhang:latest --endpoint main.bean
 ```
 
+镜像中没有系统时区。没有 [`timezone` 选项](/zh-cn/reference/directives/options/#timezone)的账本在镜像中使用 UTC，除非 `TZ` 给出它的时区，即 IANA 名称，例如 `Asia/Shanghai`：此时“今天”、“本月”以及新交易的时间都按这个时区计算。在 `docker run` 命令中加上 `-e "TZ=Asia/Shanghai"`，或者在下面 Compose 文件的 `environment` 中设置 `TZ`。账本中的选项优先于 `TZ`。
+
 使用 Docker Compose：
 
 ```yaml
@@ -45,6 +47,7 @@ services:
       - zhang-cache:/root/.cache/zhang
     environment:
       ZHANG_AUTH: "admin:change-me"
+      TZ: "Asia/Shanghai"
     restart: unless-stopped
 
 volumes:
@@ -124,6 +127,7 @@ zhang serve [OPTIONS] <PATH>
 | `ZHANG_PLUGIN_MAX_MEMORY` | 一个[插件](/zh-cn/guides/plugins/)实例最多能使用的内存，例如 `512MiB`。默认为 `256MiB`。 |
 | `ZHANG_PLUGIN_CACHE_DIR` | [插件](/zh-cn/guides/plugins/#编译后的代码)在两次启动之间保存编译后代码的目录，代码放在其中的子目录 `zhang-wasmtime-cache` 里，最多约 128 MiB。默认为 `$XDG_CACHE_HOME/zhang`，否则为 `~/.cache/zhang`。设为空值会关闭缓存。它保存服务器会运行的代码：它必须属于运行张记账的用户、只有该用户能写入，并且位于账本文件夹之外，否则张记账不使用缓存。 |
 | `ZHANG_PLUGIN_MAX_BODY`、`ZHANG_PLUGIN_MAX_CONCURRENCY` | [Router 插件](/zh-cn/guides/router-plugins/#限制)能收到的最大请求体（默认为 `4MiB`），以及一个 Router 插件能同时处理的请求数（默认为 `4`）。 |
+| `TZ` | 没有 [`timezone` 选项](/zh-cn/reference/directives/options/#timezone)的账本所用的时区，即 IANA 名称，例如 `Asia/Shanghai` 或 `UTC`。默认为系统的时区，否则为 `UTC`（Docker 镜像中没有系统时区，所以是 `UTC`）。不是 IANA 名称的值（例如 POSIX 规则 `UTC0`）会被忽略，并留下一条警告。张记账只在启动时读取一次 `TZ`：重新加载账本时仍使用已读取的时区，所以修改 `TZ` 后请重新启动张记账。 |
 | `ZHANG_LOG` | 日志过滤器，例如 `info`、`debug` 或 `zhang_core=trace`（[env_logger 语法](https://docs.rs/env_logger/latest/env_logger/#enabling-logging)）。不设置时使用 `RUST_LOG`；两者都不设置时级别为 `info`。Docker 镜像设置了 `RUST_LOG=info`。部分依赖的内部日志（`wasmtime_wasi`、`gotcha`、`tracing::span`）只显示警告和错误，除非过滤器写明了它们，例如 `info,wasmtime_wasi=trace`。只有输出是终端时日志才带颜色；`RUST_LOG_STYLE=always` 或 `never` 可以覆盖这一行为。 |
 
 如果启动时账本无法加载（例如存在语法错误），或者端口已被占用，`zhang serve` 会在标准错误输出中打印原因并以退出码 1 退出，这样 systemd、Docker 和托管平台都能识别出启动失败。账目本身的问题，例如不平衡的交易，不会让服务器停止：它们会列在网页界面中。
