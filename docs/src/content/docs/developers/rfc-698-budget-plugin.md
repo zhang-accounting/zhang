@@ -28,8 +28,8 @@ sidebar:
   follow-ups #908 and #909, and the bench fix #910.
 - **Merged:** P5 (#911, #912, #913), which deletes the native budget code (§10.2, "P5 as built").
 - **Complete.** Every step of the plan is merged, the last one with #913.
-- **Release:** the owner decided that the whole migration ships in v0.3.0. Until then the `Analyzer` plugin type is
-  experimental (§2).
+- **Release:** the whole migration ships in v0.3.0, and the owner decided on 2026-11-24 that the `Analyzer` plugin
+  type is stable from v0.3.0 (§2).
 
 The page answers the questions RFC [#698](https://github.com/zhang-accounting/zhang/issues/698) leaves to P1,
 against `main` at `9c156c7b`, where its `path:line` references point. The owner recorded every decision of
@@ -198,11 +198,12 @@ fixed rule.
 
 ## 2. The Analyzer extension point
 
-:::caution[Experimental until the migration is complete]
-As built in P1.4, the `Analyzer` plugin type is experimental, and
-[Writing Plugins](/developers/writing-plugins/#analyzers) says so. Its ABI (the manifest, the records, the output,
-`zhang_convert`, the SDK's `analysis` module, and as built in P1.6 the analyzers of Lua scripts) may change in any
-release before the budget migration completes. A release may ship before #698 is done.
+:::note[Stable from v0.3.0]
+As built in P1.4, the `Analyzer` plugin type was experimental until the budget migration completed: its ABI (the
+manifest, the records, the output, `zhang_convert`, the SDK's `analysis` module, and as built in P1.6 the analyzers of
+Lua scripts) could change in any release before then. The migration is complete, and the owner decided on 2026-11-24
+that the type is stable from v0.3.0: `analysis_abi` 1 only grows by additions, and any other change brings a new
+version ([Writing Plugins](/developers/writing-plugins/#analyzers)).
 :::
 
 ### 2.1 Where it runs

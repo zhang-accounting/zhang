@@ -7,7 +7,7 @@ sidebar:
 
 插件可以是一个 Lua 脚本，而不必是 WebAssembly 模块。把 `.lua` 文件复制进账本目录，像声明任何插件一样声明它；张记账用内置的 Lua 5.4 解释器运行它，沙箱、能力和 `/api/plugins/{name}` 路由都与 wasm 插件相同。不需要编译，也不需要安装任何东西。
 
-本版本中 Lua 脚本是 **router 插件**：它们提供页面和数据，并通过查询读取账本。它们也可以是**分析器**（实验性）：在账本加载完成后读取它，发布诊断和表（[分析器](#分析器)）。它们通过 [`zhang.decimal`](#精确小数) 精确地计算金额。[为什么还没有 processor 和 mapper](#暂不支持-processor-和-mapper) 见下文。
+本版本中 Lua 脚本是 **router 插件**：它们提供页面和数据，并通过查询读取账本。它们也可以是**分析器**：在账本加载完成后读取它，发布诊断和表（[分析器](#分析器)）。它们通过 [`zhang.decimal`](#精确小数) 精确地计算金额。[为什么还没有 processor 和 mapper](#暂不支持-processor-和-mapper) 见下文。
 
 ## 二十行写一个插件
 
@@ -132,8 +132,8 @@ d(0.1)                   --> 错误：decimal must be a string or an integer, go
 
 ## 分析器
 
-:::caution[实验性]
-`Analyzer` 类型是实验性的，用 Lua 编写和用 Rust SDK 编写都是如此：在 [RFC #698](/zh-cn/developers/rfc-698-budget-plugin/) 的预算迁移完成之前，清单、记录和输出可能在任何发布版中改变。
+:::note[稳定性]
+`Analyzer` 类型从张记账 0.3.0 起是稳定的，用 Lua 编写和用 Rust SDK 编写都是如此：`analysis_abi` 1 保持它的含义，之后的发布版只会在其上增加内容，否则会带来新的版本（[编写插件](/zh-cn/developers/writing-plugins/#分析器)）。
 :::
 
 分析器在账本加载完成后读取它，每次加载、因而每次写入都会运行，并发布诊断（并入账本的错误）和表的行（查询读取它们就像读取张记账自己的表）。[编写插件](/zh-cn/developers/writing-plugins/#分析器)描述了这个类型：它的清单、它读取的记录、它的输出和它的限制。在 Lua 中，清单是模块表的字段，`analyze` 是一个函数，接收记录并返回输出，都以 Lua 表表示：
