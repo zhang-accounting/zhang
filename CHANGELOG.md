@@ -10,9 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!--
 Release prep. Before tagging:
 - refresh: `git-cliff --unreleased --tag v0.3.0` lists the raw commits since v0.2.0; fold the new ones in below
-  (the budget migration, #698, goes to "Budget as an official plugin"). Folded in up to #907 (bd58ce0c);
-- replace each entry marked "TODO(...)" below with what was merged, or remove it;
-- the entries marked "pending #905" describe the draft #905 (P3.3): drop the mark once it merges, or remove them;
+  (the budget migration, #698, complete on main with #913, is in "Budget as an official plugin" and under
+  Breaking changes › Budgets). Folded in up to #913;
 - replace "Unreleased" above with the release date, and `main` in the [0.3.0] link at the end with `v0.3.0`;
 - the workspace version in Cargo.toml must equal the tag.
 -->
@@ -76,23 +75,34 @@ turned off, and several API endpoints are gone: read [Breaking changes](#breakin
 - A plugin module outside the ledger's directory (an absolute path elsewhere, `../`, a symlink out) stops the load
   (#776), and a module must be `.wasm`, `.wat`, `.lua` or have no extension (#802)
 
-#### Budgets (pending #905)
+#### Budgets
 
-<!-- From the body of the draft #905 (RFC #698 P3.3). Remove the "pending #905" marks once it merges. -->
-
-- Pending #905: budgets are computed by the bundled Lua plugin `zhang:budget`, the only implementation of budgets
-  (#698, #905): `zhang serve` runs it for every ledger as an analyzer, at every load and so after every write, within
+- Budgets are computed by the bundled Lua plugin `zhang:budget`, the only implementation of budgets (#698, #905):
+  `zhang serve` runs it for every ledger as an analyzer, at every load and so after every write, within
   `ZHANG_PLUGIN_MAX_TIMEOUT` and `ZHANG_PLUGIN_MAX_MEMORY` (its Lua memory is the limit less 32 MiB, 224 MiB by
   default). A ledger whose budgets need more loads without its budget pages and without budget errors, with one
   `PluginAnalysisFailed` saying which limit to raise
-- Pending #905: a build without the plugin runtime (the `zhang-wasm` playground) and a program loading ledgers with
-  `zhang-core` without the bundled script and an analysis host report `ExtensionUnavailable` on a ledger with budgets,
-  and interpret none (#905)
-- Pending #905: what an operator sees of it (#905): the first start compiles the plugin runtime, about half a second,
-  kept in the cache of compiled code for the next starts (mount the cache volume of a container); the server holds
-  about 10 to 20 MiB more with 10,000 transactions, 40 to 60 MiB with 100,000; every load logs
+- A build without the plugin runtime (the `zhang-wasm` playground) and a program loading ledgers with `zhang-core`
+  without the bundled script and an analysis host report `ExtensionUnavailable` on a ledger with budgets, and
+  interpret none (#905)
+- What an operator sees of it (#905): the first start compiles the plugin runtime, about half a second, kept in the
+  cache of compiled code for the next starts (mount the cache volume of a container); the server holds about 10 to
+  20 MiB more with 10,000 transactions, 40 to 60 MiB with 100,000; every load logs
   `analyzer zhang:budget analysed the ledger in …` at `info`; the Settings page and `GET /api/plugins` list
   `zhang:budget` as an `Analyzer`
+- Known differences from the native budgets of 0.2, measured in P4 (#905): the server holds more memory (about 10 to
+  20 MiB with 10,000 transactions, 40 to 60 MiB with 100,000, within P4's bar); the first start takes about 0.7 s with
+  an empty cache of compiled code and about 0.3 s with it, at 10,000 transactions; a write, and the budget or errors
+  page after it, takes 35 to 50 ms longer at 10,000 transactions; and a ledger of many closed budgets loads about
+  2.5 times slower (3,600 closed budgets: 1.2 s rather than 0.5 s)
+- The native budget code is removed (#911, #912): the bundled script `zhang:budget` is the only implementation of
+  budgets, with no fallback. Where it does not run (plugins off, the playground, an embedder without it), the budget
+  tables, the `budgets` column and the `budgets.*` queries stay listed and answer that they are unavailable. The
+  budget fuzzer and the parity tests compare the script with the SDK's `examples/budget` analyzer. For programs that
+  embed the crates: `LoadOptions::native_budgets`, `zhang_server::analysis::{BudgetImpl, load_options_for}` (use
+  `load_options`), `Ledger::{account_budgets, budget_accounts}` (use `open_meta_values_at` / `open_meta_accounts` with
+  `"budget"`) and the `budget-switch` features are gone. The budgets guide, query reference, plugin development and
+  upgrading pages describe the plugin alone
 
 #### HTTP API
 
@@ -157,13 +167,11 @@ turned off, and several API endpoints are gone: read [Breaking changes](#breakin
 
 ### Budget as an official plugin
 
-<!-- RFC #698: the budget moves out of the core into a plugin on the analyzer and extension-table API. Merged up to
-#907: P0, P1.1–P1.6, the G1 gate (passed with conditions on 2026-11-23), P3.1 and P3.2 (#886, #887, #891, #895,
-#898). P3.3 is the draft #905 (its entries, marked "pending #905", are under Breaking changes). Replace TODO(P4) and
-TODO(P5) when they land. -->
+<!-- RFC #698 is complete on main (#913): P0, P1.1–P1.6, the G1 gate (2026-11-23), P3.1–P3.3, P4 (accepted by
+the owner on 2026-11-24) and P5. What it breaks is under Breaking changes › Budgets. -->
 
-Budgets are the official plugin `zhang:budget`, computed by the bundled Lua script `budget.lua` (pending #905; without
-it, release builds still serve budgets with the core's native code):
+Budgets moved out of the core into the official plugin `zhang:budget`, the bundled Lua script `budget.lua`, built on
+the analyzer and extension-table API (RFC #698):
 
 - `zhang:budget` is a default plugin: every ledger has it, without a `plugin` directive and whatever its
   `features.plugin` option says, and only the server's `ZHANG_PLUGINS=off` stops it (see
@@ -178,8 +186,8 @@ it, release builds still serve budgets with the core's native code):
   known issues are fixed: a timed budget directive round-trips through a `.bean` file, budget names are exported
   quoted, a second `budget` of a name reports `DefineDuplicatedBudget`, and the budget queries' `month` must be the
   first day of a month (#842)
-- The budget tables are served as extension tables of a native provider, and the query schema names their provider
-  (`provided_by: "zhang:budget"`) (#843, #844, #845)
+- The budget tables are extension tables, and the query schema names their provider (`provided_by: "zhang:budget"`)
+  (#843, #844, #845)
 - The `Analyzer` plugin type, in the SDK and in Lua; the SDK's `examples/budget` computes zhang's budgets as an
   analyzer and passes the contract (#848, #849, #850, #864)
 - The bundled script `plugins/budget/budget.lua` computes the budgets as the native code does: `#budget_definitions`,
@@ -190,13 +198,18 @@ it, release builds still serve budgets with the core's native code):
 - Its activity queries are a few per budget commodity, whatever the number of budgets, closed ones included, so a
   ledger with thousands of closed budgets stays within an analysis's 10,000 queries, and a budget's own commodity is
   summed exactly, without `convert()`'s 28-digit rounding (#891, #898)
-- Pending #905: the script is the only implementation of budgets, see [Breaking changes](#breaking-changes). Until
-  #905 merges it runs only behind RFC #698's test switch (the `budget-switch` feature)
-- TODO(P4, not merged): the measured cost of budgets as a plugin against the native code, at 10,000 and 100,000
-  transactions; the bar is at most max(5%, 50 ms) more for a load or a write and the next budget or errors page, at
-  most max(+10%, +40 MiB) of memory, and a named-query p95 at most max(+10%, +1 ms) (#856, #880, #882, #894, #907)
-- TODO(P5, not merged): the native budget code is removed; the budgets guide, query reference, plugin development and
-  upgrading pages describe the plugin
+- A budget of an account whose opens name many budgets, such as a budget per category and month, is read from the
+  account's months: 4,200 monthly budgets take 6 queries instead of 48 and load in about 0.57 s rather than 6.3 s,
+  with 48 to 60 MiB of Lua memory, and the months of closed budgets are classed from the first aggregation (#908,
+  #909)
+- P4 measured the script against the native budget code, paired, at 10,000 and 100,000 transactions (#894, #905,
+  #910): every memory figure and all 12 named-query p95s pass, as do the concurrent readers, the Docker smoke test
+  under `--memory 512m` and the upgrade canary from 0.2.0; 9 of the 12 end-to-end timers pass, and three of the errors
+  page stay inconclusive, which the owner accepted on 2026-11-24 (`reload → errors` +38.5 ms and `start → errors`
+  +41.8 ms against 50 ms at 10,000 transactions, `reload → errors` +58.0 ms against 66 ms at 100,000). Ledgers heavy
+  in closed budgets load about 2.5 times slower (3,600 closed budgets: 1.2 s rather than 0.5 s); monthly ones 10 to
+  20% slower (4,200 budgets: 0.53 s rather than 0.47 s)
+- The native budget code is gone (#911, #912, #913); see [Breaking changes](#breaking-changes)
 
 ### Plugins
 
@@ -518,7 +531,7 @@ may change in any release until the budget migration of RFC #698 is complete (#8
   #875, #879)
 - A default plugin is compiled once, and what it declares when it registers is read once, for as long as its module
   and settings stay the same, so a reload or a write does neither again: about 7 ms less for every reload or write of
-  a ledger with a Lua default plugin, as the bundled `zhang:budget` is (pending #905) (#863, #884). An analyzer's
+  a ledger with a Lua default plugin, as the bundled `zhang:budget` is (#863, #884). An analyzer's
   output is read straight into the cells of its tables, without a JSON tree, its input records are freed before the
   call, and the memory a compile freed is given back (#876, #877, #878)
 - A plugin compiles on one thread of its own and gives the memory back after: a cold compile of a Lua plugin takes
