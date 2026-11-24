@@ -46,7 +46,18 @@ fn breakfast_time() -> Clock {
 /// The ledger, written to `dir` and loaded at the breakfast time.
 fn ledger(dir: &Path) -> SharedLedger {
     std::fs::write(dir.join("main.zhang"), LEDGER).unwrap();
-    shared(Ledger::load_with_clock(dir.to_path_buf(), "main.zhang".to_owned(), data_source_for("main.zhang"), breakfast_time()).unwrap())
+    // loaded as the server loads it, its budgets computed by the bundled script zhang:budget
+    let options = zhang_server::analysis::load_options(std::sync::Arc::new(zhang_core::plugin_policy::PluginPolicy::default()));
+    shared(
+        Ledger::load_with_options(
+            dir.to_path_buf(),
+            "main.zhang".to_owned(),
+            data_source_for("main.zhang"),
+            breakfast_time(),
+            options,
+        )
+        .unwrap(),
+    )
 }
 
 /// the breakfast as the journal shows it, edited to 6 CNY with its date and time sent as `datetime`

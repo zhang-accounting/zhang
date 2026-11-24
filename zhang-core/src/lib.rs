@@ -48,12 +48,15 @@ mod test {
         ledger.commodities().into_iter().map(|(commodity, _)| commodity).find(|it| it.name == name)
     }
 
+    /// `content` loaded, its budgets interpreted by the native code through RFC #698's test switch, as a bare load
+    /// runs no budget code ([`crate::analysis::LoadOptions::native_budgets`])
     fn load_from_text(content: &str) -> Ledger {
-        let temp_dir = tempdir().unwrap().keep();
+        let temp_dir = tempdir().unwrap().keep().canonicalize().unwrap();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
-        let source = LocalFileSystemDataSource::new(ZhangDataType {});
-        Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let options = crate::analysis::LoadOptions::default().with_native_budgets();
+        Ledger::load_with_options(temp_dir, "example.zhang".to_string(), source, crate::clock::Clock::System, options).unwrap()
     }
     fn load_store(content: &str) -> StoreTest {
         let temp_dir = tempdir().unwrap().keep();

@@ -50,11 +50,18 @@
 //! `schema.json` holds the columns of the budget tables and the parameters and columns of the built-in queries the
 //! budget pages and the app run, as `GET /api/query/schema` and `GET /api/query/builtins` list them.
 //!
-//! **As an analyzer.** Every case runs twice: with the native budget code, and with the budget analyzer of
-//! `zhang-plugin-sdk/examples/budget` (built for wasm32) as the default plugin `zhang:budget`, which then serves the
-//! budget tables from its snapshot and reports the budget errors instead of the native checks (RFC #698 P1.4). The
-//! second run compares with the same golden files and never rewrites them: the analyzer's diagnostics land at the
-//! places and with the ids the native checks give, and its tables answer alike.
+//! **The implementations of budgets.** Each case runs as the server loads a ledger (`load_options`): with the bundled
+//! script `zhang:budget`, the only implementation of budgets (RFC #698 P3.3), or, in a build with the `budget-switch`
+//! feature, with the implementation `ZHANG_BUDGET_IMPL` chooses. That run compares with the golden files byte for
+//! byte, and rewrites them when asked to. Every case also runs, compared with the same golden files and never
+//! rewriting them,
+//!
+//! - natively, with RFC #698's test switch (`budget_contract_natively`), and with the script whatever the build
+//!   (`budget_contract_as_the_budget_script`): each difference is classified by the testing guide's allowed
+//!   differences, and any other fails the test;
+//! - with the budget analyzer of `zhang-plugin-sdk/examples/budget` (built for wasm32) as the default plugin
+//!   `zhang:budget` in place of the script (RFC #698 P1.4), byte for byte: the analyzer's diagnostics land at the
+//!   places and with the ids the native checks give, and its tables answer alike.
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
@@ -77,6 +84,7 @@ use zhang_core::extensions::SnapshotStatus;
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin_policy::PluginPolicy;
 use zhang_core::utils::id::FromSpan;
+use zhang_server::analysis::{load_options_for, BudgetImpl};
 use zhang_testkit::fixtures::{data_source_for, repo_root};
 use zhang_testkit::golden;
 use zhang_testkit::http::{app, call, router_of, serve_config, Settings};
@@ -182,19 +190,46 @@ fn http_request(request: &Value) -> (Method, String, Option<Value>) {
 /// What computes the budgets of a run.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Budgets {
-    /// zhang's native budget code
+    /// what the server loads a ledger with (`zhang_server::analysis::load_options`): the bundled script `zhang:budget`,
+    /// or what `ZHANG_BUDGET_IMPL` chooses in a build with the `budget-switch` feature. Its answers are the golden files
+    Default,
+    /// zhang's native budget code, through RFC #698's test switch: compared with the golden files by value, as
+    /// [`Budgets::Script`] is
     Native,
     /// the budget analyzer of the SDK's examples, as the default plugin `zhang:budget`
     Analyzer,
     /// the bundled script `zhang:budget` (`plugins/budget/budget.lua`), as the default plugin: RFC #698's `plugin`
-    /// mode. Its answers are compared with the golden files by value, and every difference is classified by the testing
-    /// guide's allowed differences ([`zhang_testkit::budget_parity`])
+    /// mode, whatever the build. Its answers are compared with the golden files by value, and every difference is
+    /// classified by the testing guide's allowed differences ([`zhang_testkit::budget_parity`])
     Script,
 }
 
-/// The differences the script's answers have with the golden files, by case and file: collected by [`compare`], and
-/// reported by the test that runs the script.
-static SCRIPT_DIFFERENCES: std::sync::Mutex<Vec<(String, zhang_testkit::budget_parity::Difference)>> = std::sync::Mutex::new(Vec::new());
+/// The differences found with the golden files, by case and file: collected by [`compare`], and reported by the test
+/// that runs the script ([`SCRIPT_DIFFERENCES`]) or the native code ([`NATIVE_DIFFERENCES`]).
+type Differences = std::sync::Mutex<Vec<(String, zhang_testkit::budget_parity::Difference)>>;
+
+/// The differences the script's answers have with the golden files.
+static SCRIPT_DIFFERENCES: Differences = std::sync::Mutex::new(Vec::new());
+
+/// The differences the native budgets' answers have with the golden files.
+static NATIVE_DIFFERENCES: Differences = std::sync::Mutex::new(Vec::new());
+
+/// The options the server loads a ledger with, but with the module `content`, a file named `file`, as the default
+/// plugin `zhang:budget` in place of the bundled script.
+fn with_budget_plugin(file: &str, content: Arc<[u8]>) -> zhang_core::analysis::LoadOptions {
+    let mut options = load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Plugin);
+    let budget = options
+        .default_plugins
+        .iter_mut()
+        .find(|plugin| plugin.module == "zhang:budget")
+        .expect("the server registers zhang:budget");
+    *budget = DefaultPlugin {
+        module: "zhang:budget".to_owned(),
+        file: file.to_owned(),
+        content,
+    };
+    options
+}
 
 /// The budget analyzer of `zhang-plugin-sdk/examples/budget`, built for wasm32 once per process; `None` when the
 /// wasm32 target is missing (on CI that fails, as `sdk_plugins` does).
@@ -243,28 +278,18 @@ fn budget_analyzer() -> Option<Arc<[u8]>> {
 /// `budgets`, and the ledger it serves; the load's error when it does not load.
 async fn server(dir: &Path, entry: &str, now: Clock, budgets: Budgets) -> Result<(Router, Arc<RwLock<Ledger>>), String> {
     let source = data_source_for(entry);
-    let ledger = match budgets {
-        Budgets::Native => Ledger::load_with_clock(dir.to_path_buf(), entry.to_owned(), source.clone(), now),
-        Budgets::Script => {
-            let options = zhang_server::analysis::load_options_for(Arc::new(PluginPolicy::default()), zhang_server::analysis::BudgetImpl::Plugin);
-            let ledger = Ledger::load_with_options(dir.to_path_buf(), entry.to_owned(), source.clone(), now, options);
-            if let Ok(ledger) = &ledger {
-                zhang_testkit::budget_parity::assert_published(ledger);
-            }
-            ledger
-        }
-        Budgets::Analyzer => {
-            let module = budget_analyzer().expect("the budget analyzer is built");
-            let mut options = zhang_server::analysis::load_options(Arc::new(PluginPolicy::default()));
-            options.default_plugins.push(DefaultPlugin {
-                module: "zhang:budget".to_owned(),
-                file: "zhang_plugin_example_budget.wasm".to_owned(),
-                content: module,
-            });
-            Ledger::load_with_options(dir.to_path_buf(), entry.to_owned(), source.clone(), now, options)
-        }
+    let options = match budgets {
+        Budgets::Default => zhang_server::analysis::load_options(Arc::new(PluginPolicy::default())),
+        Budgets::Native => load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Native),
+        Budgets::Script => load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Plugin),
+        Budgets::Analyzer => with_budget_plugin("zhang_plugin_example_budget.wasm", budget_analyzer().expect("the budget analyzer is built")),
+    };
+    let script = options.default_plugins.iter().any(|plugin| plugin.file == "plugins/budget/budget.lua");
+    let ledger = Ledger::load_with_options(dir.to_path_buf(), entry.to_owned(), source.clone(), now, options).map_err(|error| error.to_string())?;
+    if script {
+        // the budgets are the script's: it ran, and published
+        zhang_testkit::budget_parity::assert_published(&ledger);
     }
-    .map_err(|error| error.to_string())?;
     if budgets == Budgets::Analyzer {
         // the analyzer ran, and served the budget tables
         let failed = ledger
@@ -519,12 +544,12 @@ async fn round_trip(entry: &str, main: &str, text: &str, now: &Clock, requests: 
     }
 }
 
-/// Compare `actual` with the golden file at `path`: with the native budgets as `golden::assert_text` does (rewriting it
-/// when asked to), with the analyzer never rewriting it.
+/// Compare `actual` with the golden file at `path`: with the server's budgets as `golden::assert_text` does (rewriting it
+/// when asked to), with the others never rewriting it.
 fn compare(budgets: Budgets, path: &Path, actual: &str) {
     match budgets {
-        Budgets::Native => golden::assert_text(path, actual),
-        Budgets::Script => {
+        Budgets::Default => golden::assert_text(path, actual),
+        Budgets::Native | Budgets::Script => {
             let expected = std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
             let file = path.strip_prefix(cases_dir()).unwrap_or(path).display().to_string();
             let found = match path.extension().and_then(|it| it.to_str()) {
@@ -546,7 +571,11 @@ fn compare(budgets: Budgets, path: &Path, actual: &str) {
                     })
                     .collect(),
             };
-            SCRIPT_DIFFERENCES.lock().unwrap().extend(found.into_iter().map(|it| (file.clone(), it)));
+            let differences = match budgets {
+                Budgets::Native => &NATIVE_DIFFERENCES,
+                _ => &SCRIPT_DIFFERENCES,
+            };
+            differences.lock().unwrap().extend(found.into_iter().map(|it| (file.clone(), it)));
         }
         Budgets::Analyzer => {
             let expected = std::fs::read_to_string(path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
@@ -566,7 +595,7 @@ fn compare(budgets: Budgets, path: &Path, actual: &str) {
 
 /// Run the case in `budget_contract/<name>` and compare what the server answers with its golden files.
 async fn run(name: &str) {
-    run_with(name, Budgets::Native).await
+    run_with(name, Budgets::Default).await
 }
 
 /// A case read from `budget_contract/<name>`: what `case.json` says, a copy of its ledger with the case's timezone,
@@ -898,7 +927,7 @@ async fn a_close_at_a_time_the_timezone_skips_closes_as_written() {
     ];
     let scratch = Scratch::zhang(LEDGER);
     let now = Clock::Fixed(chrono::DateTime::parse_from_rfc3339("2024-03-20T12:00:00Z").unwrap().to_utc());
-    let mut runs = vec![Budgets::Native, Budgets::Script];
+    let mut runs = vec![Budgets::Native, Budgets::Script, Budgets::Default];
     if budget_analyzer().is_some() {
         runs.push(Budgets::Analyzer);
     }
@@ -929,26 +958,42 @@ async fn a_close_at_a_time_the_timezone_skips_closes_as_written() {
     }
 }
 
-/// Every case, with the bundled script `zhang:budget` computing the budgets instead of the native code (RFC #698's
-/// `plugin` mode): the same golden files, ids and places of the errors included, but for the differences the testing
-/// guide allows, which are listed. The list is also written to `budget-contract-script.txt` in the test's temporary
+/// Every case, with the bundled script `zhang:budget` computing the budgets whatever the build (RFC #698's `plugin`
+/// mode): the same golden files, ids and places of the errors included, but for the differences the testing guide
+/// allows, which are listed. The list is also written to `budget-contract-script.txt` in the test's temporary
 /// directory.
 #[tokio::test(flavor = "multi_thread")]
 async fn budget_contract_as_the_budget_script() {
+    budget_contract_compared(Budgets::Script, &SCRIPT_DIFFERENCES, "script").await
+}
+
+/// Every case, with zhang's native budget code computing the budgets through RFC #698's test switch (its `native`
+/// mode), until P5 deletes it: as [`budget_contract_as_the_budget_script`], the list written to
+/// `budget-contract-native.txt`.
+// TODO(P5): goes with the native budget code
+#[tokio::test(flavor = "multi_thread")]
+async fn budget_contract_natively() {
+    budget_contract_compared(Budgets::Native, &NATIVE_DIFFERENCES, "native").await
+}
+
+/// Every case and the schema with the budgets computed by `budgets`, compared with the golden files by value: each
+/// difference found, collected in `differences`, must be one the testing guide allows. The list is written to
+/// `budget-contract-<name>.txt` in the test's temporary directory.
+async fn budget_contract_compared(budgets: Budgets, differences: &Differences, name: &str) {
     for case in CASES {
-        run_with(case, Budgets::Script).await;
+        run_with(case, budgets).await;
     }
-    budget_contract_schema_with(Budgets::Script).await;
-    let found = std::mem::take(&mut *SCRIPT_DIFFERENCES.lock().unwrap());
+    budget_contract_schema_with(budgets).await;
+    let found = std::mem::take(&mut *differences.lock().unwrap());
     let report = found.iter().map(|(file, difference)| format!("{file} {difference}\n")).collect::<String>();
-    let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join("budget-contract-script.txt");
+    let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("budget-contract-{name}.txt"));
     std::fs::write(&path, &report).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     let allowed = found.iter().filter(|(_, it)| it.allowed.is_some()).count();
     eprintln!("{} differences with the golden files, {allowed} of them allowed:\n{report}", found.len());
     assert_eq!(
         allowed,
         found.len(),
-        "the script differs from the golden files where the testing guide allows no difference:\n{report}"
+        "the {name} budgets differ from the golden files where the testing guide allows no difference:\n{report}"
     );
 }
 
@@ -957,7 +1002,7 @@ async fn budget_contract_as_the_budget_script() {
 #[test]
 fn the_budget_script_declares_the_native_manifest() {
     let scratch = Scratch::zhang("1970-01-01 open Assets:Cash\n  budget: \"Food\"\n");
-    let options = zhang_server::analysis::load_options_for(Arc::new(PluginPolicy::default()), zhang_server::analysis::BudgetImpl::Plugin);
+    let options = load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Plugin);
     let ledger = Ledger::load_with_options(
         scratch.dir().to_path_buf(),
         "main.zhang".to_owned(),
@@ -1025,31 +1070,39 @@ fn failing_budget_analyzer() -> String {
     wat
 }
 
-/// Every case, with a `zhang:budget` that reports the budget errors and whose analysis fails: the load runs the native
-/// budget checks after it, and has the errors of the native fold, ids, places and order included, next to the failure.
+/// Every case, with a `zhang:budget` that reports the budget errors and whose analysis fails, in place of the bundled
+/// script: the script is the only implementation of budgets, so the load has its one `PluginAnalysisFailed`, on the
+/// first use of budgets, and no budget error. Every other error is the native load's, ids, places and order included.
 #[tokio::test(flavor = "multi_thread")]
-async fn budget_contract_errors_when_zhang_budget_fails() {
+async fn budget_contract_has_one_error_and_no_budget_error_when_zhang_budget_fails() {
     let module: Arc<[u8]> = Arc::from(failing_budget_analyzer().into_bytes());
-    let without_failures = |errors: Vec<Value>| errors.into_iter().filter(|error| error["kind"] != "PluginAnalysisFailed").collect::<Vec<_>>();
+    let budget_kinds = ["BudgetDoesNotExist", "DefineDuplicatedBudget", "BudgetCommodityMismatch", "BudgetClosed"];
+    let without = |errors: Vec<Value>, kinds: &[&str]| {
+        errors
+            .into_iter()
+            .filter(|error| !kinds.contains(&error["kind"].as_str().unwrap_or_default()))
+            .collect::<Vec<_>>()
+    };
     let mut failed_loads = 0;
     for name in CASES {
         let Case { copy, entries, now, .. } = read_case(name);
         let dir = copy.dir().to_path_buf();
         for entry in &entries {
-            let native = Ledger::load_with_clock(dir.clone(), entry.clone(), data_source_for(entry), now).expect("the ledger loads");
-            let mut options = zhang_server::analysis::load_options(Arc::new(PluginPolicy::default()));
-            options.default_plugins.push(DefaultPlugin {
-                module: "zhang:budget".to_owned(),
-                file: "budget.wat".to_owned(),
-                content: module.clone(),
-            });
+            let natively = load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Native);
+            let native = Ledger::load_with_options(dir.clone(), entry.clone(), data_source_for(entry), now, natively).expect("the ledger loads");
+            let options = with_budget_plugin("budget.wat", module.clone());
             let failed = Ledger::load_with_options(dir.clone(), entry.clone(), data_source_for(entry), now, options).expect("the ledger loads");
+            assert_eq!(
+                failed.plugins.analyzers().filter(|plugin| plugin.is_budget_provider()).count(),
+                1,
+                "{name}/{entry}: one zhang:budget, the module"
+            );
             assert!(failed.plugins.reports_budget_errors(), "{name}/{entry}: the module stands for zhang:budget");
             let failures = failed
                 .errors
                 .iter()
                 .filter(|error| error.error_type == zhang_ast::error::ErrorKind::PluginAnalysisFailed)
-                .count();
+                .collect::<Vec<_>>();
             let status = &failed
                 .extensions
                 .analyzer("zhang:budget")
@@ -1058,26 +1111,23 @@ async fn budget_contract_errors_when_zhang_budget_fails() {
                 .status;
             match status {
                 SnapshotStatus::Failed { .. } => {
-                    assert_eq!(failures, 1, "{name}/{entry}");
+                    assert_eq!(failures.len(), 1, "{name}/{entry}");
                     failed_loads += 1;
+                    // the module declares no table: the budget tables of a failed analysis of the script, which
+                    // declares them, are checked by budget_parity's out-of-memory test
                 }
-                SnapshotStatus::Skipped => assert_eq!(failures, 0, "{name}/{entry}"),
+                SnapshotStatus::Skipped => assert_eq!(failures.len(), 0, "{name}/{entry}"),
                 SnapshotStatus::Ok => panic!("{name}/{entry}: the analysis traps"),
             }
+            let errors = error_list(&failed, &dir);
             assert_eq!(
-                without_failures(error_list(&failed, &dir)),
-                error_list(&native, &dir),
-                "{name}/{entry}: the native budget checks stand in for the failed analysis"
+                without(errors.clone(), &["PluginAnalysisFailed"]),
+                without(error_list(&native, &dir), &budget_kinds),
+                "{name}/{entry}: no budget error, and every other error of the native load"
             );
-            assert_eq!(
-                failed
-                    .errors
-                    .iter()
-                    .filter(|error| error.error_type != zhang_ast::error::ErrorKind::PluginAnalysisFailed)
-                    .map(|error| &error.id)
-                    .collect::<Vec<_>>(),
-                native.errors.iter().map(|error| &error.id).collect::<Vec<_>>(),
-                "{name}/{entry}: in the order of the native fold"
+            assert!(
+                errors.iter().all(|error| !budget_kinds.contains(&error["kind"].as_str().unwrap_or_default())),
+                "{name}/{entry}: no budget error"
             );
         }
     }
@@ -1106,7 +1156,7 @@ fn budget_contract_cases_are_every_directory() {
 /// columns: the names and types clients rely on, without the descriptions and the BQL behind them.
 #[tokio::test(flavor = "multi_thread")]
 async fn budget_contract_schema() {
-    budget_contract_schema_with(Budgets::Native).await
+    budget_contract_schema_with(Budgets::Default).await
 }
 
 async fn budget_contract_schema_with(budgets: Budgets) {

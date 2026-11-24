@@ -3,6 +3,10 @@
 //! statements, the typed API and the limits. The beanquery comparisons are the `oracle` binary.
 //!
 //! Run one module with `cargo nextest run -p zhang-query -E 'binary(engine) & test(language::)'`.
+//!
+//! The modules that read the budget tables load their ledgers natively (`zhang_testkit::native`, RFC #698's test
+//! switch, until P5): they compile their queries against the core catalog, whose provider of the budget tables is the
+//! native one, where a ledger whose budgets the bundled script computes has a catalog of its own.
 
 mod booked_rows;
 mod data_tables;

@@ -547,11 +547,17 @@ plugin "plugins/fx-rates.wasm"
 
 **修正方法**：在指令上写 `timeout` 元数据可以给较慢的分析更多时间，但不超过服务器的上限；调大 `ZHANG_PLUGIN_MAX_MEMORY` 可以给它更多内存。其他情况按消息修正插件，或者联系插件作者。
 
+**`zhang:budget`。**[预算](/zh-cn/guides/budgets/)由官方插件 `zhang:budget` 解释，它是张记账内置的分析器，和其他插件一样在服务器设定的限制内运行。它的分析失败时，错误报告在第一条 `plugin "zhang:budget"` 指令上；账本通常没有这条指令，此时报告在第一个预算指令或带 `budget` 元数据的 `open` 上。它是预算唯一的实现，所以此时账本没有任何预算错误，预算页面、预算表、`#postings` 的 `budgets` 列以及 `budgets.*` [内置查询](/zh-cn/reference/builtin-queries/)都会返回不可用的错误。它可能因以下原因失败：
+
+- `memory`：账本的预算需要的内存超过服务器允许插件使用的大小 `ZHANG_PLUGIN_MAX_MEMORY`。在这个限制中，脚本的 Lua 内存是除去宿主保留的 32 MiB（限制低于 128 MiB 时为四分之一）之外的全部：默认 256 MiB 中的 224 MiB。消息会说明它有多少内存，例如 ``plugin `zhang:budget` exceeded 224 MiB of Lua memory (ZHANG_PLUGIN_MAX_MEMORY is 256 MiB, less 32 MiB for the host)``。预算数以千计的账本需要的最多：45 个类别十年间每个类别每月一个预算（5,400 个预算）约需 100 MiB 的 Lua 内存。用更大的 `ZHANG_PLUGIN_MAX_MEMORY`（例如 `512MiB`）启动服务器；
+- `timeout`：分析运行的时间超过服务器允许的 `ZHANG_PLUGIN_MAX_TIMEOUT`（默认 30 秒）。`zhang:budget` 没有任何选项，在它的指令上写 `timeout` 元数据不起作用：请调大 `ZHANG_PLUGIN_MAX_TIMEOUT`，最多 60 秒；
+- `trap` 或 `output`：`zhang:budget` 的缺陷。请附上消息[报告它](https://github.com/zhang-accounting/zhang/issues)。
+
 ## ExtensionUnavailable
 
 *预算指令未被解释：`<reason>`*
 
-账本用到了预算，但解释预算的官方插件 `zhang:budget` 没有运行：服务器以关闭插件的方式运行（`zhang serve --plugins off` 或 `ZHANG_PLUGINS=off`），这会停止所有插件，包括 `zhang:budget`。除此之外，每个账本都有 `zhang:budget`，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响。账本加载时不带预算：不报告任何预算错误，[预算](/zh-cn/guides/budgets/)页面、预算表（`#budgets`、`#budget_definitions`、`#budget_events`）、`#postings` 的 `budgets` 列以及 `budgets.*` [内置查询](/zh-cn/reference/builtin-queries/)都会返回不可用的错误并说明原因。查询函数 `account_budgets()` 仍然会返回结果：它和 `open_meta_values()` 一样，只读取账户 `open` 指令的 `budget` 元数据。这个错误只报告一次，在第一个预算指令或带 `budget` 元数据的 `open` 上。元数据：`plugin`（`zhang:budget`）和 `reason`，例如 `plugins are off (ZHANG_PLUGINS=off)`。
+账本用到了预算，但解释预算的官方插件 `zhang:budget` 没有运行：服务器以关闭插件的方式运行（`zhang serve --plugins off` 或 `ZHANG_PLUGINS=off`），这会停止所有插件，包括 `zhang:budget`。除此之外，`zhang serve` 加载的每个账本都有 `zhang:budget`，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响。`zhang:budget` 是张记账内置的 Lua 脚本，是预算唯一的实现，因此没有插件运行时的构建（例如在线 Playground 的 WebAssembly 构建）也不解释预算（`reason` 为 `this build has no plugin runtime`），用 `zhang-core` 库加载账本而不运行这个脚本的程序同样如此（`this zhang does not run the bundled zhang:budget script`）。账本加载时不带预算：不报告任何预算错误，[预算](/zh-cn/guides/budgets/)页面、预算表（`#budgets`、`#budget_definitions`、`#budget_events`）、`#postings` 的 `budgets` 列以及 `budgets.*` [内置查询](/zh-cn/reference/builtin-queries/)都会返回不可用的错误并说明原因。查询函数 `account_budgets()` 仍然会返回结果：它和 `open_meta_values()` 一样，只读取账户 `open` 指令的 `budget` 元数据。这个错误只报告一次，在第一个预算指令或带 `budget` 元数据的 `open` 上。元数据：`plugin`（`zhang:budget`）和 `reason`，例如 `plugins are off (ZHANG_PLUGINS=off)`。
 
 **修正方法**：如果服务器由你运行，用 `--plugins read`（默认值）或 `write` 启动它，或者取消设置 `ZHANG_PLUGINS`。
 

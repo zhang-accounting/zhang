@@ -218,8 +218,8 @@ impl PluginStore {
             .map(|(plugin, _)| plugin)
     }
 
-    /// whether the analyzer `zhang:budget` reports the budget system's errors: the native checks' then stand in for
-    /// its diagnostics only when its analysis fails
+    /// whether the analyzer `zhang:budget` reports the budget system's errors: the native checks of RFC #698's test
+    /// switch then do not run, even when its analysis fails
     pub fn reports_budget_errors(&self) -> bool {
         self.analyzers().any(|plugin| {
             plugin.is_budget_provider()

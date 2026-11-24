@@ -120,22 +120,29 @@ pub(crate) fn register(plugin: &Plugin, ledger: &mut Ledger, span: &SpanInfo) ->
     Ok(())
 }
 
-/// Register the plugins of `ledger`, whose `plugin` directives are `directives`: the official default plugins the
-/// operator's policy stops are noted first ([`crate::extensions::stopped_by`]), then the embedder's default plugins are
-/// registered ([`crate::analysis::LoadOptions::default_plugins`]), each configured by the first directive naming its
-/// module, if any, and then the plugins of the other directives, in order. A directive naming a default plugin, the
-/// embedder's or an official one ([`crate::extensions::DEFAULT_PROVIDERS`]), registers nothing of its own: a default
-/// plugin runs once, whatever the ledger's `features.plugin`, so that no option of the ledger turns budgets off.
+/// Register the plugins of `ledger`, whose `plugin` directives are `directives`: the official default plugins that do
+/// not run for the load are noted first ([`crate::extensions::unavailable`]: the operator's policy stops them, or the
+/// load cannot run them), then the embedder's default plugins are registered
+/// ([`crate::analysis::LoadOptions::default_plugins`]), but an official one noted, each configured by the first
+/// directive naming its module, if any, and then the plugins of the other directives, in order. A directive naming a
+/// default plugin, the embedder's or an official one ([`crate::extensions::DEFAULT_PROVIDERS`]), registers nothing of
+/// its own: a default plugin runs once, whatever the ledger's `features.plugin`, so that no option of the ledger turns
+/// budgets off.
 ///
-/// An official plugin has no options, whichever implementation serves it: natively, or the bundled script the embedder
-/// registers for it (`zhang:budget`'s `plugins/budget/budget.lua` declares none). Its directive configures nothing, and
-/// each of its arguments and metas says so ([`configure_default`]), as before the script.
+/// An official plugin has no options, whichever implementation serves it: the bundled script the embedder registers
+/// for it (`zhang:budget`'s `plugins/budget/budget.lua` declares none), or the native code of RFC #698's test switch.
+/// Its directive configures nothing, and each of its arguments and metas says so ([`configure_default`]).
 pub(crate) fn register_all(ledger: &mut Ledger, directives: &[(Plugin, SpanInfo)]) -> ZhangResult<()> {
-    ledger.extensions.unavailable = crate::extensions::stopped_by(&ledger.plugin_policy);
+    ledger.extensions.unavailable = crate::extensions::unavailable(&ledger.load_options);
     let defaults = ledger.load_options.default_plugins.clone();
     for default in &defaults {
         let directive = directives.iter().find(|(plugin, _)| plugin.module.as_str() == default.module);
         let official = crate::extensions::DEFAULT_PROVIDERS.contains(&default.module.as_str());
+        // an official plugin the load cannot run (no analysis host to run its analysis) is not registered: the ledger
+        // says once that what it interprets is not interpreted
+        if official && ledger.extensions.unavailable(&default.module).is_some() {
+            continue;
+        }
         register_default(default, directive, !official, ledger)?;
     }
     let registered = |module: &str| defaults.iter().any(|default| default.module == module);
@@ -262,9 +269,10 @@ pub(crate) fn register_default(
     Ok(())
 }
 
-/// Report, once, that `ledger` uses what an official default plugin the operator stopped interprets: on its first
-/// budget directive, or `open` with `budget` metadata, when `zhang:budget` does not run
-/// ([`zhang_ast::error::ErrorKind::ExtensionUnavailable`], with the metas `plugin` and `reason`). The ledger is folded.
+/// Report, once, that `ledger` uses what an official default plugin that does not run for it interprets
+/// ([`crate::extensions::unavailable`]): on its first budget directive, or `open` with `budget` metadata, when
+/// `zhang:budget` does not run ([`zhang_ast::error::ErrorKind::ExtensionUnavailable`], with the metas `plugin` and
+/// `reason`). The ledger is folded.
 pub(crate) fn report_unavailable(ledger: &mut Ledger) {
     let Some(reason) = ledger.extensions.unavailable(crate::analysis::BUDGET).map(str::to_owned) else {
         return;

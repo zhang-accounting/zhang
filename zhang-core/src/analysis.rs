@@ -183,6 +183,14 @@ pub struct LoadOptions {
     /// plugins registered for every ledger before its own, without a `plugin` directive and whether or not the ledger
     /// turns plugins on, within the operator's policy: an official plugin such as `zhang:budget`
     pub default_plugins: Vec<DefaultPlugin>,
+    /// RFC #698's test switch, until P5 deletes the native budget code: zhang's native budget code (the native provider
+    /// of the budget tables and the fold's budget checks) interprets the budgets of a load that does not run the bundled
+    /// script `zhang:budget` ([`DefaultPlugin::budget`]), as before the script was the only implementation of budgets.
+    /// Only tests and benches set it, to compare the two (`zhang_server::analysis::BudgetImpl::Native`). Without it,
+    /// such a load says once that its budgets are not interpreted ([`crate::extensions::unavailable`]), as the
+    /// playground's does.
+    // TODO(P5): goes with the native budget code
+    pub native_budgets: bool,
 }
 
 impl LoadOptions {
@@ -193,6 +201,13 @@ impl LoadOptions {
             ..LoadOptions::default()
         }
     }
+
+    /// These options with RFC #698's test switch on: zhang's native budget code interprets the budgets of a load that
+    /// does not run the bundled script ([`LoadOptions::native_budgets`]). For tests and benches only.
+    // TODO(P5): goes with the native budget code
+    pub fn with_native_budgets(self) -> LoadOptions {
+        LoadOptions { native_budgets: true, ..self }
+    }
 }
 
 impl fmt::Debug for LoadOptions {
@@ -201,6 +216,7 @@ impl fmt::Debug for LoadOptions {
             .field("plugin_policy", &self.plugin_policy)
             .field("analysis", &self.analysis.is_some())
             .field("default_plugins", &self.default_plugins)
+            .field("native_budgets", &self.native_budgets)
             .finish()
     }
 }
@@ -216,9 +232,11 @@ pub struct DefaultPlugin {
 }
 
 impl DefaultPlugin {
-    /// `zhang:budget` as its bundled Lua script (`plugins/budget/budget.lua`, RFC #698): registered, it publishes the
-    /// budget tables and reports the budget errors in place of the native provider and the native checks. Until P3.3
-    /// only the test switch registers it (`zhang_server::analysis::BudgetImpl`).
+    /// `zhang:budget` as its bundled Lua script (`plugins/budget/budget.lua`, RFC #698), the only implementation of
+    /// budgets: registered, it publishes the budget tables and reports the budget errors. The server registers it for
+    /// every ledger it loads (`zhang_server::analysis::load_options`); a load that does not run it says that its budgets
+    /// are not interpreted, unless RFC #698's test switch has the native code interpret them
+    /// ([`LoadOptions::native_budgets`]).
     #[cfg(feature = "plugin_runtime")]
     pub fn budget() -> DefaultPlugin {
         let script = &crate::plugin::bundled::BUDGET;
@@ -579,16 +597,6 @@ impl Reported {
         self.at_directives.is_empty() && self.after_fold.is_empty() && self.on_plugins.is_empty()
     }
 
-    /// These, then `later`: at each directive, after the fold and on the analyzers.
-    pub fn then(mut self, later: Reported) -> Reported {
-        for (index, errors) in later.at_directives {
-            self.at_directives.entry(index).or_default().extend(errors);
-        }
-        self.after_fold.extend(later.after_fold);
-        self.on_plugins.extend(later.on_plugins);
-        self
-    }
-
     /// Add `diagnostics`, of an analyzer whose own diagnostics go to `plugin_span` (none for a default plugin the ledger
     /// gives nothing to read), of `directives`.
     pub fn add(&mut self, diagnostics: Vec<Diagnostic>, plugin_span: Option<&SpanInfo>, directives: &[Spanned<Directive>]) {
@@ -825,24 +833,6 @@ mod test {
         // a load without a fold of directives
         let merged = merge(vec![error("l0")], &[], Reported::default());
         assert_eq!(merged.len(), 1);
-    }
-
-    #[test]
-    fn reports_follow_one_another_at_every_place() {
-        let mut first = Reported::default();
-        first.at_directives.insert(1, vec![error("n1")]);
-        first.after_fold.push(error("n-after"));
-        let mut later = Reported::default();
-        later.at_directives.insert(1, vec![error("d1")]);
-        later.at_directives.insert(2, vec![error("d2")]);
-        later.after_fold.push(error("d-after"));
-        later.on_plugins.push(error("failed"));
-        let both = first.then(later);
-        let names = |errors: &[ErrorDomain]| errors.iter().map(|it| it.metas["n"].clone()).collect::<Vec<_>>();
-        assert_eq!(names(&both.at_directives[&1]), ["n1", "d1"]);
-        assert_eq!(names(&both.at_directives[&2]), ["d2"]);
-        assert_eq!(names(&both.after_fold), ["n-after", "d-after"]);
-        assert_eq!(names(&both.on_plugins), ["failed"]);
     }
 
     #[cfg(feature = "plugin_runtime")]

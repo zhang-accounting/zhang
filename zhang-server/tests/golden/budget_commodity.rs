@@ -165,9 +165,9 @@ impl Fixture {
 
     /// the ledger, with the current time read from `clock`, or `None` if it cannot be loaded. The local data source
     /// does not expand wildcard includes and fails on a missing include, so a ledger that has either is loaded from a
-    /// copy with its wildcards expanded and its missing includes empty ([`materialize`]). The budgets are the native
-    /// ones, or those of the bundled script `zhang:budget` when `ZHANG_BUDGET_IMPL` is `plugin` or `both` (RFC #698's
-    /// test switch): then this whole module checks the script against the reference.
+    /// copy with its wildcards expanded and its missing includes empty ([`materialize`]). The budgets are those of the
+    /// bundled script `zhang:budget`, the only implementation of budgets, or the native ones when `ZHANG_BUDGET_IMPL`
+    /// is `native` (RFC #698's test switch): then this whole module checks the native code against the reference.
     pub(crate) async fn try_load_at(&self, clock: Clock) -> Option<SharedLedger> {
         let budgets = BudgetImpl::from_env().unwrap_or_else(|error| panic!("{error}"));
         self.try_load_with(clock, budgets).await
@@ -181,15 +181,12 @@ impl Fixture {
             } else {
                 Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
             };
-            match budgets {
-                BudgetImpl::Native => Ledger::load_with_clock(dir, self.entry.clone(), source, clock).ok(),
-                _ => {
-                    let options = load_options_for(Arc::new(PluginPolicy::default()), budgets);
-                    let ledger = Ledger::load_with_options(dir, self.entry.clone(), source, clock, options).ok()?;
-                    zhang_testkit::budget_parity::assert_published(&ledger);
-                    Some(ledger)
-                }
+            let options = load_options_for(Arc::new(PluginPolicy::default()), budgets);
+            let ledger = Ledger::load_with_options(dir, self.entry.clone(), source, clock, options).ok()?;
+            if budgets != BudgetImpl::Native {
+                zhang_testkit::budget_parity::assert_published(&ledger);
             }
+            Some(ledger)
         };
         let ledger = match load(self.dir.clone()).await {
             Some(ledger) => ledger,
@@ -549,7 +546,8 @@ pub(crate) fn check(probe: &Probe, outcome: &Outcome, context: &Context) -> Resu
 mod test {
     use super::*;
 
-    /// Every answer of the handlers on the repository's ledgers is right ([`check`]).
+    /// Every answer of the handlers on the repository's ledgers is right ([`check`]), the budgets computed as
+    /// `ZHANG_BUDGET_IMPL` chooses: by the bundled script `zhang:budget` when it is unset.
     #[tokio::test(flavor = "multi_thread")]
     async fn the_handlers_answer_the_reference_figures_on_every_ledger() {
         answer_the_reference_figures(BudgetImpl::from_env().unwrap_or_else(|error| panic!("{error}"))).await
@@ -559,6 +557,13 @@ mod test {
     #[tokio::test(flavor = "multi_thread")]
     async fn the_budget_script_answers_the_reference_figures_on_every_ledger() {
         answer_the_reference_figures(BudgetImpl::Plugin).await
+    }
+
+    /// The same with zhang's native budget code (RFC #698's `native` mode), in every run, until P5 deletes it.
+    // TODO(P5): goes with the native budget code
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_native_budgets_answer_the_reference_figures_on_every_ledger() {
+        answer_the_reference_figures(BudgetImpl::Native).await
     }
 
     async fn answer_the_reference_figures(budgets: BudgetImpl) {

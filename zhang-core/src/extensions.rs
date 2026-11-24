@@ -15,9 +15,44 @@ use crate::plugin_policy::{PluginPolicy, LEVEL_ENV};
 
 /// The official plugins every ledger has, without a `plugin` directive and whatever its `features.plugin` option says:
 /// `zhang:budget`, which interprets the budget directives and provides the budget tables, the `budgets` column of
-/// `postings` and the budget pages' named queries. Its native provider serves them until RFC #698 moves budgets into
-/// its bundled script; the operator's `ZHANG_PLUGINS=off` stops it as it stops every plugin ([`stopped_by`]).
+/// `postings` and the budget pages' named queries. Its bundled script (`plugins/budget/budget.lua`) is the only
+/// implementation of budgets (RFC #698 P3.3), which the embedder registers
+/// ([`crate::analysis::DefaultPlugin::budget`]); the operator's `ZHANG_PLUGINS=off` stops it as it stops every plugin
+/// ([`stopped_by`]), and a load that cannot run it does not interpret budgets ([`unavailable`]).
 pub const DEFAULT_PROVIDERS: [&str; 1] = [crate::analysis::BUDGET];
+
+/// Why `zhang:budget` does not run in a build without the plugin runtime, such as the playground's (`bindings/wasm`).
+pub const NO_PLUGIN_RUNTIME: &str = "this build has no plugin runtime";
+
+/// Why `zhang:budget` does not run for a load whose embedder does not run its bundled script: it does not register it
+/// ([`crate::analysis::LoadOptions::default_plugins`]), or it has no host for its analysis
+/// ([`crate::analysis::LoadOptions::analysis`]), as a bare `Ledger::load` has neither.
+pub const NOT_RUN_BY_EMBEDDER: &str = "this zhang does not run the bundled zhang:budget script";
+
+/// The official default plugins that do not run for a load with `options`, each with why, so that the ledger says once
+/// what it does not interpret instead of interpreting it ([`Extensions::unavailable`]):
+///
+/// - every one of them when the operator turned plugins off ([`stopped_by`]);
+/// - `zhang:budget`, when the load cannot run its bundled script: in a build without the plugin runtime
+///   ([`NO_PLUGIN_RUNTIME`]), or when the embedder does not register it or has no analysis host
+///   ([`NOT_RUN_BY_EMBEDDER`]), unless RFC #698's test switch has the native budget code interpret the budgets
+///   ([`crate::analysis::LoadOptions::native_budgets`]).
+pub fn unavailable(options: &crate::analysis::LoadOptions) -> Vec<Unavailable> {
+    let stopped = stopped_by(&options.plugin_policy);
+    if !stopped.is_empty() || options.native_budgets {
+        return stopped;
+    }
+    let budget = crate::analysis::BUDGET;
+    let reason = match cfg!(feature = "plugin_runtime") {
+        false => NO_PLUGIN_RUNTIME,
+        true if options.analysis.is_none() || !options.default_plugins.iter().any(|plugin| plugin.module == budget) => NOT_RUN_BY_EMBEDDER,
+        true => return vec![],
+    };
+    vec![Unavailable {
+        provider: budget.to_owned(),
+        reason: reason.to_owned(),
+    }]
+}
 
 /// The official default plugins `policy` stops, each with why: every one of them when the operator turned plugins off.
 pub fn stopped_by(policy: &PluginPolicy) -> Vec<Unavailable> {
@@ -39,7 +74,7 @@ pub fn stopped_by(policy: &PluginPolicy) -> Vec<Unavailable> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unavailable {
     pub provider: String,
-    /// `plugins are off (ZHANG_PLUGINS=off)`
+    /// `plugins are off (ZHANG_PLUGINS=off)`, [`NO_PLUGIN_RUNTIME`] or [`NOT_RUN_BY_EMBEDDER`]
     pub reason: String,
 }
 

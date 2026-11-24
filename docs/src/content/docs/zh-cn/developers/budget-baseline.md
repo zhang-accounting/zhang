@@ -539,7 +539,7 @@ kbuild --bench <lane> --no-sync '/cache/<lane>-bin/budget_pairs --out /cache/<la
 
 ## 复现
 
-在要测量的提交的检出目录中运行，尽量不要同时运行其他任务：
+在要测量的提交的检出目录中运行，尽量不要同时运行其他任务。自 RFC #698 的 P3.3 起，每个构建都由内置脚本 `zhang:budget` 计算预算：要测量原生实现，请使用带 `budget-switch` feature（`--features budget-switch`）的构建并设置 `ZHANG_BUDGET_IMPL=native`；不带该 feature 的构建测量的是脚本。
 
 ```sh
 # 机器信息
@@ -567,7 +567,7 @@ ZHANG_BUDGET_BASELINE_ONLY=requests cargo run --release -p zhang --example budge
 
 # 完整的 P4 集合，每一对的两方同时运行，然后判定（在构建 pod 上请在基准窗口中运行：
 # 见"P4 的快速流程"）
-cargo build --release -p zhang --examples
+cargo build --release -p zhang --examples --features budget-switch
 target/release/examples/budget_pairs --out /tmp/p4 --native target/release/examples/budget_baseline \
   --native-env ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin --expect-analyzer zhang:budget
 

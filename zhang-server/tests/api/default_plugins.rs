@@ -1,7 +1,9 @@
-//! The official default plugin `zhang:budget` through the server (RFC #698 §6, P1.5): with plugins on (`ZHANG_PLUGINS`
-//! `read`, the default, or `write`) the budget pages work as they always have; with `ZHANG_PLUGINS=off`, which stops
-//! every plugin, `zhang:budget` included, the budget tables and the budget pages' queries answer that they are
-//! unavailable, saying why, the ledger has one `ExtensionUnavailable` error, and everything else reads as before.
+//! The official default plugin `zhang:budget` through the server (RFC #698 §6, P1.5, P3.3): the server loads every
+//! ledger with its bundled script, the only implementation of budgets. With plugins on (`ZHANG_PLUGINS` `read`, the
+//! default, or `write`) the budget pages work as they always have, whatever the ledger says about plugins; with
+//! `ZHANG_PLUGINS=off`, which stops every plugin, `zhang:budget` included, the budget tables and the budget pages'
+//! queries answer that they are unavailable, saying why, the ledger has one `ExtensionUnavailable` error, and everything
+//! else reads as before. `zhang:budget` has no options: what a directive naming it sets configures nothing.
 
 use std::sync::Arc;
 
@@ -9,10 +11,13 @@ use axum::http::{Method, StatusCode};
 use axum::Router;
 use serde_json::{json, Value};
 use tokio::sync::RwLock;
+use zhang_ast::error::ErrorKind;
 use zhang_core::clock::Clock;
 use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
+use zhang_core::extensions::SnapshotStatus;
 use zhang_core::ledger::Ledger;
+use zhang_core::plugin::PluginType;
 use zhang_core::plugin_policy::{PluginLevel, PluginPolicy};
 use zhang_server::routes::plugin_router::PluginSettings;
 use zhang_testkit::http::{app, call, router_of, serve_config, Settings};
@@ -161,4 +166,151 @@ async fn plugins_off_make_the_budget_tables_and_queries_unavailable_and_nothing_
             [{"key": "plugin", "value": "zhang:budget"}, {"key": "reason", "value": "plugins are off (ZHANG_PLUGINS=off)"}]
         ]])
     );
+}
+
+/// What a ledger may say about plugins before its budgets: `features.plugin` absent, off or on, and a `plugin` directive
+/// naming `zhang:budget` or none.
+fn headers() -> Vec<String> {
+    let mut headers = vec![];
+    for features in ["", "option \"features.plugin\" \"false\"\n", "option \"features.plugin\" \"true\"\n"] {
+        for directive in ["", "plugin \"zhang:budget\"\n"] {
+            headers.push(format!("{features}{directive}"));
+        }
+    }
+    headers
+}
+
+/// `content` loaded as `zhang serve` loads it, with plugins at `level`.
+fn served(dir: &std::path::Path, content: &str, level: PluginLevel) -> Ledger {
+    std::fs::write(dir.join("main.zhang"), content).unwrap();
+    let policy = PluginPolicy {
+        level,
+        ..PluginPolicy::default()
+    };
+    let options = zhang_server::analysis::load_options(Arc::new(policy));
+    let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+    Ledger::load_with_options(dir.to_path_buf(), "main.zhang".to_owned(), source, Clock::System, options).unwrap_or_else(|e| panic!("{content}: {e}"))
+}
+
+/// Each error as its kind and the line it is on, the lines of `header` left out.
+fn kinds_and_lines(ledger: &Ledger, header: &str) -> Vec<(ErrorKind, usize)> {
+    let offset = header.lines().count();
+    let mut errors = ledger
+        .errors
+        .iter()
+        .map(|error| (error.error_type.clone(), error.span.as_ref().and_then(|span| span.line).unwrap_or(0) - offset))
+        .collect::<Vec<_>>();
+    errors.sort_by_key(|(_, line)| *line);
+    errors
+}
+
+/// The server's `zhang:budget` is the bundled script, whatever the ledger says about plugins: registered first, as a
+/// default plugin, it publishes the budgets with plugins `read` or `write`, and the budget error of the ledger is its
+/// own. With plugins off nothing registers, and the ledger says once that its budgets are not interpreted.
+#[test]
+fn the_server_interprets_budgets_with_the_bundled_script_whatever_the_ledger_says() {
+    let dir = tempfile::tempdir().unwrap();
+    let ledger = format!("{LEDGER}2024-01-06 budget-add Nope 1 CNY\n");
+    for header in headers() {
+        for level in [PluginLevel::Read, PluginLevel::Write] {
+            let loaded = served(dir.path(), &format!("{header}{ledger}"), level);
+            let (script, types) = &loaded.plugins.ordered[0];
+            assert!(
+                script.is_default() && script.is_budget_provider() && script.script().is_some(),
+                "{level}: {header:?}"
+            );
+            assert_eq!(types, &[PluginType::Analyzer]);
+            assert_eq!(loaded.plugins.ordered.len(), 1, "{level}: {header:?}");
+            let status = &loaded
+                .extensions
+                .analyzer("zhang:budget")
+                .expect("its tables")
+                .snapshot
+                .get()
+                .expect("it ran")
+                .status;
+            assert_eq!(status, &SnapshotStatus::Ok, "{level}: {header:?}");
+            assert_eq!(loaded.extensions.unavailable("zhang:budget"), None);
+            assert_eq!(kinds_and_lines(&loaded, &header), [(ErrorKind::BudgetDoesNotExist, 11)], "{level}: {header:?}");
+        }
+        let off = served(dir.path(), &format!("{header}{ledger}"), PluginLevel::Off);
+        assert!(off.plugins.ordered.is_empty(), "{header:?}");
+        let mut expected = vec![(ErrorKind::ExtensionUnavailable, 3)];
+        if header.contains("plugin \"zhang:budget\"") {
+            expected.insert(0, (ErrorKind::PluginsDisabled, 0));
+        }
+        assert_eq!(kinds_and_lines(&off, &header), expected, "{header:?}");
+    }
+}
+
+/// `zhang:budget` has no options with the script either (#869): each argument and meta of the directive naming it
+/// configures nothing and says so with a `PluginError`, as does a second directive naming it, and the script runs as
+/// without them (its timeout is the default one), its errors on the first directive naming it.
+#[test]
+fn the_budget_script_has_no_options() {
+    let dir = tempfile::tempdir().unwrap();
+    let header = "plugin \"zhang:budget\" \"monthly\"\n  timeout: \"5s\"\n  allowed_hosts: \"a.example\"\n  allowed_hosts: \"b.example\"\n  carry: \"zero\"\nplugin \"zhang:budget\"\n  timeout: \"9s\"\n";
+    let ledger = served(dir.path(), &format!("{header}{LEDGER}"), PluginLevel::Read);
+    let configured = ledger
+        .errors
+        .iter()
+        .filter(|error| error.error_type == ErrorKind::PluginError)
+        .map(|error| {
+            assert_eq!(error.metas["plugin"], "zhang:budget");
+            (error.span.as_ref().and_then(|span| span.line).unwrap(), error.metas["message"].clone())
+        })
+        .collect::<Vec<_>>();
+    let says = |line: usize, message: &str| (line, message.to_owned());
+    assert_eq!(
+        configured,
+        [
+            says(1, "the argument \"monthly\" configures nothing: zhang:budget has no options. Remove it"),
+            says(1, "the meta timeout configures nothing: zhang:budget has no options. Remove it"),
+            says(1, "the meta allowed_hosts configures nothing: zhang:budget has no options. Remove it"),
+            says(1, "the meta carry configures nothing: zhang:budget has no options. Remove it"),
+            says(
+                6,
+                "this directive configures nothing: zhang:budget is configured by the directive at main.zhang:1. Remove this one"
+            ),
+        ]
+    );
+    // nothing else: the budgets are the script's, as without the directives
+    assert_eq!(ledger.errors.len(), configured.len(), "{:?}", ledger.errors);
+    let (script, _) = &ledger.plugins.ordered[0];
+    assert!(script.is_default() && script.is_budget_provider() && script.script().is_some());
+    assert_eq!(
+        script.capabilities().timeout,
+        zhang_core::plugin::capabilities::PluginCapabilities::default().timeout,
+        "the directive's timeout does not apply"
+    );
+    assert!(script.capabilities().allowed_hosts.is_empty(), "nor its hosts");
+    assert_eq!(script.span().line, Some(1), "its errors go on the first directive naming it");
+    let status = &ledger
+        .extensions
+        .analyzer("zhang:budget")
+        .expect("its tables")
+        .snapshot
+        .get()
+        .expect("it ran")
+        .status;
+    assert_eq!(status, &SnapshotStatus::Ok);
+}
+
+/// The Settings page and `GET /api/plugins` list `zhang:budget`, the bundled script, as an analyzer: it is a plugin the
+/// server runs for every ledger. With plugins off, it is not listed.
+#[tokio::test]
+async fn the_plugin_list_shows_the_budget_script() {
+    let scratch = Scratch::zhang(LEDGER);
+    let read = server(&scratch, PluginLevel::Read).await;
+    let (status, body) = answer(&read, &(Method::GET, "/api/plugins", Value::Null)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let plugins = body["data"].as_array().expect("a list");
+    assert_eq!(plugins.len(), 1, "{body}");
+    assert_eq!(plugins[0]["name"], json!("zhang:budget"), "{body}");
+    assert_eq!(plugins[0]["plugin_type"], json!(["Analyzer"]), "{body}");
+    assert_eq!(plugins[0]["route"], Value::Null, "{body}");
+    assert_eq!(plugins[0]["capabilities"]["allowed_hosts"], json!([]), "{body}");
+    let off = server(&scratch, PluginLevel::Off).await;
+    let (_, body) = answer(&off, &(Method::GET, "/api/plugins", Value::Null)).await;
+    assert_eq!(body["data"], json!([]), "{body}");
 }

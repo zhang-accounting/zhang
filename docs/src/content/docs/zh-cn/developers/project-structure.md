@@ -26,7 +26,7 @@ sidebar:
 
 ## 账本在代码中的流转
 
-1. **读取。** `zhang serve` 为所选的后端构建数据源（`zhang-cli/src/opendal.rs`），并在一个阻塞线程上调用 `Ledger::load`（`zhang-core/src/ledger.rs`）。数据源读取主文件，用张记账解析器或 Beancount 解析器解析它，并顺着 `include` 指令（包括通配符）继续读取。结果是一组指令（`zhang-ast`），每条指令都带有它所在的文件和位置。
+1. **读取。** `zhang serve` 为所选的后端构建数据源（`zhang-cli/src/opendal.rs`），并在一个阻塞线程上用服务器的选项（`zhang_server::analysis::load_options`）调用 `Ledger::load_with_options`（`zhang-core/src/ledger.rs`）。数据源读取主文件，用张记账解析器或 Beancount 解析器解析它，并顺着 `include` 指令（包括通配符）继续读取。结果是一组指令（`zhang-ast`），每条指令都带有它所在的文件和位置。
 2. **选项与插件。** 首先应用选项。然后获取并注册 `plugin` 指令的模块（`zhang-core/src/plugin/`）。
 3. **流水线。** 指令按日期排序，并依次经过 `zhang-core/src/pipeline/` 中的各个阶段：先是按声明顺序执行的 WASM 插件（processor 和 mapper），然后是内置阶段 `ActiveAccounts`、`Pad` 和 `BalanceCheck`。每个阶段都能看到整个指令流，可以修改它，也可以报告错误。
 4. **折叠。** 账本把结果折叠一次（`zhang-core/src/ledger.rs` 中的 `Ledger::fold`，检查位于 `zhang-core/src/process/`），记下指令本身没有的信息（`zhang-core/src/outcome.rs`）：每笔交易和每个余额断言的 id、张记账处理指令的顺序、每个余额断言的检查结果，以及每个文档所在的位置。记账器（`zhang-core/src/booking/`）把记账行与批次进行匹配，每个问题都会成为一个带有 `ErrorKind` 的错误。
@@ -34,6 +34,8 @@ sidebar:
 6. **网页界面。** `frontend/` 中的 React 应用通过根据 OpenAPI 描述生成的类型化客户端（`frontend/src/api/schemas.ts`）调用 API，并监听 `/api/sse`，在重新加载后刷新。
 
 写入则沿相反方向进行：路由构建一条指令，数据类型把它导出为文本（张记账或 Beancount 语法），数据源把它追加到 `directive_output_path` 选项所指定的文件中，然后账本重新加载。
+
+**只用 `zhang-core` 加载账本。** 预算由内置脚本 `zhang:budget`（`plugins/budget/budget.lua`）计算，它是一个分析器：需要插件运行时（`plugin_runtime` feature）和一个执行分析的宿主（`zhang_core::analysis::AnalysisHost`），后者由查询引擎提供。不带这两者、通过 `Ledger::load` 或 `Ledger::process` 用 `zhang-core` 加载账本的程序得不到预算：用到预算的账本会有一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误，`reason` 为 `this zhang does not run the bundled zhang:budget script`（没有该 feature 时为 `this build has no plugin runtime`，例如 Playground），预算表会返回不可用的错误。要解释预算，请用 `Ledger::load_with_options` 和 `zhang serve` 使用的选项 `zhang_server::analysis::load_options(policy)` 加载，或者使用自己的 `LoadOptions`：在 `default_plugins` 中放入 `zhang_core::analysis::DefaultPlugin::budget()`，在 `analysis` 中放入一个 `AnalysisHost`。`LoadOptions::native_budgets` 是 RFC #698 的测试开关，不供嵌入方使用：它会在 P5 中随原生预算代码一起删除。
 
 ## 在本地构建和运行
 

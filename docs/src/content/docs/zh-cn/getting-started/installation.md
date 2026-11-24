@@ -53,7 +53,7 @@ volumes:
 
 镜像设置了 `RUST_LOG=info`，所以 `docker logs zhang` 会显示张记账在做什么，包括账本无法加载时的原因。镜像以 `root` 身份运行张记账：它在 `/data` 中创建的文件在宿主机上属于 `root`（见[文件权限](/zh-cn/deployment/data-sources/local/#文件权限)）。
 
-[插件](/zh-cn/guides/plugins/#编译后的代码)编译后的代码保存在容器内的 `/root/.cache/zhang/zhang-wasmtime-cache`。重新创建的容器没有这些代码，会重新编译插件，每个插件需要一点时间。要在重新创建容器后保留这些代码，请在 `/root/.cache/zhang` 挂载一个卷，例如 `-v zhang-cache:/root/.cache/zhang`（上面的 Compose 文件在这里挂载了命名卷 `zhang-cache`）；根文件系统只读（`--read-only`）时，如果没有挂载这样的卷，插件会在没有缓存的情况下运行。这个卷保存服务器会运行的原生代码，能写入它的任何东西都能在张记账的容器里运行代码：请使用单独的卷，属于 `root` 且只有它能写入（新建的命名卷就是这样），不要使用存放账本的卷，张记账会拒绝它。
+[插件](/zh-cn/guides/plugins/#编译后的代码)编译后的代码保存在容器内的 `/root/.cache/zhang/zhang-wasmtime-cache`。重新创建的容器没有这些代码，会重新编译插件，每个插件需要一点时间：每个账本至少有一个插件，即计算[预算](/zh-cn/guides/budgets/#张记账如何计算预算)的 `zhang:budget`。要在重新创建容器后保留这些代码，请在 `/root/.cache/zhang` 挂载一个卷，例如 `-v zhang-cache:/root/.cache/zhang`（上面的 Compose 文件在这里挂载了命名卷 `zhang-cache`）；根文件系统只读（`--read-only`）时，如果没有挂载这样的卷，插件会在没有缓存的情况下运行。这个卷保存服务器会运行的原生代码，能写入它的任何东西都能在张记账的容器里运行代码：请使用单独的卷，属于 `root` 且只有它能写入（新建的命名卷就是这样），不要使用存放账本的卷，张记账会拒绝它。
 
 ## 预编译二进制文件
 

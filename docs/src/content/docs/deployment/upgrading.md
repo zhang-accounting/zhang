@@ -70,6 +70,26 @@ Open the web UI, check the version on the **Settings** page, and look at the err
   error list shows one [`ExtensionUnavailable`](/reference/error-codes/#extensionunavailable) error. The query function
   `account_budgets()` still answers, as it reads only the `budget` metadata of the accounts' `open` directives. Budgets
   need `ZHANG_PLUGINS` `read`, the default, or `write`.
+- **Budgets are computed by the plugin `zhang:budget`**, a Lua script bundled with Zhang, rather than by code built into
+  the server. The budget pages, the budget tables, the built-in queries and the budget errors answer as before. What
+  you can see as the operator:
+  - **First start.** Every ledger now runs a plugin, so the first start compiles the plugin runtime, which takes
+    about half a second, and some memory while it lasts, given back once it is compiled. Later starts read the
+    compiled code from the [cache](/guides/plugins/#compiled-code) in a few tens of milliseconds, and a reload, so
+    every write, reuses it. Without the cache, such as in a re-created container without its cache volume, every start
+    compiles it again.
+  - **Memory.** The server holds more for the plugin runtime and the budgets' analysis: about 10 to 20 MiB with a
+    ledger of 10,000 transactions, about 40 to 60 MiB with 100,000. Look at a container's memory limit after the
+    upgrade.
+  - **Logs.** Every load logs the analysis at the `info` level, such as
+    `analyzer zhang:budget analysed the ledger in 19.182292ms: 0 diagnostics`, or, for a ledger without budgets,
+    `analyzer zhang:budget has nothing to read in the ledger: its tables are empty`.
+  - **Settings.** The **Settings** page and `GET /api/plugins` list `zhang:budget`, of the type `Analyzer`.
+  - **Limits.** It runs within what the server allows every plugin: a ledger whose budgets need more time than
+    `ZHANG_PLUGIN_MAX_TIMEOUT` or more memory than `ZHANG_PLUGIN_MAX_MEMORY` loads without its budget pages and without
+    budget errors, with a [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error saying which to
+    raise. Of the default 256 MiB, the script's Lua memory is 224 MiB; a budget per category and month, 45 categories
+    over ten years, needs about 100 MiB.
 - **Plugins keep their compiled code in a cache of Zhang's own**, in the subdirectory `zhang-wasmtime-cache` of
   `~/.cache/zhang`, or of the directory [`ZHANG_PLUGIN_CACHE_DIR`](/guides/plugins/#compiled-code) sets, about
   128 MiB at most. The cache in wasmtime's default directory (`~/.cache/wasmtime` on Linux) is no longer used, and you

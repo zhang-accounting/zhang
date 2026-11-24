@@ -102,6 +102,8 @@ plugin "plugins/receipts.wasm"
 
 **官方插件 `zhang:budget`。**[预算](/zh-cn/guides/budgets/)由 `zhang:budget` 解释，它是每个账本都有的官方插件：不需要 `plugin` 指令，账本的 `features.plugin` 选项也不会关闭它，所以账本的任何选项都不会关闭预算。可以写 `plugin "zhang:budget"` 指令，它不会加载第二份。`zhang:budget` 目前没有任何选项：该指令上的参数或元数据，以及第二条这样的指令，都不起任何配置作用，错误列表会用 [`PluginError`](/zh-cn/reference/error-codes/#pluginerror) 指出这一点。只有服务器的开关会停止它：使用 `--plugins off` 时预算会关闭，预算页面会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误，`zhang serve` 也会在启动时记录这一点。
 
+`zhang:budget` 是张记账内置的 [Lua 插件](/zh-cn/guides/lua-plugins/)，一个分析器：它在每次加载时读取账本，所以每次写入后也会读取，并且不修改任何东西。它是预算唯一的实现，和其他插件一样运行：第一次运行时会被编译（见[编译后的代码](#编译后的代码)），**设置**页面和 `GET /api/plugins` 会以 `Analyzer` 类型列出它，无论指令怎么写，它得到的都不会超过上面的设置所允许的。预算所需时间超过 `ZHANG_PLUGIN_MAX_TIMEOUT` 或内存超过 `ZHANG_PLUGIN_MAX_MEMORY` 的账本加载时没有预算页面，也没有预算错误，并带有一个说明原因的 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误。
+
 例如，要让上面的汇率插件获取汇率，这样启动服务器：
 
 ```shell

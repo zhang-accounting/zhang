@@ -5,12 +5,14 @@ sidebar:
   order: 5
 ---
 
-:::note[Status on 2026-11-23]
+:::note[Status on 2026-11-24]
 - **Merged:** P0, the contract and the baseline (#835, #836, the known-issue fixes #842, the baseline after
   #840/#841 #851); P1.1 (#839); P1.2 (#837); P1.3 (#843 to #845); P1.4 (#848 to #850, and its follow-ups #855 and
   #866); P1.5 (#859, #863); P1.6 (#864); the prerequisites I1 (#840, #841, #846) and I2 (#838), and `open_meta_has`
   for G1 (#862); the fingerprint fix #847; the end-to-end harness (#856); for G1, the engine and analysis work
-  #871 to #879 (among them `unnest(set)`, #873) and the memory bar of decision 16 (#880).
+  #871 to #879 (among them `unnest(set)`, #873) and the memory bar of decision 16 (#880); P3.1 and P3.2 (#883 to
+  #887, split by layer, §10.2, as built, with the script's follow-ups #891, #895, #898 and #908), and the plugin
+  runtime's limits after them (#897, #900 to #904, #906, #907).
 - **G1: passed with conditions (the owner, 2026-11-23).** The final run of the prototype (#870): memory and parity
   pass; 11 of the 12 timers pass, and `reload → errors` at 10,000 transactions is inconclusive at +50.9 ms
   [+41.5, +62.3] against 50 ms (between +41 and +51 ms in every run, in the noise of the build machine's memory
@@ -19,8 +21,11 @@ sidebar:
   - P3 measures the named-query p95 again, with more pairs;
   - P4 measures the final implementation under the same rule and must pass every bar;
   - P3.3's switch merges, and P5 starts, only after that.
-- **In progress:** P3.1 and P3.2, from the prototype (#870): #883 to #887, split by layer (§10.2, as built).
-- **Next:** P4 on P3.3's branch, then P3.3 and P5.
+- **P4: run on P3.3's branch (#905 at `02047249`); the owner accepted its results and P3.3's merge (2026-11-24).**
+  Every memory figure and named-query p95 passed; the accepted gaps are three errors-page timers that stayed
+  inconclusive (§10.2, "P3.3 and P4 as built").
+- **Done, pending merge:** P3.3, the switch (#905): the bundled script is the only implementation of budgets.
+- **Next:** P5, which deletes the native budget code.
 - **Release:** the owner decided that the whole migration ships in v0.3.0. Until then the `Analyzer` plugin type is
   experimental (§2).
 
@@ -829,6 +834,32 @@ the optional item #805 deferred.
 - **Compiled code.** The compiled code of a default plugin is kept across loads, by its module and its settings, so a
   reload, and so a write, does not compile it again. The `GET /api/plugins` fields are left to P3.
 
+**As built in P3.3.**
+
+- **The script is `zhang:budget`.** `zhang_server::analysis::load_options`, which every load and reload of
+  `zhang serve` uses, registers the bundled script as the default plugin `zhang:budget` in every build. The native
+  provider and checks no longer run for a load that does not ask for them.
+- **The test switch.** `LoadOptions::native_budgets` has the native code interpret the budgets of a load that does not
+  run the script, the fold's budget checks included; only RFC #698's switch sets it (`BudgetImpl::Native`,
+  `ZHANG_BUDGET_IMPL=native` in a build with the `budget-switch` feature, and the test kit's loaders in a build without
+  its `server` feature, where zhang-core's and zhang-query's tests have no analysis host), so that the contract,
+  `budget_parity` and the fuzzer still compare the two until P5. With its `server` feature, the test kit loads as
+  `zhang serve` does.
+- **`ExtensionUnavailable` for every load that cannot run the script**, once, on the first use of budgets, with the
+  `reason` `this build has no plugin runtime` (the playground, `bindings/wasm`, whose test pins it) or
+  `this zhang does not run the bundled zhang:budget script` (an embedder of `zhang-core` without the script or an
+  `AnalysisHost`), as for `ZHANG_PLUGINS=off`: the tables and named queries answer that they are unavailable.
+- **A failed analysis** (decided in review, 2026-11-24): the load has the one `PluginAnalysisFailed` and no budget
+  error, and §2.5's tables are unavailable, as after P5. The native checks run only with the test switch. Before, they
+  stood in wherever the script did not publish: a failed analysis, and a ledger without budgets, which it skips.
+  Removing them changed no reload time measurably (medians of 11 reloads of `zhang serve`, two rounds: 10,000
+  transactions with budgets 153/156 → 143/166 ms, without budgets 135/105 → 134/102 ms, 100,000 with budgets
+  1,109/1,096 → 1,084/1,106 ms), as a published analysis never ran them.
+- **Options.** `zhang:budget` keeps no options (#869): each argument and meta of its directive is a `PluginError`,
+  and the script runs as without them.
+- **Listing.** `GET /api/plugins` and the Settings page list `zhang:budget`, an `Analyzer`, as they list every
+  registered plugin; the `bundled`, `default` and `status` fields are not added.
+
 ## 7. The language of the official Budget plugin
 
 **Decided:** `zhang:budget` is a bundled Lua script. The comparison below records why, and what it costs.
@@ -999,8 +1030,8 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | ⛳ **G1** gate, not a PR | A Lua budget-analyzer prototype on P0b's ledgers | Added end-to-end time (a load or a `POST /api/transactions`, then the first budget page and errors page after it) ≤ max(5% of P0b after #840/#841, 50 ms) at 10,000 and 100,000 transactions; named-query p95 ≤ max(+10%, +1 ms) (decision 16, revised 2026-11-23); memory ≤ max(+10%, +40 MiB); parity with #835. On failure, the Rust→wasm fallback only with the owner's go-ahead |
 | **P3.1** `feat(budget)` definitions and events | `budget.lua` publishes `#budget_definitions`, `#budget_events` and the directive diagnostics. Test switch `native\|plugin\|both`. The differential fuzzing harness (seeded generated ledgers; full `Ledger::errors` and every table and named query) | `both` and the fuzzer report no difference |
 | **P3.2** `feat(budget)` activity, series and labels | Activity by host BQL per budget, carry-over facts, `#budgets` as a series, `postings.budgets` labels, posting diagnostics, the after-fold mismatches | `both`, the fuzzer and the `budget_reference` oracle report no difference |
-| ⛳ **P3.3** `feat(budget)!` switch | The plugin is the only runtime implementation; native code remains only behind the test switch. A playground regression test (`bindings/wasm`: `ExtensionUnavailable` on a budget ledger, unchanged otherwise) | #835 identical, ids and report order included; P4's bars pass on its branch (G1's condition, 2026-11-23); ⛳ the owner confirms |
-| ⛳ **P4** `test(budget)` performance and release | Paired native and plugin runs at 10,000 and 100,000 transactions: many budgets, currencies and months, typo dates, concurrent requests. Load, named-query and write p95; memory. Container first start and upgrade canary. | ⛳ Added end-to-end time (a load or a write, then the first budget page and errors page after it) ≤ max(5% of P0b after #840/#841, 50 ms) at 10,000 and 100,000; named-query p95 ≤ max(+10%, +1 ms) (decision 16, revised 2026-11-23); memory ≤ max(+10%, +40 MiB) |
+| ⛳ **P3.3** `feat(budget)!` switch (#905: done, pending merge; the owner confirmed, 2026-11-24) | The plugin is the only runtime implementation; native code remains only behind the test switch. A playground regression test (`bindings/wasm`: `ExtensionUnavailable` on a budget ledger, unchanged otherwise) | #835 identical, ids and report order included; P4's bars pass on its branch (G1's condition, 2026-11-23); ⛳ the owner confirms |
+| ⛳ **P4** `test(budget)` performance and release (run on #905, accepted by the owner with three inconclusive timers, 2026-11-24: see "P3.3 and P4 as built") | Paired native and plugin runs at 10,000 and 100,000 transactions: many budgets, currencies and months, typo dates, concurrent requests. Load, named-query and write p95; memory. Container first start and upgrade canary. | ⛳ Added end-to-end time (a load or a write, then the first budget page and errors page after it) ≤ max(5% of P0b after #840/#841, 50 ms) at 10,000 and 100,000; named-query p95 ≤ max(+10%, +1 ms) (decision 16, revised 2026-11-23); memory ≤ max(+10%, +40 MiB) |
 | **P5** `refactor(core)!` delete native, and docs | Removes `process/budget.rs`, the `Ledger` budget fields, `check_budgets`, `table/budgets.rs`, `Record::Budget*`, `posting_budgets`, `as_budget_interval`, the in-process provider and the switch. Keeps the compat mapping. Docs: budgets guide, query reference, plugin development, upgrading (en and zh-cn). | `rg -i budget` in `zhang-core/src` and `zhang-query/src` finds only the compat mapping; every suite green; the docs build |
 
 **P3.1 and P3.2 as built (2026-11-23).** They were split by layer rather than by the two halves of `budget.lua`. A
@@ -1026,6 +1057,30 @@ and the directive and posting diagnostics share one report order. The pull reque
   range on demand. Its first 2,000 seeds found the close above; seeds 1 to 10,000 then found no difference. The
   named-query p95 of G1's condition is measured again there.
 - Left in #870, not proposed: answering an analysis's queries as JSON text (no gain), and its timing logs.
+
+**P3.3 and P4 as built (2026-11-24).** P3.3 (#905, done, pending merge) is the switch of §6 ("As built in P3.3"):
+#835's contract runs with the server's own options (the script) byte for byte against its golden files, natively and
+with the script through the test switch in every run; the playground has its regression test; the test kit loads as
+`zhang serve` does; a failed analysis leaves no budget error; and the budgets, plugins and upgrading guides and the
+error codes describe it.
+
+P4 ran on P3.3's branch at `02047249` (raw results on the build machine, `/cache/p4off-*`), and the owner accepted
+them, and P3.3's merge, on 2026-11-24, although three timers stayed inconclusive:
+
+- **Pass:** 9 of the 12 end-to-end timers; every memory figure, at 10,000 and 100,000 transactions; all 12
+  named-query p95s; the concurrent readers, unchanged; the Docker smoke test, 7 of 7 checks under `--memory 512m`;
+  the upgrade canary from 0.2.0.
+- **A correction:** the first run reported `peak_final` at 10,000 transactions as a FAIL, +49.1 MiB against 40. It
+  was the bench's own doing: `budget_baseline` read its whole executable, about 70 MiB, for the report's build
+  identity right after the first reload, inside the measured window, and the allocator kept it resident while the
+  next write loaded the ledger. With #910 (the bench hashes the executable 64 KiB at a time, before the peak is reset),
+  13 concurrent pairs on the same build measure `peak_final` 209.8 MiB native and 230.4 MiB with the plugin,
+  +20.6 MiB: a pass.
+- **Accepted gaps,** inconclusive timers of the errors page: at 10,000 transactions, `reload → errors` +38.5 ms
+  [32.1, 56.0] and `start → errors` +41.8 ms [39.0, 52.0] against 50; at 100,000, `reload → errors` +58.0 ms
+  [49.5, 71.5] against 66.
+- **Informational** (load, native/plugin): the monthly shape of 1,200 budgets 115/135 ms, of 4,200 budgets
+  470/525 ms; 3,600 closed budgets 474/1,188 ms, about 2.5 times slower.
 
 ## 11. Decisions
 

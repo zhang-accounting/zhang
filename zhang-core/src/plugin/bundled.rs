@@ -38,12 +38,11 @@ pub const BUNDLED: &[BundledPlugin] = &[BundledPlugin {
     content: include_bytes!("../../../plugins/mcp/mcp.lua"),
 }];
 
-/// `zhang:budget`, the official budget plugin (RFC #698): a default plugin, registered for every ledger by the embedder
-/// ([`crate::analysis::LoadOptions::default_plugins`], [`crate::analysis::DefaultPlugin::budget`]) rather than by a
-/// `plugin` directive, which only places its errors, as it has no options. It is not in [`BUNDLED`]: a directive naming
-/// it loads nothing of its own.
-// TODO(P3.3): the only implementation of budgets; until then the native provider serves them and the test switch of
-// RFC #698 (`zhang_server::analysis::BudgetImpl`) registers this script
+/// `zhang:budget`, the official budget plugin and the only implementation of budgets (RFC #698 P3.3): a default plugin,
+/// registered for every ledger by the embedder ([`crate::analysis::LoadOptions::default_plugins`],
+/// [`crate::analysis::DefaultPlugin::budget`]; the server does, `zhang_server::analysis::load_options`) rather than by
+/// a `plugin` directive, which only places its errors, as it has no options. It is not in [`BUNDLED`]: a directive
+/// naming it loads nothing of its own.
 pub const BUDGET: BundledPlugin = BundledPlugin {
     name: "budget",
     file: "plugins/budget/budget.lua",

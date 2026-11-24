@@ -1110,7 +1110,14 @@ async fn router_plugins_need_a_session_and_never_see_it() {
 
     let list = get(&router, "/api/plugins", &[("cookie", &cookie)]).await;
     assert_eq!(list.status, StatusCode::OK);
-    assert_eq!(list.body["data"][0]["route"], "/api/plugins/router-echo");
+    // the router, after zhang:budget, the analyzer the server registers for every ledger, which serves no route
+    let routes = list.body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|plugin| plugin["route"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(routes, [json!(null), json!("/api/plugins/router-echo")]);
 }
 
 /// The token of a `zhang_session=<token>` cookie pair, as an `Authorization: Bearer` header value.

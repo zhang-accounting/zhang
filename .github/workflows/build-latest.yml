@@ -163,6 +163,12 @@ jobs:
         run: wasm-pack build
         working-directory: ./bindings/wasm
 
+      # the playground's tests as WebAssembly, in Node.js: a ledger with budgets says they are not interpreted, as the
+      # build has no plugin runtime, and is unchanged otherwise (bindings/wasm/src/lib.rs)
+      - name: test wasm
+        run: wasm-pack test --node
+        working-directory: ./bindings/wasm
+
       - name: pack wasm
         run: wasm-pack pack
         working-directory: ./bindings/wasm
