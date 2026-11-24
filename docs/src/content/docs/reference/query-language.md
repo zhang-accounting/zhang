@@ -1099,7 +1099,7 @@ An aggregate function turns the values of all postings in a group into a single 
 | `count(*) -> int` | Number of postings in the group. |
 | `count(any) -> int` | Number of postings in the group for which the argument is not `NULL`. |
 | `sum(int) -> int` | Sum of the integers. |
-| `sum(decimal) -> decimal` | Sum of the numbers. |
+| `sum(decimal) -> decimal` | Sum of the numbers. It is exact, and keeps the most decimal places of any of them, zeros included, as Python's decimal adds: `0.00` and `500` sum to `500.00`, and `1.5`, `-1.5` and `2` to `2.0`. |
 | `sum(amount) -> inventory` | Sum of the amounts, kept separate per currency. |
 | `sum(position) -> inventory` | Sum of the positions, with lots merged as described in [Types](#types). |
 | `sum(inventory) -> inventory` | Sum of the inventories. |

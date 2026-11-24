@@ -1099,7 +1099,7 @@ WHERE file = 'data/2024.zhang'
 | `count(*) -> int` | 分组中的分录数。 |
 | `count(any) -> int` | 分组中参数不为 `NULL` 的分录数。 |
 | `sum(int) -> int` | 整数之和。 |
-| `sum(decimal) -> decimal` | 数值之和。 |
+| `sum(decimal) -> decimal` | 数值之和。它是精确的，并保留各数值中最多的小数位数，零也算在内，与 Python 的 decimal 的加法相同：`0.00` 与 `500` 之和是 `500.00`，`1.5`、`-1.5` 与 `2` 之和是 `2.0`。 |
 | `sum(amount) -> inventory` | 各金额之和，按货币分开。 |
 | `sum(position) -> inventory` | 各持仓之和，成本批次按[类型](#类型)中描述的方式合并。 |
 | `sum(inventory) -> inventory` | 各库存之和。 |
