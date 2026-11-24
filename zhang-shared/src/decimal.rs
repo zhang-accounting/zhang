@@ -122,6 +122,7 @@ pub fn sub(lhs: &BigDecimal, rhs: &BigDecimal) -> BigDecimal {
 
 /// `*sum += term`, at the larger scale of the two ([`add`]): a running sum, which ends at the largest scale of its terms,
 /// as Python's `sum` of decimals does, whatever its partial sums (`1.5 - 1.5 + 2` is `2.0`) and its zeros.
+#[inline]
 pub fn add_to(sum: &mut BigDecimal, term: BigDecimal) {
     let scale = sum.fractional_digit_count().max(term.fractional_digit_count());
     *sum += term;
