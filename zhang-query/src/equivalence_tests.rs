@@ -3,8 +3,15 @@
 //! account-scoped scans, hashed `IN` lists, prepared string tests, and parameters bound as
 //! constants) and the per-ledger cache change how much work an execution does, never its
 //! result: every query here returns byte-identical rows (decimal scales included), and the same
-//! total row count, with [`Query::compile_with_params`] and with [`Query::compile_naive`], with
-//! and without its account scope, and on a cache that other queries built and on a fresh one.
+//! total row count, with [`Query::compile_in`] and with [`Query::compile_naive_in`], against the
+//! catalog of the ledger it runs on, with and without its account scope, and on a cache that
+//! other queries built and on a fresh one.
+//!
+//! A comparison of two failures compares nothing a decision could change, so every query must
+//! answer, but those of [`EXPECTED_ERRORS`], which must fail as they say ([`assert_same`]). The
+//! queries of the extension tables (the budget tables, a series and record tables, and the
+//! `budgets` label column) read a snapshot the tests publish ([`crate::test_budgets`]): the bundled
+//! script that computes them in a server does not run in the query engine's own tests.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,6 +21,8 @@ use zhang_core::data_source::LocalFileSystemDataSource;
 use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 
+use crate::catalog::Catalog;
+use crate::test_budgets::{data_table_budgets, date_bound_budgets, label_budgets, publish_budgets};
 use crate::{DataType, ExecuteOptions, ParamTypes, Params, Query, Value};
 
 fn load(dir: PathBuf) -> Ledger {
@@ -251,7 +260,22 @@ fn options() -> ExecuteOptions {
     }
 }
 
-/// The same result, compared by the `Debug` form of the rows, which shows decimal scales.
+/// The queries that are to fail, both ways alike, and what their error says: a comparison of two failures of any
+/// other query compares nothing, as a table that answers that it is unavailable does, and fails ([`assert_same`]).
+const EXPECTED_ERRORS: &[(&str, &str)] = &[
+    ("SELECT date, payee WHERE payee ~ :invalid LIMIT :size", "invalid regular expression"),
+    (
+        "SELECT open_meta_has(account, 'budget', 'travel', date, :bad)",
+        "expects a time as HH:MM:SS or HH:MM",
+    ),
+    (
+        "SELECT date, account WHERE length(account) * 800000000000000000 > 0 AND account = :account",
+        "integer overflow",
+    ),
+];
+
+/// The same result, compared by the `Debug` form of the rows, which shows decimal scales. Two failures are the same
+/// result only for a query of [`EXPECTED_ERRORS`] failing as it says: any other query must answer.
 fn assert_same(sql: &str, expected: Result<crate::QueryResult, crate::QueryError>, actual: Result<crate::QueryResult, crate::QueryError>) {
     match (expected, actual) {
         (Ok(expected), Ok(actual)) => {
@@ -259,9 +283,45 @@ fn assert_same(sql: &str, expected: Result<crate::QueryResult, crate::QueryError
             assert_eq!(format!("{:?}", expected.rows), format!("{:?}", actual.rows), "{sql}");
             assert_eq!(expected.total, actual.total, "{sql}");
         }
-        (Err(expected), Err(actual)) => assert_eq!(expected, actual, "{sql}"),
+        (Err(expected), Err(actual)) => {
+            assert_eq!(expected, actual, "{sql}");
+            let expected_error = EXPECTED_ERRORS.iter().find(|(query, _)| *query == sql).map(|(_, error)| *error);
+            match expected_error {
+                Some(error) => assert!(expected.message.contains(error), "{sql}: fails otherwise than expected: {}", expected.message),
+                None => panic!(
+                    "{sql}: fails both ways ({}), which compares nothing: an equivalence test compares answers, and only the \
+                     queries of EXPECTED_ERRORS are to fail",
+                    expected.message
+                ),
+            }
+        }
         (expected, actual) => panic!("{sql}: {:?} vs {:?}", expected.map(|it| it.rows.len()), actual.map(|it| it.rows.len())),
     }
+}
+
+/// A guard of the guard: two failures of a query not expected to fail fail the comparison, those of an expected one
+/// pass only with the error it expects, and two answers pass.
+#[test]
+fn a_comparison_of_two_failures_fails_unless_the_query_is_to_fail() {
+    let ledger = load_text("1970-01-01 open Assets:Bank\n");
+    let run = |sql: &str| {
+        Query::compile_in(&Catalog::of_ledger(&ledger), sql, &ParamTypes::new())
+            .unwrap()
+            .execute(&ledger, &Params::new())
+    };
+    // a budget table where zhang:budget does not run answers that it is unavailable, both ways
+    let unavailable = "SELECT count(*) FROM #budgets";
+    let compared = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| assert_same(unavailable, run(unavailable), run(unavailable))));
+    let message = compared.unwrap_err().downcast::<String>().map(|it| *it).unwrap_or_default();
+    assert!(message.contains("fails both ways") && message.contains("is unavailable"), "{message}");
+    // an expected failure with its error, and two answers
+    let (overflow, error) = EXPECTED_ERRORS[2];
+    let failed = || Err(crate::QueryError::new(crate::QueryErrorKind::Eval, format!("x: {error}")));
+    assert_same(overflow, failed(), failed());
+    assert_same("SELECT count(*)", run("SELECT count(*)"), run("SELECT count(*)"));
+    // an expected failure with another error
+    let other = || Err(crate::QueryError::new(crate::QueryErrorKind::Eval, "another error".to_owned()));
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| assert_same(overflow, other(), other()))).is_err());
 }
 
 /// Run every query both ways and compare the rows.
@@ -273,10 +333,14 @@ fn assert_equivalent(ledger: &Ledger, queries: &[&str]) {
 /// scope and the total count), without its scope, and without the total, and compare.
 fn assert_equivalent_with(ledger: &Ledger, queries: &[&str], types: &ParamTypes, params: &Params) {
     let options = options();
+    let catalog = Catalog::of_ledger(ledger);
     for sql in queries {
-        let compile = || Query::compile_with_params(sql, types).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        let compile = || Query::compile_in(&catalog, sql, types).unwrap_or_else(|err| panic!("{sql}: {err}"));
         let run = |query: Query, options: &ExecuteOptions| query.execute_with_options(ledger, params, options);
-        let naive = run(Query::compile_naive(sql, types).unwrap_or_else(|err| panic!("{sql}: {err}")), &options);
+        let naive = run(
+            Query::compile_naive_in(&catalog, sql, types).unwrap_or_else(|err| panic!("{sql}: {err}")),
+            &options,
+        );
         let optimized = run(compile(), &options);
         if let Ok(optimized) = &optimized {
             assert!(optimized.total.is_some(), "{sql}");
@@ -686,10 +750,11 @@ option "operating_currency" "CNY"
   Assets:Bank -9 CNY
 "#,
     );
+    let mut ledger = ledger;
+    publish_budgets(&mut ledger, data_table_budgets());
     assert_equivalent(&ledger, DATA_QUERIES);
     assert_equivalent(&fava_demo_ledger(), &DATA_QUERIES[..4]);
     // the data tables read the cache of the ledger too
-    let mut ledger = ledger;
     assert_cache_keeps_results(&mut ledger, &DATA_QUERIES.iter().map(|sql| (*sql, Params::new())).collect::<Vec<_>>());
 }
 
@@ -762,12 +827,17 @@ fn scoped_queries() -> Vec<(&'static str, Params)> {
 }
 
 fn compile_scoped(sql: &str) -> Query {
+    compile_scoped_in(Catalog::standard(), sql)
+}
+
+/// `sql` with the parameters of the scoped queries, compiled against `catalog`.
+fn compile_scoped_in(catalog: &Catalog, sql: &str) -> Query {
     let types = ParamTypes::new()
         .bind("account", DataType::Str)
         .bind("accounts", DataType::Set)
         .bind("root", DataType::Str)
         .bind("size", DataType::Int);
-    Query::compile_with_params(sql, &types).unwrap_or_else(|err| panic!("{sql}: {err}"))
+    Query::compile_in(catalog, sql, &types).unwrap_or_else(|err| panic!("{sql}: {err}"))
 }
 
 /// An account-scoped scan returns what a scan of every row returns: the scope only leaves out
@@ -842,7 +912,8 @@ fn filters_other_accounts_can_pass_read_every_row() {
 /// Every query returns the same rows from a cache that the other queries built as from a fresh
 /// one, which it builds itself.
 fn assert_cache_keeps_results(ledger: &mut Ledger, queries: &[(&str, Params)]) {
-    let run = |ledger: &Ledger, sql: &str, params: &Params| compile_scoped(sql).execute_with_options(ledger, params, &options());
+    let catalog = Catalog::of_ledger(ledger);
+    let run = |ledger: &Ledger, sql: &str, params: &Params| compile_scoped_in(&catalog, sql).execute_with_options(ledger, params, &options());
     // every query on the cache the earlier ones built, in reverse order
     let warm = queries.iter().rev().map(|(sql, params)| run(ledger, sql, params)).collect::<Vec<_>>();
     assert!(ledger.derived.is_initialized());
@@ -862,12 +933,12 @@ fn the_ledger_cache_keeps_results() {
     }
 }
 
-/// A table that generates its rows (the months of `#budgets`) generates none after the date
-/// bound of its filter, and returns what generating every row returns: the bound only leaves
-/// out rows the filter drops, and the months before it are computed from the same entries.
+/// A table that generates its rows (the months of `#budgets`, a series) generates none after the
+/// date bound of its filter, and returns what generating every row returns: the bound only
+/// leaves out rows the filter drops, and the months before it are filled from the same facts.
 #[test]
 fn date_bounds_keep_results() {
-    let ledger = load_text(
+    let mut ledger = load_text(
         r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
@@ -894,6 +965,7 @@ option "operating_currency" "CNY"
 2024-05-01 budget-close travel
 "#,
     );
+    publish_budgets(&mut ledger, date_bound_budgets());
     let month = |m: u32| Params::new().bind("month", NaiveDate::from_ymd_opt(2024, m, 1).unwrap());
     let queries: Vec<(&str, Params)> = vec![
         ("SELECT name, date, assigned, activity, available, closed FROM #budgets WHERE date <= 2024-02-01", Params::new()),
@@ -917,8 +989,28 @@ option "operating_currency" "CNY"
         ("SELECT name FROM #budgets WHERE date <= :month", Params::new().bind("month", NaiveDate::from_ymd_opt(2023, 12, 31).unwrap())),
     ];
     let types = ParamTypes::new().bind("month", DataType::Date);
+    let catalog = Catalog::of_ledger(&ledger);
+    // the published facts, and the months the host fills between and after them
+    let rows = |sql: &str, params: &Params| {
+        let result = Query::compile_in(&catalog, sql, &types)
+            .unwrap()
+            .execute_with_options(&ledger, params, &options())
+            .unwrap();
+        result
+            .rows
+            .iter()
+            .map(|row| row.iter().map(ToString::to_string).collect::<Vec<_>>().join(" "))
+            .collect::<Vec<_>>()
+    };
+    let available = "SELECT name, available FROM #budgets WHERE date = :month";
+    assert_eq!(rows(available, &month(3)), ["food -20 CNY", "travel 20 CNY"]);
+    assert_eq!(rows(available, &month(6)), ["food -20 CNY", "travel 5 CNY"]);
+    assert_eq!(
+        rows("SELECT name, count(*) FROM #budgets WHERE date <= today() GROUP BY name", &Params::new()),
+        ["food 25", "travel 23"]
+    );
     for (sql, params) in &queries {
-        let compile = || Query::compile_with_params(sql, &types).unwrap_or_else(|err| panic!("{sql}: {err}"));
+        let compile = || Query::compile_in(&catalog, sql, &types).unwrap_or_else(|err| panic!("{sql}: {err}"));
         assert!(compile().plan.execution.until.is_some(), "{sql}");
         assert_equivalent_with(&ledger, &[sql], &types, params);
         let bounded = compile().execute_with_options(&ledger, params, &options());
@@ -948,7 +1040,7 @@ option "operating_currency" "CNY"
 /// column, whose predicate tests membership with it, holds what it held.
 #[test]
 fn prepared_open_meta_has_keeps_results() {
-    let ledger = load_text(
+    let mut ledger = load_text(
         r#"
 option "operating_currency" "CNY"
 1970-01-01 commodity CNY
@@ -985,6 +1077,7 @@ option "operating_currency" "CNY"
   Assets:Bank
 "#,
     );
+    publish_budgets(&mut ledger, label_budgets());
     let queries = [
         "SELECT date, time, account, open_meta_has(account, 'budget', 'food', date, time), open_meta_has(account, 'budget', :budget, date) ORDER BY date, time",
         "SELECT count(*) WHERE open_meta_has(account, 'budget', :budget, date, time)",

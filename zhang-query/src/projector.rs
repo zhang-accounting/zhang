@@ -492,11 +492,6 @@ option "operating_currency" "USD"
     }
 
     /// Run `sql` over the rows of its table built for `projection` (or the query's own).
-    fn run_table(ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
-        run_table_in(Catalog::standard(), ledger, sql, projection)
-    }
-
-    /// [`run_table`] with the tables of `catalog`.
     fn run_table_in(catalog: &Catalog, ledger: &Ledger, sql: &str, projection: Option<Projection>) -> String {
         let query = Query::compile_in(catalog, sql, &ParamTypes::default()).unwrap_or_else(|err| panic!("{sql}: {err}"));
         let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
@@ -517,16 +512,14 @@ option "operating_currency" "USD"
 
     #[test]
     fn record_tables_prune_without_changing_results() {
-        let ledger = load_text(&format!(
+        let mut ledger = load_text(&format!(
             "{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n2024-04-04 note Assets:Bank \"x\"\n"
         ));
+        // the budget tables of zhang:budget, a series and record tables, from a snapshot
+        crate::test_budgets::publish_budgets(&mut ledger, crate::test_budgets::data_table_budgets());
+        let catalog = Catalog::of_ledger(&ledger);
         let mut checked = 0;
-        // the core's tables: those zhang declares for zhang:budget have no rows on a ledger the plugin does not run for
-        for table in Catalog::standard()
-            .tables()
-            .iter()
-            .filter(|table| !table.is_postings() && table.provided_by().is_none())
-        {
+        for table in catalog.tables().iter().filter(|table| !table.is_postings()) {
             let all = Projection::all_of(table.clone());
             let queries = table
                 .columns()
@@ -534,7 +527,11 @@ option "operating_currency" "USD"
                 .map(|column| format!("SELECT {} FROM #{}", column.name, table.name()))
                 .chain([format!("SELECT * FROM #{}", table.name()), format!("SELECT count(*) FROM #{}", table.name())]);
             for sql in queries {
-                assert_eq!(run_table(&ledger, &sql, None), run_table(&ledger, &sql, Some(all.clone())), "{sql}");
+                assert_eq!(
+                    run_table_in(&catalog, &ledger, &sql, None),
+                    run_table_in(&catalog, &ledger, &sql, Some(all.clone())),
+                    "{sql}"
+                );
                 checked += 1;
             }
         }
@@ -558,13 +555,18 @@ option "operating_currency" "USD"
     /// The in-place readers of a column give the same answer as its value.
     #[test]
     fn borrowed_columns_agree_with_their_values() {
-        let ledger = load_text(LEDGER);
-        let all = Projection::all();
+        // the labels of the budgets column, from a snapshot of zhang:budget: `food` of Expenses:Food, which its `open`
+        // names, in USD
+        let mut ledger = load_text(&LEDGER.replace("1970-01-01 open Expenses:Food\n", "1970-01-01 open Expenses:Food\n  budget: food\n"));
+        let food = serde_json::json!({"accounts": ["Expenses:Food"], "defined_seq": 0, "close_date": null, "close_time": null, "commodity": "USD"});
+        crate::test_budgets::publish_budgets(&mut ledger, serde_json::json!({"labels": {"budgets": [{"label": "food", "params": food}]}}));
+        let catalog = Catalog::of_ledger(&ledger);
+        let all = Projection::all_of(catalog.postings().clone());
         let data = Dataset::new(&ledger, NaiveDate::from_ymd_opt(2026, 1, 1).unwrap().and_time(chrono::NaiveTime::MIN), &all);
         let params = Params::new();
         let regexes = RegexCache::default();
         let needles = ["food", "travel", "receipt-1", "Assets:Bank", "Income:Gains", "Expenses:Food", "x"];
-        let mut checked = 0;
+        let (mut checked, mut labelled) = (0, 0);
         for row in &data.rows {
             let env = Env {
                 data: Some(&data),
@@ -575,7 +577,7 @@ option "operating_currency" "USD"
                 params: &params,
                 regexes: &regexes,
             };
-            let postings = Catalog::standard().postings();
+            let postings = catalog.postings();
             for column in (0..postings.columns().len()).map(|index| postings.column_at(index)) {
                 let expr = CExpr::Column(column.clone());
                 let value = column.value(&data, RowRef::Posting(row));
@@ -589,6 +591,7 @@ option "operating_currency" "USD"
                 }
                 if let Some(contains) = set_membership(&expr, &env) {
                     let Value::Set(set) = &value else { panic!("{} is not a set", column.name()) };
+                    labelled += (column.name() == "budgets" && !set.is_empty()) as usize;
                     for needle in needles {
                         assert_eq!(contains(needle), set.contains(needle), "{} {}", column.name(), needle);
                     }
@@ -596,8 +599,10 @@ option "operating_currency" "USD"
                 };
             }
         }
-        // 10 core columns read as text or as a set, `time` read as a time of day, and the label column budgets
+        // 10 core columns read as text or as a set, `time` read as a time of day, and the label column budgets, which
+        // holds a budget for some postings
         assert_eq!(checked, data.rows.len() * 12);
+        assert!(labelled > 0, "no posting is in a budget");
     }
 
     /// A test-only table with more columns than a `u64` has bits: `c0` to `c69`, three rows

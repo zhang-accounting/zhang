@@ -65,6 +65,8 @@ mod projector;
 mod running;
 mod statements;
 pub mod table;
+#[cfg(test)]
+mod test_budgets;
 pub mod value;
 
 use std::time::Duration;
@@ -148,13 +150,12 @@ impl Query {
         })
     }
 
-    /// Compile without the execution decisions of the optimizer and the projector: every
-    /// expression is evaluated for every row (parameters, `IN` lists and string tests
-    /// included, as they are written) and LIMIT and OFFSET apply to the sorted rows. Tests
-    /// compare it with [`Query::compile_with_params`], which must return the same results.
+    /// Compile against `catalog` without the execution decisions of the optimizer and the projector: every
+    /// expression is evaluated for every row (parameters, `IN` lists and string tests included, as they are written)
+    /// and LIMIT and OFFSET apply to the sorted rows. Tests compare it with [`Query::compile_in`], which must return
+    /// the same results.
     #[cfg(test)]
-    pub(crate) fn compile_naive(query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
-        let catalog = Catalog::standard();
+    pub(crate) fn compile_naive_in(catalog: &Catalog, query: &str, params: &ParamTypes) -> Result<Query, QueryError> {
         let select = parser::parse_in(query, catalog.postings())?;
         let plan = compiler::compile(catalog, query, &select, params).map_err(|err| err.resolve(query))?;
         let plan = optimizer::optimize_naive(plan).map_err(|err| err.resolve(query))?;
