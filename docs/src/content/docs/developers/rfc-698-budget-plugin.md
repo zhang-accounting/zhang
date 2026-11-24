@@ -24,8 +24,10 @@ sidebar:
 - **P4: run on P3.3's branch (#905 at `02047249`); the owner accepted its results and P3.3's merge (2026-11-24).**
   Every memory figure and named-query p95 passed; the accepted gaps are three errors-page timers that stayed
   inconclusive (§10.2, "P3.3 and P4 as built").
-- **Merged:** P3.3, the switch (#905): the bundled script is the only implementation of budgets.
-- **Done, pending merge:** P5, which deletes the native budget code (§10.2, "P5 as built").
+- **Merged:** P3.3, the switch (#905): the bundled script is the only implementation of budgets; the script's
+  follow-ups #908 and #909, and the bench fix #910.
+- **Merged:** P5 (#911, #912, #913), which deletes the native budget code (§10.2, "P5 as built").
+- **Complete.** Every step of the plan is merged, the last one with #913.
 - **Release:** the owner decided that the whole migration ships in v0.3.0. Until then the `Analyzer` plugin type is
   experimental (§2).
 
@@ -1040,9 +1042,9 @@ K5 (the `month` parameter) is fixed before the migration if the owner confirms i
 | ⛳ **G1** gate, not a PR | A Lua budget-analyzer prototype on P0b's ledgers | Added end-to-end time (a load or a `POST /api/transactions`, then the first budget page and errors page after it) ≤ max(5% of P0b after #840/#841, 50 ms) at 10,000 and 100,000 transactions; named-query p95 ≤ max(+10%, +1 ms) (decision 16, revised 2026-11-23); memory ≤ max(+10%, +40 MiB); parity with #835. On failure, the Rust→wasm fallback only with the owner's go-ahead |
 | **P3.1** `feat(budget)` definitions and events | `budget.lua` publishes `#budget_definitions`, `#budget_events` and the directive diagnostics. Test switch `native\|plugin\|both`. The differential fuzzing harness (seeded generated ledgers; full `Ledger::errors` and every table and named query) | `both` and the fuzzer report no difference |
 | **P3.2** `feat(budget)` activity, series and labels | Activity by host BQL per budget, carry-over facts, `#budgets` as a series, `postings.budgets` labels, posting diagnostics, the after-fold mismatches | `both`, the fuzzer and the `budget_reference` oracle report no difference |
-| ⛳ **P3.3** `feat(budget)!` switch (#905: done, pending merge; the owner confirmed, 2026-11-24) | The plugin is the only runtime implementation; native code remains only behind the test switch. A playground regression test (`bindings/wasm`: `ExtensionUnavailable` on a budget ledger, unchanged otherwise) | #835 identical, ids and report order included; P4's bars pass on its branch (G1's condition, 2026-11-23); ⛳ the owner confirms |
+| ⛳ **P3.3** `feat(budget)!` switch (#905: merged; the owner confirmed, 2026-11-24) | The plugin is the only runtime implementation; native code remains only behind the test switch. A playground regression test (`bindings/wasm`: `ExtensionUnavailable` on a budget ledger, unchanged otherwise) | #835 identical, ids and report order included; P4's bars pass on its branch (G1's condition, 2026-11-23); ⛳ the owner confirms |
 | ⛳ **P4** `test(budget)` performance and release (run on #905, accepted by the owner with three inconclusive timers, 2026-11-24: see "P3.3 and P4 as built") | Paired native and plugin runs at 10,000 and 100,000 transactions: many budgets, currencies and months, typo dates, concurrent requests. Load, named-query and write p95; memory. Container first start and upgrade canary. | ⛳ Added end-to-end time (a load or a write, then the first budget page and errors page after it) ≤ max(5% of P0b after #840/#841, 50 ms) at 10,000 and 100,000; named-query p95 ≤ max(+10%, +1 ms) (decision 16, revised 2026-11-23); memory ≤ max(+10%, +40 MiB) |
-| **P5** `refactor(core)!` delete native, and docs (done, pending merge: see "P5 as built") | Removes `process/budget.rs`, the `Ledger` budget fields, `check_budgets`, `table/budgets.rs`, `Record::Budget*`, `posting_budgets`, `as_budget_interval`, the in-process provider and the switch. Keeps the compat mapping. Docs: budgets guide, query reference, plugin development, upgrading (en and zh-cn). | `rg -i budget` in `zhang-core/src` and `zhang-query/src` finds only the compat mapping; every suite green; the docs build |
+| **P5** `refactor(core)!` delete native, and docs (merged: #911, #912, #913; see "P5 as built") | Removes `process/budget.rs`, the `Ledger` budget fields, `check_budgets`, `table/budgets.rs`, `Record::Budget*`, `posting_budgets`, `as_budget_interval`, the in-process provider and the switch. Keeps the compat mapping. Docs: budgets guide, query reference, plugin development, upgrading (en and zh-cn). | `rg -i budget` in `zhang-core/src` and `zhang-query/src` finds only the compat mapping; every suite green; the docs build |
 
 **P3.1 and P3.2 as built (2026-11-23).** They were split by layer rather than by the two halves of `budget.lua`. A
 script publishing only `#budget_definitions`, `#budget_events` and the directive diagnostics could not be compared
@@ -1068,7 +1070,7 @@ and the directive and posting diagnostics share one report order. The pull reque
   named-query p95 of G1's condition is measured again there.
 - Left in #870, not proposed: answering an analysis's queries as JSON text (no gain), and its timing logs.
 
-**P3.3 and P4 as built (2026-11-24).** P3.3 (#905, done, pending merge) is the switch of §6 ("As built in P3.3"):
+**P3.3 and P4 as built (2026-11-24).** P3.3 (#905, merged) is the switch of §6 ("As built in P3.3"):
 #835's contract runs with the server's own options (the script) byte for byte against its golden files, natively and
 with the script through the test switch in every run; the playground has its regression test; the test kit loads as
 `zhang serve` does; a failed analysis leaves no budget error; and the budgets, plugins and upgrading guides and the
