@@ -28,9 +28,15 @@ description: 把张记账从 0.2 升级到 0.3 时，账本、插件和调用 AP
 
 **`ZHANG_PLUGINS=off` 也会关闭预算。** 预算由官方插件 `zhang:budget` 解释：每个账本都有它，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响，而运维者的开关会像停止其他插件一样停止它。以 `--plugins off` 或 `ZHANG_PLUGINS=off` 运行的服务器会在启动时记录预算已关闭；预算页面和查询会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。查询函数 `account_budgets()` 仍然会返回结果，因为它只读取账户 `open` 指令的 `budget` 元数据。预算需要 `ZHANG_PLUGINS` 为 `read`（默认值）或 `write`。
 
-<!-- PENDING #905 (draft, RFC #698 P3.3): this paragraph is the text of #905's body. Keep it if #905 merges before the release; remove it otherwise. -->
+**预算是一个插件。** `zhang:budget` 是张记账内置的 Lua 脚本，从 0.3 起是预算唯一的实现：张记账的原生预算代码已经删除。每个账本都会运行它，每次加载时都会运行，所以每次写入后也会运行。预算页面、预算表、内置查询和预算错误的回答与上文所述一致。作为运维者你会看到：
 
-**预算是一个插件。** `zhang:budget` 是张记账内置的 Lua 脚本，是预算唯一的实现：每个账本都会运行它，每次加载时都会运行，所以每次写入后也会运行。预算页面、预算表、查询和错误的回答与上文所述一致。运维者会看到的变化：第一次启动会编译插件运行时（大约半秒，期间会多占用一些内存，编译完后归还），编译后的代码缓存会在之后的启动中保留它，所以请为容器挂载缓存卷；服务器会多占用一些内存，10,000 笔交易的账本约多 10 到 20 MiB，100,000 笔约多 40 到 60 MiB；每次加载都会记录 `analyzer zhang:budget analysed the ledger in …`；**设置**页面会列出 `zhang:budget`；预算所需时间或内存超过 `ZHANG_PLUGIN_MAX_TIMEOUT` 或 `ZHANG_PLUGIN_MAX_MEMORY` 的账本加载时没有预算页面，也没有预算错误，并带有一个说明应调大哪个限制的 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误。默认的 256 MiB 中，脚本的 Lua 内存为 224 MiB；45 个类别十年间每个类别每月一个预算约需 100 MiB。
+- **第一次启动。** 现在每个账本都会运行一个插件，所以第一次启动会编译插件运行时，期间会多占用一些内存，编译完后归还：[编译后的代码缓存](/zh-cn/guides/plugins/#编译后的代码)为空时，10,000 笔交易的账本启动约需 0.5 到 0.7 秒，有缓存时约 0.3 秒。之后的启动从缓存读取代码，重新加载（也就是每次写入）复用它。没有缓存时（例如重新创建的容器没有挂载缓存卷），每次启动都会重新编译，所以请为容器挂载缓存卷。
+- **内存。** 服务器会为插件运行时和预算分析多占用一些内存：10,000 笔交易的账本约多 10 到 20 MiB，100,000 笔约多 40 到 60 MiB。升级后请检查容器的内存限制。
+- **日志。** 每次加载都会在 `info` 级别记录分析情况，例如 `analyzer zhang:budget analysed the ledger in 19.182292ms: 0 diagnostics`；没有预算的账本则记录 `analyzer zhang:budget has nothing to read in the ledger: its tables are empty`。
+- **设置。** **设置**页面和 `GET /api/plugins` 会列出 `zhang:budget`，类型为 `Analyzer`。
+- **限制。** 它在服务器允许每个插件使用的范围内运行：预算所需时间超过 `ZHANG_PLUGIN_MAX_TIMEOUT` 或内存超过 `ZHANG_PLUGIN_MAX_MEMORY` 的账本加载时没有预算页面，也没有预算错误，并带有一个说明应调大哪个限制的 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误。默认的 256 MiB 中，脚本的 Lua 内存为 224 MiB；35 个类别十年间每个类别每月一个预算约需 50 到 60 MiB。
+- **没有其他实现。** `zhang:budget` 不运行的地方不会解释预算，错误列表会用一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误提示一次：插件关闭时（`ZHANG_PLUGINS=off`）、在线 Playground 中，以及用 `zhang-core` 加载账本、却没有注册内置脚本和分析宿主的程序中（见[项目结构](/zh-cn/developers/project-structure/)）。在这些地方，预算表和查询仍然列出，并回答它们不可用。
+- **与 0.2 的预算相比的已知差异**（发布前测得）：10,000 笔交易时，一次写入及其后的预算页面或错误页面多需 35 到 50 毫秒；有数千个已关闭预算的账本加载约慢 2.5 倍（3,600 个已关闭的预算：1.2 秒，而不是 0.5 秒）。每个类别每月一个预算的账本加载约慢 10% 到 20%（4,200 个预算：0.53 秒，而不是 0.47 秒）。
 
 **插件编译后的代码保存在张记账自己的缓存中**：放在 `~/.cache/zhang`（或 [`ZHANG_PLUGIN_CACHE_DIR`](/zh-cn/guides/plugins/#编译后的代码) 指定的目录）的子目录 `zhang-wasmtime-cache` 里，最多约 128 MiB。wasmtime 默认目录（Linux 上为 `~/.cache/wasmtime`）中的缓存不再使用，如果没有其他程序使用 wasmtime，可以删除它；`EXTISM_CACHE_CONFIG` 和 wasmtime 的配置文件也不再读取。由于缓存保存服务器会运行的代码，张记账只在属于运行它的用户、其他用户不能写入的目录中使用缓存，并且从不在账本文件夹中使用。张记账无法写入或拒绝使用的目录（例如在只读文件系统上）不会再让所有插件都无法加载：张记账会在没有缓存的情况下运行它们，并在启动时记录一条警告。如果你曾用 `EXTISM_CACHE_CONFIG` 改变 wasmtime 缓存的位置，请改为设置 `ZHANG_PLUGIN_CACHE_DIR`；缓存的大小固定为约 128 MiB。
 
