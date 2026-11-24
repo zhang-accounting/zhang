@@ -294,6 +294,9 @@ pub struct ReloadSender {
     /// [`ReloadSender::reload_if_files_changed`] alone loads nothing while the ledger's files hold what the ledger
     /// served was loaded from
     forced: std::sync::atomic::AtomicBool,
+    /// why the ledger's folder is not watched for edits made outside the server, while it is not
+    /// ([`start_fs_event_listener`]), for `/api/info` to show
+    watch_failure: std::sync::RwLock<Option<String>>,
 }
 
 impl Deref for ReloadSender {
@@ -317,7 +320,18 @@ impl ReloadSender {
             fingerprint: std::sync::Mutex::new(None),
             retired: std::sync::Mutex::new(None),
             forced: std::sync::atomic::AtomicBool::new(false),
+            watch_failure: std::sync::RwLock::new(None),
         }
+    }
+
+    /// why the ledger's folder is not watched for edits made outside the server, while it is not; `None` while it is,
+    /// and for a ledger that is not on the local file system, which is never watched
+    pub fn watch_failure(&self) -> Option<String> {
+        self.watch_failure.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    }
+
+    fn set_watch_failure(&self, failure: Option<String>) {
+        *self.watch_failure.write().unwrap_or_else(|poisoned| poisoned.into_inner()) = failure;
     }
 
     /// the transactions the writes deleted or replaced lately ([`tombstones`])
@@ -563,27 +577,168 @@ fn start_version_check_tasker(update_checker_broadcaster: Arc<Broadcaster>) {
     });
 }
 
-/// Watch the files of the local ledger `cloned_ledger` serves, and ask `reload_sender_for_fs` for a reload when one it
-/// read changed ([`on_file_events`]): once no change came for [`watch::QUIET`], or [`watch::MAX_WAIT`] after the first,
-/// so that a write of several files is one reload. The task the server starts for a local ledger, which the budget
-/// baseline (`zhang-cli/examples/budget_baseline.rs`) starts too
-pub fn start_fs_event_listener(cloned_ledger: Arc<RwLock<Ledger>>, reload_sender_for_fs: Arc<ReloadSender>) {
-    tokio::spawn(async move {
-        let (mut watcher, mut rx) = async_watcher().unwrap();
+/// Watch the files of the local ledger `ledger` serves, and ask `reload_sender` for a reload when one it read changed
+/// ([`on_file_events`]): once no change came for [`watch::QUIET`], or [`watch::MAX_WAIT`] after the first, so that a
+/// write of several files is one reload. The task the server starts for a local ledger, which the budget baseline
+/// (`zhang-cli/examples/budget_baseline.rs`) starts too. A watcher that cannot watch the ledger's folder no longer
+/// ends the task, see [`watch_ledger_files`]
+pub fn start_fs_event_listener(ledger: Arc<RwLock<Ledger>>, reload_sender: Arc<ReloadSender>) {
+    tokio::spawn(watch_ledger_files(ledger, reload_sender, Watching::native()));
+}
 
-        let entry_path = {
-            let guard1 = cloned_ledger.read().await;
-            guard1.entry.0.clone()
-        };
-        let roots = watch::watch_roots(&entry_path);
-        info!("watching {}", entry_path.to_str().unwrap_or(""));
-        watcher.watch(entry_path.as_path(), RecursiveMode::Recursive).expect("cannot watch entry path");
-        // the changes of a burst of writes, of an editor saving a file, at once
-        while let Some(all) = watch::gather(&mut rx, watch::QUIET, watch::MAX_WAIT).await {
-            trace!("receive all file changes: {:?}", all);
-            on_file_events(&cloned_ledger, &reload_sender_for_fs, &roots, &all).await;
+/// watch the ledger's root, recursively ([`Watching::watch`])
+pub(crate) type WatchRoot = Box<dyn FnMut(&std::path::Path) -> notify::Result<RootWatch> + Send>;
+
+/// How the file watcher ([`watch_ledger_files`]) watches the ledger's folder, which a test replaces
+pub(crate) struct Watching {
+    /// watch the ledger's root, recursively: with the watcher of file system events of the platform (inotify on Linux)
+    pub(crate) watch: WatchRoot,
+    /// the wait before the first attempt to watch again after a failure, doubled after every attempt up to `max_retry`
+    pub(crate) first_retry: Duration,
+    pub(crate) max_retry: Duration,
+    /// how often the ledger's files are checked for changes while the folder is not watched
+    pub(crate) poll_interval: Duration,
+}
+
+impl Watching {
+    fn native() -> Self {
+        Watching {
+            watch: Box::new(watch_natively),
+            first_retry: watch::FIRST_RETRY,
+            max_retry: watch::MAX_RETRY,
+            poll_interval: watch::POLL_INTERVAL,
         }
-    });
+    }
+}
+
+/// a watcher watching the ledger's root, and what it reports, which it does as long as it is kept
+pub(crate) struct RootWatch {
+    pub(crate) watcher: Box<dyn Any + Send>,
+    pub(crate) reports: Receiver<notify::Result<Event>>,
+}
+
+/// watch `root` with the watcher of file system events of the platform
+fn watch_natively(root: &std::path::Path) -> notify::Result<RootWatch> {
+    let (mut watcher, reports) = async_watcher()?;
+    // a failure drops the watcher, and with it the watches it added
+    watcher.watch(root, RecursiveMode::Recursive)?;
+    Ok(RootWatch {
+        watcher: Box::new(watcher),
+        reports,
+    })
+}
+
+/// The file watcher's task ([`start_fs_event_listener`]), watching with `watching`. A watcher that could not be created
+/// or could not watch the folder, once the inotify instances or watches of the user were used up (`Too many open files`,
+/// on a busy node) or a folder in it vanished during the walk, panicked the task, and no edit made outside the server
+/// reloaded the ledger again. Now, while the folder is not watched (the watcher failed, or it watches the whole ledger
+/// no more: [`watch::watch_lost`]), the server says why once, in the log and in `/api/info` ([`watch::why_unwatched`]),
+/// checks the ledger's files for changes every `poll_interval` ([`poll_until`]), and tries to watch again after a wait
+/// that doubles up to `max_retry`. Once it watches again, it reloads the ledger, for what changed meanwhile
+pub(crate) async fn watch_ledger_files(ledger: Arc<RwLock<Ledger>>, reload_sender: Arc<ReloadSender>, mut watching: Watching) {
+    let root = ledger.read().await.entry.0.clone();
+    let roots = watch::watch_roots(&root);
+    let mut retry = watching.first_retry;
+    // why the folder is not watched, as told, while it is not
+    let mut told: Option<String> = None;
+    let mut poll: Option<Poll> = None;
+    loop {
+        let why = match (watching.watch)(&root) {
+            Ok(RootWatch { watcher, mut reports }) => {
+                info!("watching {}", root.display());
+                if told.take().is_some() {
+                    info!("the ledger's folder is watched again: reloading the ledger, for what changed while it was not");
+                    reload_sender.set_watch_failure(None);
+                    reload_sender.reload();
+                }
+                poll = None;
+                let lost = follow_reports(&ledger, &reload_sender, &roots, &mut reports).await;
+                drop(watcher);
+                lost
+            }
+            Err(error) => watch::why_unwatched(&error),
+        };
+        if told.as_ref() != Some(&why) {
+            let message = watch::unwatched(&root, &why, watching.poll_interval, watching.max_retry);
+            error!("{message}");
+            reload_sender.set_watch_failure(Some(message));
+            told = Some(why);
+        } else {
+            debug!("cannot watch {} yet: {why}", root.display());
+        }
+        poll_until(
+            &ledger,
+            &reload_sender,
+            &roots,
+            &mut poll,
+            watching.poll_interval,
+            tokio::time::Instant::now() + retry,
+        )
+        .await;
+        retry = (retry * 2).min(watching.max_retry);
+    }
+}
+
+/// Look at the changes `reports` brings, gathered ([`watch::gather`]), until the watcher watches the whole ledger no
+/// more ([`watch::watch_lost`]): why it does not
+async fn follow_reports(
+    ledger: &Arc<RwLock<Ledger>>, reload_sender: &ReloadSender, roots: &[PathBuf], reports: &mut Receiver<notify::Result<Event>>,
+) -> String {
+    // the changes of a burst of writes, of an editor saving a file, at once
+    while let Some(all) = watch::gather(reports, watch::QUIET, watch::MAX_WAIT).await {
+        trace!("receive all file changes: {:?}", all);
+        on_file_events(ledger, reload_sender, roots, &all).await;
+        if let Some(lost) = watch::watch_lost(&all, roots) {
+            return lost;
+        }
+    }
+    "the watcher stopped".to_owned()
+}
+
+/// the poll of the ledger's files while its folder is not watched: their stamps at the last check, and the next one
+struct Poll {
+    stamps: std::collections::HashMap<PathBuf, watch::Stamp>,
+    next: tokio::time::Instant,
+}
+
+/// the stamps of the files the ledger served was loaded from ([`watch::polled_paths`]), read on a blocking thread
+async fn polled_stamps(ledger: &RwLock<Ledger>) -> std::collections::HashMap<PathBuf, watch::Stamp> {
+    let paths = {
+        let served = ledger.read().await;
+        watch::polled_paths(&served.entry.0, &served.visited_files, &served.extra_inputs)
+    };
+    tokio::task::spawn_blocking(move || watch::stamps(paths)).await.unwrap_or_default()
+}
+
+/// Check the ledger's files for changes every `interval` until `until`, as the watcher would report them
+/// ([`watch::changes`], [`on_file_events`]), in `poll`, which a poll started before goes on with. A poll starts by
+/// asking for a reload of the ledger's files unless they hold what the ledger served was loaded from, for what changed
+/// since the watcher last reported. Its cost is one `stat` of each of the ledger's files and of what its plugins read,
+/// every `interval`; no file is read
+async fn poll_until(
+    ledger: &Arc<RwLock<Ledger>>, reload_sender: &ReloadSender, roots: &[PathBuf], poll: &mut Option<Poll>, interval: Duration, until: tokio::time::Instant,
+) {
+    if poll.is_none() {
+        let stamps = polled_stamps(ledger).await;
+        reload_sender.reload_if_files_changed();
+        *poll = Some(Poll {
+            stamps,
+            next: tokio::time::Instant::now() + interval,
+        });
+    }
+    let Some(poll) = poll else { return };
+    while poll.next <= until {
+        tokio::time::sleep_until(poll.next).await;
+        let stamps = polled_stamps(ledger).await;
+        let changes = watch::changes(&poll.stamps, &stamps);
+        poll.stamps = stamps;
+        if !changes.is_empty() {
+            trace!("the poll found file changes: {:?}", changes);
+            on_file_events(ledger, reload_sender, roots, &changes).await;
+        }
+        poll.next = tokio::time::Instant::now() + interval;
+    }
+    tokio::time::sleep_until(until).await;
 }
 
 /// What the file watcher makes of `events`, what it reported under the ledger's root, whose spellings are `roots`
@@ -1288,6 +1443,214 @@ mod reload_test {
         assert!(info().await.reload_failure.is_none(), "a reload that succeeds clears the failure");
         assert_eq!(accounts(&ledger).await, vec!["Assets:A", "Assets:B"], "the fixed file is served");
         std::fs::remove_dir_all(dir).ok();
+    }
+}
+
+/// The file watcher while it cannot watch the ledger's folder ([`watch_ledger_files`]): the server serves on, says why
+/// once, checks the ledger's files meanwhile, and watches the folder once it can
+#[cfg(test)]
+mod watch_test {
+    use std::future::Future;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    use axum::extract::State;
+    use notify::event::{DataChange, ModifyKind};
+    use notify::{Event, EventKind};
+    use tokio::sync::{mpsc, RwLock};
+    use zhang_core::data_source::LocalFileSystemDataSource;
+    use zhang_core::data_type::text::ZhangDataType;
+    use zhang_core::ledger::Ledger;
+
+    use super::{start_reload_listener, watch_ledger_files, RootWatch, Watching};
+    use crate::broadcast::Broadcaster;
+    use crate::routes::common::get_basic_info;
+    use crate::state::{SharedLedger, SharedReloadSender};
+    use crate::ReloadSender;
+
+    /// a logger keeping the errors logged
+    struct Errors(Mutex<Vec<String>>);
+
+    impl log::Log for Errors {
+        fn enabled(&self, metadata: &log::Metadata) -> bool {
+            metadata.level() <= log::Level::Error
+        }
+
+        fn log(&self, record: &log::Record) {
+            if self.enabled(record.metadata()) {
+                self.0.lock().unwrap().push(record.args().to_string());
+            }
+        }
+
+        fn flush(&self) {}
+    }
+
+    static ERRORS: Errors = Errors(Mutex::new(Vec::new()));
+
+    /// the errors logged that name `root`
+    fn errors_about(root: &Path) -> Vec<String> {
+        let root = root.display().to_string();
+        ERRORS.0.lock().unwrap().iter().filter(|error| error.contains(&root)).cloned().collect()
+    }
+
+    /// a ledger served from a scratch folder, reloaded by its reload listener
+    struct Served {
+        _dir: tempfile::TempDir,
+        root: PathBuf,
+        main: PathBuf,
+        ledger: Arc<RwLock<Ledger>>,
+        reload_sender: Arc<ReloadSender>,
+    }
+
+    /// serve a ledger of the accounts `accounts`
+    fn serve(accounts: &[&str]) -> Served {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let main = root.join("main.zhang");
+        std::fs::write(&main, opens(accounts)).unwrap();
+        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
+        let loaded = Ledger::load(root.clone(), "main.zhang".to_owned(), source).expect("load ledger");
+        let ledger = Arc::new(RwLock::new(loaded));
+        let (sender, receiver) = mpsc::channel(1);
+        let reload_sender = Arc::new(ReloadSender::new(sender));
+        start_reload_listener(ledger.clone(), Broadcaster::create(), reload_sender.clone(), receiver);
+        Served {
+            _dir: dir,
+            root,
+            main,
+            ledger,
+            reload_sender,
+        }
+    }
+
+    fn opens(accounts: &[&str]) -> String {
+        accounts.iter().map(|account| format!("1970-01-01 open {account}\n")).collect()
+    }
+
+    impl Served {
+        /// `watch_failure` of `/api/info`
+        async fn watch_failure(&self) -> Option<String> {
+            get_basic_info(State(SharedLedger(self.ledger.clone())), State(SharedReloadSender(self.reload_sender.clone())))
+                .await
+                .expect("the basic info")
+                .data
+                .watch_failure
+        }
+
+        /// the accounts of the ledger served, sorted
+        async fn accounts(&self) -> Vec<String> {
+            let ledger = self.ledger.read().await;
+            let mut accounts: Vec<String> = ledger
+                .directives
+                .iter()
+                .filter_map(|it| match &it.data {
+                    zhang_ast::Directive::Open(open) => Some(open.account.name().to_owned()),
+                    _ => None,
+                })
+                .collect();
+            accounts.sort();
+            accounts
+        }
+
+        /// wait until the ledger served has the accounts `accounts`
+        async fn serves(&self, accounts: &[&str]) {
+            eventually(&format!("serving {accounts:?}"), || async { self.accounts().await == accounts }).await;
+        }
+    }
+
+    /// wait until `done`, for 10 s at most
+    async fn eventually<F: Future<Output = bool>>(what: &str, mut done: impl FnMut() -> F) {
+        for _ in 0..1000 {
+            if done().await {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("not {what} after 10 s");
+    }
+
+    /// A watcher that could not be created, as inotify fails with `Too many open files` once the inotify instances of
+    /// the user are used up, panicked the watcher's task, and no edit made outside the server reloaded the ledger
+    /// again. Now the server serves on, says why once, with the setting to raise, in the log and in `/api/info`, tries
+    /// again, and once the watcher is created, reloads the ledger for what changed meanwhile and follows its reports.
+    #[tokio::test]
+    async fn a_watcher_that_cannot_be_created_is_created_again_once_it_can() {
+        log::set_logger(&ERRORS).ok();
+        log::set_max_level(log::LevelFilter::Error);
+        let served = serve(&["Assets:A"]);
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let available = Arc::new(AtomicBool::new(false));
+        let (events, reports) = mpsc::channel(16);
+        let mut reports = Some(reports);
+        let watch = {
+            let (attempts, available) = (attempts.clone(), available.clone());
+            move |_: &Path| {
+                attempts.fetch_add(1, Ordering::SeqCst);
+                if !available.load(Ordering::SeqCst) {
+                    return Err(notify::Error::io(std::io::Error::from_raw_os_error(24)));
+                }
+                let reports = reports.take().expect("watched once");
+                Ok(RootWatch {
+                    watcher: Box::new(()),
+                    reports,
+                })
+            }
+        };
+        let watching = Watching {
+            watch: Box::new(watch),
+            first_retry: Duration::from_millis(10),
+            max_retry: Duration::from_millis(20),
+            // no poll in this test
+            poll_interval: Duration::from_secs(3600),
+        };
+        tokio::spawn(watch_ledger_files(served.ledger.clone(), served.reload_sender.clone(), watching));
+
+        eventually("tried three times", || async { attempts.load(Ordering::SeqCst) >= 3 }).await;
+        let failure = served.watch_failure().await.expect("/api/info tells why the folder is not watched");
+        let root = served.root.display().to_string();
+        assert!(failure.contains("fs.inotify.max_user_instances") && failure.contains(&root), "{failure}");
+        assert_eq!(errors_about(&served.root), [failure], "one error for every attempt, the one /api/info shows");
+        std::fs::write(&served.main, opens(&["Assets:A", "Assets:B"])).unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            served.accounts().await,
+            ["Assets:A"],
+            "the ledger served, not reloaded while the folder is not watched"
+        );
+
+        available.store(true, Ordering::SeqCst);
+        eventually("watched again", || async { served.watch_failure().await.is_none() }).await;
+        served.serves(&["Assets:A", "Assets:B"]).await;
+        // the watcher's reports are followed
+        std::fs::write(&served.main, opens(&["Assets:A", "Assets:B", "Assets:C"])).unwrap();
+        let modified = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Content))).add_path(served.main.clone());
+        events.send(Ok(modified)).await.unwrap();
+        served.serves(&["Assets:A", "Assets:B", "Assets:C"]).await;
+        assert_eq!(errors_about(&served.root).len(), 1, "nothing failed since");
+    }
+
+    /// While the ledger's folder cannot be watched, as once the inotify watches of the user are used up, the ledger's
+    /// files are checked every poll interval: an edit reloads the ledger
+    #[tokio::test]
+    async fn the_files_are_polled_while_the_folder_cannot_be_watched() {
+        let served = serve(&["Assets:A"]);
+        let watching = Watching {
+            watch: Box::new(|_: &Path| Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch))),
+            first_retry: Duration::from_secs(3600),
+            max_retry: Duration::from_secs(3600),
+            poll_interval: Duration::from_millis(20),
+        };
+        tokio::spawn(watch_ledger_files(served.ledger.clone(), served.reload_sender.clone(), watching));
+        eventually("telling why the folder is not watched", || async { served.watch_failure().await.is_some() }).await;
+        let failure = served.watch_failure().await.unwrap();
+        assert!(failure.contains("fs.inotify.max_user_watches") && failure.contains("every 20ms"), "{failure}");
+
+        std::fs::write(&served.main, opens(&["Assets:A", "Assets:B"])).unwrap();
+        served.serves(&["Assets:A", "Assets:B"]).await;
+        std::fs::write(&served.main, opens(&["Assets:A", "Assets:B", "Assets:C"])).unwrap();
+        served.serves(&["Assets:A", "Assets:B", "Assets:C"]).await;
     }
 }
 
