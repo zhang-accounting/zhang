@@ -517,6 +517,7 @@ From highest to lowest precedence:
 | `amount` `+ -` `amount` | `amount` | Both amounts must have the same currency, otherwise the query fails. |
 
 - Addition, subtraction and multiplication are exact. A product keeps all the decimal places of its operands: `1000.00 * 1` is `1000.00`.
+- `+` and `-` do not all keep the larger scale of their operands yet, as [`sum`](#aggregate-functions) does. When one operand is zero, `-` on decimals and `+` on amounts give the other operand unchanged, whatever the zero's decimal places: `0.00 - 5` is `-5`, and `0.00 CNY + 500 CNY` is `500 CNY`. `+` on decimals and `-` on amounts keep the larger scale: `0.00 + 500` is `500.00`. So in one query, `sum(x)` and an `x + y` or `x - y` of the same numbers can have the same value with different decimal places. A later release will make `+` and `-` follow `sum`.
 - Division is exact when the result fits in 28 significant digits. Otherwise it is rounded to 28 significant digits, half to even, like Beancount: `1 / 3` is `0.3333333333333333333333333333`.
 - Dividing by zero produces `NULL` instead of an error.
 - Unary minus works on `int`, `decimal`, `amount`, `position` and `inventory`.
@@ -1111,6 +1112,7 @@ An aggregate function turns the values of all postings in a group into a single 
 
 - `first` and `last` follow ledger order. `ORDER BY` does not change which posting is first.
 - A `sum` over a group whose values are all `NULL` is `0` (or an empty inventory), and `first`, `last`, `min` and `max` are `NULL`.
+- `sum(number)` and `sum(position)` of the same postings have the same value, but can differ in decimal places, as in Beancount. An inventory leaves out a zero it starts with, and drops a position whose sum comes to zero. So postings of `0.00` and `500` sum to `500.00` as numbers but `500 CNY` as positions, and `1.5`, `-1.5` and `2` to `2.0` but `2 CNY`.
 
 ### Valuation functions
 
