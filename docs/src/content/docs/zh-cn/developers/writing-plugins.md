@@ -461,7 +461,7 @@ fn analyze(input: Input) -> Result<Output, Error> {
 }
 ```
 
-`zhang-plugin-sdk/examples/budget` 是一个完整的分析器：根据预算记录和查询计算张记账的预算、预算表和预算错误。张记账的测试用它替代内置脚本 `zhang:budget` 运行，并检查它对预算页面的回答完全相同，包括错误及其 id。
+`zhang-plugin-sdk/examples/budget` 是一个完整的分析器：根据预算记录和查询计算张记账的预算、预算表和预算错误。张记账的测试用它替代内置脚本 `zhang:budget` 运行，并检查它对预算页面的回答完全相同，包括错误及其 id；预算模糊测试也在生成的账本上把脚本与它比较（[测试](/zh-cn/developers/testing/#差分模糊测试)）：它按脚本取代之前张记账原生预算代码的规则写成，是检查脚本改动的参照。
 
 ### 用 Lua 编写
 

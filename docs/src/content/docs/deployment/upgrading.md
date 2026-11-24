@@ -90,6 +90,9 @@ Open the web UI, check the version on the **Settings** page, and look at the err
     budget errors, with a [`PluginAnalysisFailed`](/reference/error-codes/#pluginanalysisfailed) error saying which to
     raise. Of the default 256 MiB, the script's Lua memory is 224 MiB; a budget per category and month, 45 categories
     over ten years, needs about 100 MiB.
+  - **No other implementation.** Zhang's native budget code is gone (RFC #698 P5): where `zhang:budget` does not run,
+    with plugins off, in the online playground, or in a program that loads ledgers with `zhang-core` alone (see
+    [Project Structure](/developers/project-structure/)), budgets are not interpreted, and the error list says so once.
 - **Plugins keep their compiled code in a cache of Zhang's own**, in the subdirectory `zhang-wasmtime-cache` of
   `~/.cache/zhang`, or of the directory [`ZHANG_PLUGIN_CACHE_DIR`](/guides/plugins/#compiled-code) sets, about
   128 MiB at most. The cache in wasmtime's default directory (`~/.cache/wasmtime` on Linux) is no longer used, and you
