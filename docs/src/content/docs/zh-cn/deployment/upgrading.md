@@ -10,7 +10,7 @@ sidebar:
 ## 升级之前
 
 - 备份账本文件夹，如果它是 Git 仓库，就提交一次。如果你使用[通行密钥](/zh-cn/deployment/authentication/#通行密钥的存储位置)，备份中要包含 `.zhang/passkeys.json`。
-- 阅读从你当前版本到新版本之间各个版本的[发布说明](https://github.com/zhang-accounting/zhang/releases)。你的版本号显示在网页界面导航栏中“Zhang”的旁边，以及**设置**页面上。
+- 阅读从你当前版本到新版本之间各个版本的[发布说明](https://github.com/zhang-accounting/zhang/releases)或[更新日志](https://github.com/zhang-accounting/zhang/blob/main/CHANGELOG.md)，以及对应的升级指南：[从 0.2 升级到 0.3](/zh-cn/deployment/upgrading-to-0-3/)。你的版本号显示在网页界面导航栏中“Zhang”的旁边，以及**设置**页面上。
 
 ## Docker
 
@@ -52,26 +52,4 @@ zhang update --verbose
 
 ## 升级之后
 
-打开网页界面，在**设置**页面上确认版本，并查看**总览**页面上的错误列表。较新的发布版可能会报告旧版本默默接受的问题。从 0.2.0 升级到之后的发布版时，尤其要注意：
-
-- 对尚未开设或已经关闭的账户的记账行，会报告为 [`AccountDoesNotExist`](/zh-cn/reference/error-codes/#accountdoesnotexist) 或 [`AccountClosed`](/zh-cn/reference/error-codes/#accountclosed)。账户名中的笔误会以这种方式暴露出来。
-- 开立时列出了商品的账户（例如 `open Assets:Bank USD`）只接受这些商品：使用其他商品的记账行或余额断言会被报告为 [`CommodityNotAllowed`](/zh-cn/reference/error-codes/#commoditynotallowed)，与 Beancount 一致。把该商品加进 `open`，或者不写列表。
-- 不成立的[余额断言](/zh-cn/reference/directives/balance/)仍然报告为 [`AccountBalanceCheckError`](/zh-cn/reference/error-codes/#accountbalancecheckerror)，但不再把账户余额改成断言的金额：余额、报表和补齐都以记账行为准。
-- 交易必须按商品分别平衡，并以该商品的精度计算。混用多种商品或价格却不平衡的交易，会报告为 [`UnbalancedTransaction`](/zh-cn/reference/error-codes/#unbalancedtransaction)。
-- 使用不受支持的记账方法（`NONE`、`AVERAGE`、`AVERAGE_ONLY`）或无效记账方法的账户，会带着一个错误、以默认方法加载，而不是让加载中止。见[记账方法](/zh-cn/reference/directives/account/)。
-- 浏览器的密码弹窗被登录页面取代，并且可以使用通行密钥。脚本可以继续以 HTTP Basic 请求头发送密码，见[身份认证](/zh-cn/deployment/authentication/)。
-- **除非服务器允许更多，插件以只读方式运行，没有网络访问，每次调用最多 30 秒。** 指令授予了 `allowed_hosts` 的插件（例如汇率插件）会失去网络访问，直到你用 `ZHANG_PLUGIN_ALLOWED_HOSTS` 允许它的主机；超过 30 秒的 `timeout` 会被降低，除非 `ZHANG_PLUGIN_MAX_TIMEOUT` 允许。错误列表会在每条这样的指令上显示一个 [`PluginCapabilityReduced`](/zh-cn/reference/error-codes/#plugincapabilityreduced) 错误，指出相应的设置。插件也不再跟随重定向，不能访问私有或回环地址。见[服务器允许的范围](/zh-cn/guides/plugins/#服务器允许的范围)。
-- [Router 插件](/zh-cn/guides/router-plugins/)的页面在沙箱中运行：页面中的脚本不能再使用你的会话，从张记账加载脚本、样式、图片或 JSON 的页面需要把它们内联。插件只会收到允许列表中的请求头，也只能发送允许列表中的响应头；一个请求最多运行 30 秒；每个插件实例最多使用 256 MiB 内存，除非 `ZHANG_PLUGIN_MAX_MEMORY` 允许更多。
-
-- **没有 [`timezone` 选项](/zh-cn/reference/directives/options/#timezone)的账本先从 `TZ` 读取时区，最后回退到 UTC，而不再是 UTC+8。** 以前张记账只读取系统的时区，读取不到时使用 `Asia/Hong_Kong`（UTC+8），并在每次启动时记录 `cannot get timezone, fall back to use GMT+8`。Docker 镜像就是这种情况，因为镜像中没有系统时区：现在这样的账本在镜像中使用 UTC。依赖时区的一切都会随之变化：“今天”和“本月”（预算页面、报表、查询中的 `today()`）、在网页界面中记录的交易的时间，以及账本中写下的日期或时间所代表的时刻（查询中的 `timestamp` 列、插件读取的时间）。如果你依赖了这个回退，请在账本中写上这个选项，例如 `option "timezone" "Asia/Shanghai"`，或者把你的时区传给容器，例如 `-e TZ=Asia/Shanghai`。在设置了 `TZ` 的机器上，`TZ` 现在优先于系统的时区；选项又优先于两者。服务器会在启动时记录这样的账本使用哪个时区，以及它的来源。
-- **`ZHANG_PLUGINS=off` 也会关闭预算。** 预算由官方插件 `zhang:budget` 解释：每个账本都有它，不需要 `plugin` 指令，也不受 `features.plugin` 选项影响，而运维者的开关会像停止其他插件一样停止它。以 `--plugins off` 或 `ZHANG_PLUGINS=off` 运行的服务器会在启动时记录预算已关闭；预算页面和查询会返回预算表不可用的错误，错误列表会显示一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误。查询函数 `account_budgets()` 仍然会返回结果，因为它只读取账户 `open` 指令的 `budget` 元数据。预算需要 `ZHANG_PLUGINS` 为 `read`（默认值）或 `write`。
-- **预算由插件 `zhang:budget` 计算**：它是张记账内置的 Lua 脚本，不再是服务器内置的代码。预算页面、预算表、内置查询和预算错误的回答都和以前一样。作为运维者你会看到：
-  - **第一次启动。** 现在每个账本都会运行一个插件，所以第一次启动会编译插件运行时，需要大约半秒，期间会多占用一些内存，编译完后归还。之后的启动从[缓存](/zh-cn/guides/plugins/#编译后的代码)读取编译后的代码（只需几十毫秒），重新加载（也就是每次写入）复用它。没有缓存时（例如重新创建的容器没有挂载缓存卷），每次启动都会重新编译。
-  - **内存。** 服务器会为插件运行时和预算分析多占用一些内存：10,000 笔交易的账本约多 10 到 20 MiB，100,000 笔约多 40 到 60 MiB。升级后请检查容器的内存限制。
-  - **日志。** 每次加载都会在 `info` 级别记录分析情况，例如 `analyzer zhang:budget analysed the ledger in 19.182292ms: 0 diagnostics`；没有预算的账本则记录 `analyzer zhang:budget has nothing to read in the ledger: its tables are empty`。
-  - **设置。** **设置**页面和 `GET /api/plugins` 会列出 `zhang:budget`，类型为 `Analyzer`。
-  - **限制。** 它在服务器允许每个插件使用的范围内运行：预算所需时间超过 `ZHANG_PLUGIN_MAX_TIMEOUT` 或内存超过 `ZHANG_PLUGIN_MAX_MEMORY` 的账本加载时没有预算页面，也没有预算错误，并带有一个说明应调大哪个限制的 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误。默认的 256 MiB 中，脚本的 Lua 内存为 224 MiB；45 个类别十年间每个类别每月一个预算约需 100 MiB。
-  - **没有其他实现。** 张记账的原生预算代码已经删除（RFC #698 P5）：`zhang:budget` 不运行的地方，例如插件关闭时、在线 Playground 中，或只用 `zhang-core` 加载账本的程序中（见[项目结构](/zh-cn/developers/project-structure/)），预算不会被解释，错误列表会提示一次。
-- **插件编译后的代码保存在张记账自己的缓存中**：放在 `~/.cache/zhang`（或 [`ZHANG_PLUGIN_CACHE_DIR`](/zh-cn/guides/plugins/#编译后的代码) 指定的目录）的子目录 `zhang-wasmtime-cache` 里，最多约 128 MiB。wasmtime 默认目录（Linux 上为 `~/.cache/wasmtime`）中的缓存不再使用，如果没有其他程序使用 wasmtime，可以删除它；`EXTISM_CACHE_CONFIG` 和 wasmtime 的配置文件也不再读取。由于缓存保存服务器会运行的代码，张记账只在属于运行它的用户、其他用户不能写入的目录中使用缓存，并且从不在账本文件夹中使用。张记账无法写入或拒绝使用的目录（例如在只读文件系统上）不会再让所有插件都无法加载：张记账会在没有缓存的情况下运行它们，并在启动时记录一条警告。
-
-[错误码](/zh-cn/reference/error-codes/)解释了每种错误的修复方法。
+打开网页界面，在**设置**页面上确认版本，并查看**总览**页面上的错误列表。较新的发布版可能会报告旧版本默默接受的问题：[从 0.2 升级到 0.3](/zh-cn/deployment/upgrading-to-0-3/) 列出了 0.3 会报告的那些问题。[错误码](/zh-cn/reference/error-codes/)解释了每种错误的修复方法。

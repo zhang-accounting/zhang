@@ -85,7 +85,7 @@ A plugin declares what it is in its `supported_type` export, and can be several 
 | `Processor` | `processor` | once per load | the whole directive stream → the new stream |
 | `Mapper` | `mapper` | once per directive, in one plugin instance for the whole stream | one directive → the directives replacing it (none, itself, or several) |
 | `Router` | `router` | once per HTTP request, each in a fresh instance | the request → the response |
-| `Analyzer` (experimental) | `manifest`, `analyze` | once per load, after Zhang's checks ([Analyzers](#analyzers)) | the records it consumes, and queries → diagnostics and the rows of its tables |
+| `Analyzer` | `manifest`, `analyze` | once per load, after Zhang's checks ([Analyzers](#analyzers)) | the records it consumes, and queries → diagnostics and the rows of its tables |
 
 A plugin that is both a processor and a mapper runs its processor first. A type Zhang does not know is ignored with a warning, so a plugin written for a newer Zhang still loads.
 
@@ -346,10 +346,13 @@ fn route(request: Request) -> Result<Response, Error> {
 
 ## Analyzers
 
-:::caution[Experimental]
-The `Analyzer` type is experimental. Until the budget migration of RFC #698 is complete, its ABI may change in any
-release: the manifest, the records, the output, `zhang_convert`, the SDK's `analysis` module and the analyzers of Lua
-scripts. A release may ship before then, and an analyzer written for it may need changes to load in the next one.
+:::note[Stability]
+The `Analyzer` type is stable from Zhang 0.3.0, the first release with analyzers. `analysis_abi` 1 (the manifest, the
+records, the output, `zhang_convert`, the SDK's `analysis` module and the analyzers of Lua scripts) keeps its meaning:
+a later release only adds to it, such as a field a reader ignores or another optional form, or brings a new
+`analysis_abi` version for any other change. An analyzer that uses an addition needs the release that brought it. The
+shorter output forms below (listed rows, `["12.50", "CNY"]` amounts, carried facts) are part of version 1, so they need
+Zhang 0.3.0 or later, as every analyzer does.
 :::
 
 An analyzer reads the ledger once it is loaded and publishes what it finds: **diagnostics**, which join the ledger's
@@ -763,6 +766,6 @@ Where they work:
 | Feature | Zhang |
 |---|---|
 | `processor` and `mapper` exports, flat config (options and meta), `allowed_hosts` | 0.2.0 |
-| `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, `zhang.allowed_hosts`, `zhang.timeout_ms`, every host function above but the write functions, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | the release after 0.2.0 |
-| `zhang_write_preview`, `zhang_write_commit`, the `capabilities` export, `allowed_writes`, `zhang.allowed_writes` | the release after 0.2.0 with the write capability |
-| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, analyzers in Lua, `zhang.max_memory`, experimental until RFC #698 is complete | the release with analyzers (RFC #698) |
+| `router` exports actually served, `zhang.abi`, `zhang.plugin`, `zhang.seed`, `zhang.allowed_hosts`, `zhang.timeout_ms`, every host function above but the write functions, `allowed_paths`, `timeout`, `seed`, `features.plugins`, unknown plugin types ignored | 0.3.0 |
+| `zhang_write_preview`, `zhang_write_commit`, the `capabilities` export, `allowed_writes`, `zhang.allowed_writes` | 0.3.0 |
+| the `Analyzer` type (`manifest`, `analyze`), `zhang_convert`, analyzers in Lua, `zhang.max_memory` | 0.3.0 |

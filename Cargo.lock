@@ -365,7 +365,7 @@ dependencies = [
 
 [[package]]
 name = "beancount"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bigdecimal",
  "chrono",
@@ -6494,7 +6494,7 @@ dependencies = [
 
 [[package]]
 name = "zhang"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "beancount",
@@ -6531,7 +6531,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-ast"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bigdecimal",
  "chrono",
@@ -6548,7 +6548,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-core"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bigdecimal",
  "cap-std",
@@ -6643,7 +6643,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-query"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "bigdecimal",
  "chrono",
@@ -6665,7 +6665,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-server"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "axum",
@@ -6716,7 +6716,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-shared"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "bigdecimal",
@@ -6728,7 +6728,7 @@ dependencies = [
 
 [[package]]
 name = "zhang-testkit"
-version = "0.1.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "beancount",

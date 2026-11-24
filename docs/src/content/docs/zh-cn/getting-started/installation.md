@@ -68,8 +68,10 @@ volumes:
 | Linux，ARM64 | `aarch64-unknown-linux-gnu` |
 | macOS，Intel | `x86_64-apple-darwin` |
 | macOS，Apple 芯片 | `aarch64-apple-darwin` |
+| Windows，x86-64（未经测试） | `x86_64-pc-windows-msvc`，`.exe` 文件 |
+| FreeBSD，x86-64（未经测试） | `x86_64-unknown-freebsd` |
 
-没有 Windows 版的二进制文件，在 Windows 上请使用 Docker。下载对应平台的文件，重命名为 `zhang`，赋予可执行权限，并放到 `PATH` 中的某个文件夹里：
+下载对应平台的文件，重命名为 `zhang`，赋予可执行权限，并放到 `PATH` 中的某个文件夹里：
 
 ```shell
 mv zhang-*-x86_64-unknown-linux-gnu zhang
@@ -79,6 +81,10 @@ zhang serve /path/to/ledger
 ```
 
 如果 macOS 拒绝打开用浏览器下载的二进制文件，用 `xattr -d com.apple.quarantine zhang` 去掉隔离标记。
+
+### Windows 和 FreeBSD
+
+Windows（x86-64）和 FreeBSD（x86-64）的二进制文件与其他平台的由同一个发布工作流构建，但**没有在真实机器上测试过**，由社区支持。Windows 上的二进制文件是 `.exe`（`zhang-<version>-x86_64-pc-windows-msvc.exe`），也可以继续使用 [Docker](#docker)。欢迎[反馈](https://github.com/zhang-accounting/zhang/issues)哪些能用、哪些不能用。
 
 ## 从源码构建
 

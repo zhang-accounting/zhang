@@ -7,7 +7,7 @@ sidebar:
 
 A plugin can be a Lua script instead of a WebAssembly module. Copy a `.lua` file into your ledger and declare it like any plugin; Zhang runs it in a Lua 5.4 interpreter built into Zhang, in the same sandbox as a wasm plugin, with the same capabilities and the same `/api/plugins/{name}` route. There is nothing to compile and nothing to install.
 
-Lua scripts are **router plugins** in this release: they serve pages and data, and read the ledger with queries. They can also be **analyzers**, experimentally: they read the ledger once it is loaded and publish diagnostics and tables ([Analyzers](#analyzers)). They compute with amounts exactly through [`zhang.decimal`](#exact-decimals). [Why no processors or mappers](#no-processors-or-mappers-yet) is explained below.
+Lua scripts are **router plugins** in this release: they serve pages and data, and read the ledger with queries. They can also be **analyzers**: they read the ledger once it is loaded and publish diagnostics and tables ([Analyzers](#analyzers)). They compute with amounts exactly through [`zhang.decimal`](#exact-decimals). [Why no processors or mappers](#no-processors-or-mappers-yet) is explained below.
 
 ## A plugin in twenty lines
 
@@ -132,8 +132,8 @@ d(0.1)                   --> error: decimal must be a string or an integer, got 
 
 ## Analyzers
 
-:::caution[Experimental]
-The `Analyzer` type is experimental, in Lua as with the Rust SDK: until the budget migration of [RFC #698](/developers/rfc-698-budget-plugin/) is complete, the manifest, the records and the output may change in any release.
+:::note[Stability]
+The `Analyzer` type is stable from Zhang 0.3.0, in Lua as with the Rust SDK: `analysis_abi` 1 keeps its meaning, and a later release only adds to it or brings a new version ([Writing Plugins](/developers/writing-plugins/#analyzers)).
 :::
 
 An analyzer reads the ledger once it is loaded, at every load and so at every write, and publishes diagnostics, which join the ledger's errors, and the rows of tables that queries read like Zhang's own. [Writing Plugins](/developers/writing-plugins/#analyzers) describes the type: its manifest, the records it reads, its output, its limits. In Lua the manifest is fields of the module table, and `analyze` is a function that gets the records and returns the output, as Lua tables:

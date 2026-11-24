@@ -1,6 +1,6 @@
 [package]
 name = "zhang"
-version = "0.1.0"
+version.workspace = true
 authors = ["Kilerd <blove694@gmail.com>"]
 description = "a plain text double-accounting tool which is compatible with beancount but more powerful"
 edition = "2018"
@@ -15,10 +15,10 @@ default = ["mimalloc"]
 mimalloc = ["dep:mimalloc"]
 
 [dependencies]
-zhang-core = { version = "0.1", path = "../zhang-core" }
-zhang-ast = { version = "0.1", path = "../zhang-ast" }
-zhang-server = { version = "0.1.0-alpha.3", path = "../zhang-server" }
-beancount = { version = "0.1", path = "../extensions/beancount" }
+zhang-core = { version = "0.3", path = "../zhang-core" }
+zhang-ast = { version = "0.3", path = "../zhang-ast" }
+zhang-server = { version = "0.3", path = "../zhang-server" }
+beancount = { version = "0.3", path = "../extensions/beancount" }
 
 
 tokio = { workspace = true, features = ["time"] }

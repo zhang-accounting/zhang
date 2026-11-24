@@ -1,6 +1,6 @@
 [package]
 name = "zhang-testkit"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 publish = false
 description = "Shared test support for the zhang workspace: the fixture ledgers, ledger builders and golden files"

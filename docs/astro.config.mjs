@@ -110,6 +110,7 @@ export default defineConfig({
             'deployment/authentication',
             'deployment/render-demo',
             'deployment/upgrading',
+            'deployment/upgrading-to-0-3',
           ],
         },
         {

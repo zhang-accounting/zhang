@@ -71,8 +71,10 @@ Each [release](https://github.com/zhang-accounting/zhang/releases) has binaries 
 | Linux, ARM64 | `aarch64-unknown-linux-gnu` |
 | macOS, Intel | `x86_64-apple-darwin` |
 | macOS, Apple silicon | `aarch64-apple-darwin` |
+| Windows, x86-64 (untested) | `x86_64-pc-windows-msvc`, a `.exe` |
+| FreeBSD, x86-64 (untested) | `x86_64-unknown-freebsd` |
 
-There is no Windows binary; use Docker there. Download the file for your platform, rename it to `zhang`, make it executable and put it in a folder on your `PATH`:
+Download the file for your platform, rename it to `zhang`, make it executable and put it in a folder on your `PATH`:
 
 ```shell
 mv zhang-*-x86_64-unknown-linux-gnu zhang
@@ -82,6 +84,10 @@ zhang serve /path/to/ledger
 ```
 
 If macOS refuses to open a binary downloaded with a browser, remove the quarantine flag with `xattr -d com.apple.quarantine zhang`.
+
+### Windows and FreeBSD
+
+The Windows (x86-64) and FreeBSD (x86-64) binaries are built by the same release workflow as the others, but they are **untested on real machines** and community-supported. On Windows, the binary is a `.exe` (`zhang-<version>-x86_64-pc-windows-msvc.exe`), and [Docker](#docker) remains an option. [Reports](https://github.com/zhang-accounting/zhang/issues) of what works and what does not are welcome.
 
 ## Building from source
 
