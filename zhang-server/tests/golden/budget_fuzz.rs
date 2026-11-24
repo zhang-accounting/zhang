@@ -1,7 +1,9 @@
 //! RFC #698's differential fuzzing of budgets: seeded generated ledgers ([`zhang_testkit::budget_fuzz`]) that use every
-//! budget directive and break the budgets in every way the native code reports, each loaded natively and with the
-//! bundled script `zhang:budget`, and compared as a client reads them: the errors id-exact, the three budget tables,
-//! the `budgets` of the postings and the budget pages' named queries.
+//! budget directive and break the budgets in every way zhang reports, each loaded with the bundled script `zhang:budget`
+//! and with the oracle, the budget analyzer of `zhang-plugin-sdk/examples/budget` built for wasm32
+//! ([`zhang_testkit::budget_parity`]), and compared as a client reads them: the errors id-exact, the three budget
+//! tables, the `budgets` of the postings and the budget pages' named queries. Without the wasm32 target there is no
+//! oracle: the tests skip locally, and fail on CI.
 //!
 //! A difference fails the test with the seed, the first difference, and the smallest ledger found that still shows one,
 //! also written to `<target>/tmp/budget-fuzz/seed-<seed>/`. Every test run checks the seeds [`DEFAULT_SEEDS`]; the long
@@ -60,6 +62,10 @@ async fn budget_fuzz_long_run_finds_no_difference() {
 /// everything the generator can.
 async fn run(default: RangeInclusive<u64>) {
     let range = seeds(default).unwrap_or_else(|error| panic!("{error}"));
+    if zhang_testkit::budget_parity::oracle().unwrap_or_else(|error| panic!("{error}")).is_none() {
+        eprintln!("skipping the budget fuzzer: no oracle to compare the budget script with");
+        return;
+    }
     let started = Instant::now();
     // a few workers, each taking the next seed
     let next = Arc::new(Mutex::new(range.clone()));
@@ -125,7 +131,7 @@ async fn run(default: RangeInclusive<u64>) {
             kept.join("\n")
         );
     }
-    // the default seeds exercise everything the generator can, and every budget error the native code reports
+    // the default seeds exercise everything the generator can, and every budget error zhang reports
     if range == DEFAULT_SEEDS {
         let missing = FEATURES.iter().filter(|it| !exercised.contains(*it)).collect::<Vec<_>>();
         assert!(missing.is_empty(), "the default seeds never exercise {missing:?}");

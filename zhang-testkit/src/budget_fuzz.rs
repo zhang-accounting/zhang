@@ -1,6 +1,7 @@
 //! Seeded ledgers for the differential fuzzing of budgets (RFC #698): small zhang ledgers, a function of their seed
-//! alone, that use every budget directive and break the budgets in every way the native budget code reports, so that
-//! its answers and the bundled script `zhang:budget`'s can be compared on them ([`crate::budget_parity::fuzz`]).
+//! alone, that use every budget directive and break the budgets in every way zhang reports, so that the bundled script
+//! `zhang:budget`'s answers can be compared on them with the oracle's, the SDK's budget analyzer
+//! ([`crate::budget_parity`]).
 //!
 //! A seed picks, among others:
 //!
@@ -1052,7 +1053,7 @@ impl FuzzLedger {
     }
 }
 
-/// Running the seeds: each seed's ledger compared natively and with the script ([`crate::budget_parity`]), and a
+/// Running the seeds: each seed's ledger compared with the oracle and with the script ([`crate::budget_parity`]), and a
 /// difference reduced to the fewest blocks that still show one.
 #[cfg(feature = "server")]
 mod run {
@@ -1118,7 +1119,7 @@ mod run {
         requests
     }
 
-    /// A seed whose ledger the script answers otherwise than the native budgets.
+    /// A seed whose ledger the script answers otherwise than the oracle.
     #[derive(Debug, Clone)]
     pub struct Finding {
         pub seed: u64,
@@ -1136,7 +1137,7 @@ mod run {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             writeln!(
                 f,
-                "seed {}: zhang:budget answers otherwise than the native budgets (the seed exercises: {})",
+                "seed {}: zhang:budget answers otherwise than the oracle (the seed exercises: {})",
                 self.seed,
                 self.exercised.iter().copied().collect::<Vec<_>>().join(", ")
             )?;
@@ -1158,7 +1159,7 @@ mod run {
         }
     }
 
-    /// The first difference the testing guide does not allow between the native budgets and the script on `ledger`,
+    /// The first difference the testing guide does not allow between the oracle and the script on `ledger`,
     /// if any; `None` too when it does not load either way, which a smaller ledger may not.
     async fn first_regression(ledger: &FuzzLedger) -> Option<Difference> {
         let scratch = ledger.scratch();
@@ -1188,7 +1189,7 @@ mod run {
         }
     }
 
-    /// The ledger of `seed` compared natively and with the script: what was compared, or the first difference with the
+    /// The ledger of `seed` compared with the oracle and with the script: what was compared, or the first difference with the
     /// smallest reproduction found.
     pub async fn check(seed: u64) -> Result<Report, Box<Finding>> {
         let ledger = FuzzLedger::generate(seed);
