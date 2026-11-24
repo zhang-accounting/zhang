@@ -190,10 +190,39 @@ pub fn watch_lost(events: &[notify::Result<Event>], roots: &[PathBuf]) -> Option
     })
 }
 
-/// What the poll compares of a file ([`changes`]): when it was modified last and its length, `None` while there is no
-/// file
+/// What the poll compares of a file ([`changes`]), `None` while there is no file
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Stamp(Option<(Option<SystemTime>, u64)>);
+pub struct Stamp(Option<Seen>);
+
+/// What the poll saw of a file: when it was modified last and its length, and on unix when its inode changed last and
+/// the inode itself, so that a save that replaces the file by a rename, as many editors save, shows even where the
+/// modification times are coarse
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Seen {
+    modified: Option<SystemTime>,
+    len: u64,
+    /// the inode's change time, seconds and nanoseconds
+    changed: (i64, i64),
+    inode: u64,
+}
+
+impl Seen {
+    fn of(metadata: &std::fs::Metadata) -> Seen {
+        #[cfg(unix)]
+        let (changed, inode) = {
+            use std::os::unix::fs::MetadataExt;
+            ((metadata.ctime(), metadata.ctime_nsec()), metadata.ino())
+        };
+        #[cfg(not(unix))]
+        let (changed, inode) = ((0, 0), 0);
+        Seen {
+            modified: metadata.modified().ok(),
+            len: metadata.len(),
+            changed,
+            inode,
+        }
+    }
+}
 
 /// The paths the poll checks while the ledger's folder is not watched: the ledger's own files (`visited_files`) and
 /// what the load read besides (`extra_inputs`, relative to `root`). A folder among them is checked for files added to
@@ -211,7 +240,7 @@ pub fn stamps(paths: Vec<PathBuf>) -> HashMap<PathBuf, Stamp> {
     paths
         .into_iter()
         .map(|path| {
-            let stamp = std::fs::metadata(&path).ok().map(|metadata| (metadata.modified().ok(), metadata.len()));
+            let stamp = std::fs::metadata(&path).ok().map(|metadata| Seen::of(&metadata));
             (path, Stamp(stamp))
         })
         .collect()
@@ -510,9 +539,12 @@ mod test {
         let before = stamps(paths.clone());
         assert!(changes(&before, &stamps(paths.clone())).is_empty(), "nothing changed");
 
-        // a write of the same length a moment later: its modification time tells
+        // a save of the same length a moment later, by a rename as editors save: the inode tells on unix, whatever
+        // the resolution of the modification times, and the modification time elsewhere
         std::thread::sleep(Duration::from_millis(50));
-        std::fs::write(&main, "1970-01-01 open Assets:B\n").unwrap();
+        let saved = root.join("main.zhang.tmp");
+        std::fs::write(&saved, "1970-01-01 open Assets:B\n").unwrap();
+        std::fs::rename(&saved, &main).unwrap();
         std::fs::create_dir_all(plugin.parent().unwrap()).unwrap();
         std::fs::write(&plugin, "module").unwrap();
         let now = stamps(paths.clone());

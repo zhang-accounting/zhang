@@ -78,7 +78,7 @@ ledger/
 cannot watch /data for edits made outside the server: Too many open files (os error 24): the inotify instances of the user the server runs as, or the server's open files, are used up; raise fs.inotify.max_user_instances (`sysctl -w fs.inotify.max_user_instances=1024`), or the open-file limit (`ulimit -n`). Until it can, the server checks the ledger's files for changes every 5s, and tries to watch the folder again every 30s at most
 ```
 
-在文件夹未被监视期间，`GET /api/info` 会在 `watch_failure` 中给出同样的原因，张记账改为每 5 秒检查一次变化：检查账本的文件以及插件读取过的文件，只比较它们的修改时间和大小（不读取任何文件，几乎没有开销）。此时在外部所做的修改会在 5 秒内重新加载账本；对于插件列出的文件夹，只能发现其中新增或删除的文件。张记账会在 1 秒后再次尝试监视文件夹，之后每次等待的时间加倍，最长 30 秒。一旦成功，它会在日志中写入 `watching <文件夹>`，为期间发生的变化重新加载一次账本，之后修改又会立即触发重新加载。当账本文件夹中新建的文件夹无法被监视，或者账本文件夹本身被删除或移走时，也是如此。
+在文件夹未被监视期间，`GET /api/info` 会在 `watch_failure` 中给出同样的原因（文件夹被监视时为 `null`），张记账改为每 5 秒检查一次变化：检查账本的文件以及插件读取过的文件，比较它们的大小、修改时间，以及在 Linux 和 macOS 上的 inode 及其变更时间，因此以替换文件的方式保存的编辑器也能被发现（不读取任何文件，几乎没有开销）。此时在外部所做的修改会在 5 秒内重新加载账本；对于插件列出的文件夹，只能发现其中新增或删除的文件。张记账会在 1 秒后再次尝试监视文件夹，之后每次等待的时间加倍，最长 30 秒。一旦成功，它会在日志中写入 `watching <文件夹>`，为期间发生的变化重新加载一次账本，之后修改又会立即触发重新加载。当账本文件夹中新建的文件夹无法被监视，或者账本文件夹本身被删除或移走时，也是如此。
 
 请在容器所运行的地方（主机或 Kubernetes 节点；容器内无法修改）调大这些限制，例如写入文件 `/etc/sysctl.d/90-inotify.conf`：
 
