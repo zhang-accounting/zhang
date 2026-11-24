@@ -435,7 +435,7 @@ pub struct BasicInfoEntity {
     /// succeeded (#492)
     pub reload_failure: Option<ReloadFailure>,
     /// why the ledger's folder is not watched for edits made outside the server, while it is not, as an inotify limit
-    /// reached: the server checks the ledger's files every few seconds meanwhile; absent while it is watched
+    /// reached: the server checks the ledger's files every few seconds meanwhile; `null` while it is watched
     pub watch_failure: Option<String>,
 }
 
