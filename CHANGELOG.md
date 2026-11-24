@@ -12,6 +12,8 @@ Release prep. Before tagging:
 - refresh: `git-cliff --unreleased --tag v0.3.0` lists the raw commits since v0.2.0; fold the new ones in below
   (the budget migration, #698, complete on main with #913, is in "Budget as an official plugin" and under
   Breaking changes › Budgets). Folded in up to #913;
+- replace the TODO(zero-scale) entry under Breaking changes › Budgets with the CHANGELOG text of the zero-scale
+  alignment PR (`fix(budget)!: keep the larger scale…`) once it merges, or remove it;
 - replace "Unreleased" above with the release date, and `main` in the [0.3.0] link at the end with `v0.3.0`;
 - the workspace version in Cargo.toml must equal the tag.
 -->
@@ -103,6 +105,7 @@ turned off, and several API endpoints are gone: read [Breaking changes](#breakin
   `load_options`), `Ledger::{account_budgets, budget_accounts}` (use `open_meta_values_at` / `open_meta_accounts` with
   `"budget"`) and the `budget-switch` features are gone. The budgets guide, query reference, plugin development and
   upgrading pages describe the plugin alone
+- TODO(zero-scale, not merged): the entry of the zero-scale alignment PR, `fix(budget)!: keep the larger scale…`
 
 #### HTTP API
 
@@ -320,10 +323,12 @@ the analyzer and extension-table API (RFC #698):
   accounts and the `balances` and `lots` examples (#638, #651), `router::query_with_params`, `router::schema` and
   `router::query_builtin` (#798, #804)
 
-### Analyzers and extension tables (experimental)
+### Analyzers and extension tables
 
-The analyzer ABI (the manifest, the records, the output, `zhang_convert`, the SDK's `analysis` module, Lua analyzers)
-may change in any release until the budget migration of RFC #698 is complete (#855, #864).
+The `Analyzer` plugin type is stable from 0.3.0: `analysis_abi` 1 (the manifest, the records, the output,
+`zhang_convert`, the SDK's `analysis` module, Lua analyzers) only grows by additions, such as a field a reader ignores
+or another optional form, and any other change brings a new `analysis_abi` version. An analyzer that uses an addition
+needs the release that brought it.
 
 - New `Analyzer` plugin type (a WebAssembly module that exports `manifest` and `analyze`, or a Lua script): it runs on
   every load after booking and the checks, publishes diagnostics (`PluginError` with a `kind`) and tables that queries
@@ -555,6 +560,8 @@ may change in any release until the budget migration of RFC #698 is complete (#8
 - The documentation is reorganized (getting started, guides, deployment, reference, developers) and translated to
   Chinese, with redirects from the old pages (#489)
 - The server and CLI crates share the workspace version, so a source build reports 0.3.0
+- Each release also has binaries for Windows (x86-64, a `.exe`) and FreeBSD (x86-64), built by the same workflow but
+  untested on real machines and community-supported; reports are welcome
 - The Docker image's `org.opencontainers.image.source` label points at zhang-accounting/zhang, and the documentation's
   Compose example mounts a volume for the plugin cache (#888, #889)
 - Testing and CI: `cargo build --locked`, as the release workflow runs it, works on every commit of `main`, as CI
