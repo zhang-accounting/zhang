@@ -35,7 +35,7 @@ sidebar:
 
 写入则沿相反方向进行：路由构建一条指令，数据类型把它导出为文本（张记账或 Beancount 语法），数据源把它追加到 `directive_output_path` 选项所指定的文件中，然后账本重新加载。
 
-**只用 `zhang-core` 加载账本。** 预算由内置脚本 `zhang:budget`（`plugins/budget/budget.lua`）计算，它是一个分析器：需要插件运行时（`plugin_runtime` feature）和一个执行分析的宿主（`zhang_core::analysis::AnalysisHost`），后者由查询引擎提供。不带这两者、通过 `Ledger::load` 或 `Ledger::process` 用 `zhang-core` 加载账本的程序得不到预算：用到预算的账本会有一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误，`reason` 为 `this zhang does not run the bundled zhang:budget script`（没有该 feature 时为 `this build has no plugin runtime`，例如 Playground），预算表会返回不可用的错误。要解释预算，请用 `Ledger::load_with_options` 和 `zhang serve` 使用的选项 `zhang_server::analysis::load_options(policy)` 加载，或者使用自己的 `LoadOptions`：在 `default_plugins` 中放入 `zhang_core::analysis::DefaultPlugin::budget()`，在 `analysis` 中放入一个 `AnalysisHost`。`LoadOptions::native_budgets` 是 RFC #698 的测试开关，不供嵌入方使用：它会在 P5 中随原生预算代码一起删除。
+**只用 `zhang-core` 加载账本。** 预算由内置脚本 `zhang:budget`（`plugins/budget/budget.lua`）计算，它是一个分析器：需要插件运行时（`plugin_runtime` feature）和一个执行分析的宿主（`zhang_core::analysis::AnalysisHost`），后者由查询引擎提供。不带这两者、通过 `Ledger::load` 或 `Ledger::process` 用 `zhang-core` 加载账本的程序得不到预算：用到预算的账本会有一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误，`reason` 为 `this zhang does not run the bundled zhang:budget script`（没有该 feature 时为 `this build has no plugin runtime`，例如 Playground），预算表会返回不可用的错误。要解释预算，请用 `Ledger::load_with_options` 和 `zhang serve` 使用的选项 `zhang_server::analysis::load_options(policy)` 加载，或者使用自己的 `LoadOptions`：在 `default_plugins` 中放入 `zhang_core::analysis::DefaultPlugin::budget()`，在 `analysis` 中放入一个 `AnalysisHost`。张记账没有其他的预算实现：RFC #698 P5 删除了原生预算代码，核心只把预算指令作为语法保留。
 
 ## 在本地构建和运行
 

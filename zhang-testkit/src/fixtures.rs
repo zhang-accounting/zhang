@@ -103,7 +103,7 @@ impl FixtureLedger {
         load_dir(self.dir.clone(), &self.entry)
     }
 
-    /// The ledger, loaded anew with `options`, such as [`native_budgets`].
+    /// The ledger, loaded anew with `options`.
     pub fn load_with(&self, options: LoadOptions) -> ZhangResult<Ledger> {
         Ledger::load_with_options(self.dir.clone(), self.entry.clone(), data_source_for(&self.entry), Clock::System, options)
     }
@@ -130,28 +130,19 @@ pub fn load_dir(dir: impl Into<PathBuf>, entry: &str) -> ZhangResult<Ledger> {
 }
 
 /// The options the kit's loaders load a ledger with: as `zhang serve` loads one, the bundled script `zhang:budget`
-/// computing its budgets (`zhang_server::analysis::load_options`, or what `ZHANG_BUDGET_IMPL` chooses in a build with
-/// the `budget-switch` feature), when the kit has its `server` feature: the tests of zhang-server turn it on, and so
-/// does every build of the workspace's tests together, as CI's. Without it, zhang-core or zhang-query tested alone have
-/// no analysis host to run the script, and the native budget code of RFC #698's test switch interprets the budgets
-/// ([`native_budgets`]).
+/// computing its budgets (`zhang_server::analysis::load_options`), when the kit has its `server` feature: the tests of
+/// zhang-server and zhang-query turn it on, and so does every build of the workspace's tests together, as CI's.
+/// Without it, zhang-core tested alone (`cargo test -p zhang-core`) has no analysis host to run the script, and a load
+/// says once that its budgets are not interpreted, as a bare `Ledger::load` does.
 #[cfg(feature = "server")]
 pub fn load_options() -> LoadOptions {
     zhang_server::analysis::load_options(Arc::new(zhang_core::plugin_policy::PluginPolicy::default()))
 }
 
-/// [`load_options`] without the kit's `server` feature: the native budget code of RFC #698's test switch.
+/// [`load_options`] without the kit's `server` feature: a bare load's, which interprets no budget.
 #[cfg(not(feature = "server"))]
 pub fn load_options() -> LoadOptions {
-    native_budgets()
-}
-
-/// The options of a load whose budgets zhang's native budget code interprets, through RFC #698's test switch
-/// ([`LoadOptions::native_budgets`]): for what compares the native budgets with the script (`budget_parity`, the
-/// fuzzer) and for the tests of the native code itself.
-// TODO(P5): goes with the native budget code
-pub fn native_budgets() -> LoadOptions {
-    LoadOptions::default().with_native_budgets()
+    LoadOptions::default()
 }
 
 /// Every ledger of `integration-tests/` (each case in each format it has, in name order) and `examples/main.zhang`.

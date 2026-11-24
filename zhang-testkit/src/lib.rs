@@ -12,7 +12,7 @@
 //!   not match. Unit tests keep their own small helpers.
 //! - **No features of the crates under test.** `zhang-core` is depended on without features, so `cargo test -p
 //!   zhang-core` stays free of the plugin runtime; `zhang-server`, which enables it, and the query engine are
-//!   behind the `server` and `query` features, which only the tests of those crates turn on.
+//!   behind the `server` and `query` features, which only the tests of the crates above zhang-core turn on.
 //! - **Nothing here asserts a behaviour of zhang.** The crate loads and compares; what a test expects stays in the
 //!   test.
 //!
@@ -27,7 +27,7 @@
 //! | one of them by name | [`fixtures::fixture_ledger`], [`fixtures::fixture_dir`] |
 //! | the beancount oracle ledgers (pads, balances, document paths) | [`fixtures::oracle_ledgers`], [`fixtures::oracle_ledger_dir`] |
 //! | a ledger of either format from a directory | [`fixtures::load_dir`] |
-//! | the same loaders with the native budgets of RFC #698's test switch, whatever the features (until P5) | [`native`], [`fixtures::native_budgets`], [`fixtures::FixtureLedger::load_with`] |
+//! | a fixture ledger with other load options | [`fixtures::FixtureLedger::load_with`] |
 //! | a reproducible random source | [`XorShift`] |
 //! | a golden file (`UPDATE_GOLDEN=1` rewrites it) | [`golden::assert_text`], [`golden::assert_json`] |
 //! | where a transaction's metadata landed, random transactions and text layouts per dialect | [`dialect::Shape`], [`dialect::random_transaction`], [`dialect::random_layout`] |
@@ -49,7 +49,6 @@ pub mod golden;
 #[cfg(feature = "server")]
 pub mod http;
 pub mod ledger;
-pub mod native;
 #[cfg(feature = "query")]
 pub mod oracle;
 

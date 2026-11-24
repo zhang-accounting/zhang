@@ -1,11 +1,12 @@
 //! `zhang:budget` as an analyzer, built with `zhang-plugin-sdk`: zhang's budgets (the tables `#budgets`,
 //! `#budget_events`, `#budget_definitions`, the `budgets` column of `postings`, and the budget errors) computed from the
-//! budget records and queries, as zhang's native budget code computes them.
+//! budget records and queries, as zhang's native budget code computed them until RFC #698 P5 deleted it.
 //!
-//! It is the example of an analyzer that does real work, and the host's tests run it in place of the native budget code,
-//! as the default plugin `zhang:budget`, to check that an analyzer's diagnostics land at the places and ids the native
-//! checks give them and that its tables answer the budget pages alike (RFC #698 P1.4). The official `zhang:budget` is a
-//! Lua script (P1.6 on); this one follows the same steps (RFC #698 Appendix A):
+//! It is the example of an analyzer that does real work. The host's tests run it in place of the bundled script, as the
+//! default plugin `zhang:budget`, to check that an analyzer's diagnostics land at the places and ids zhang gives them
+//! and that its tables answer the budget pages alike (RFC #698 P1.4), and it is the oracle the budget fuzzer compares
+//! the script with (`zhang_testkit::budget_parity`): a change of the budget rules changes both. The official
+//! `zhang:budget` is a Lua script (P1.6 on); this one follows the same steps (RFC #698 Appendix A):
 //!
 //! 1. the records, in the order zhang processed the ledger, with the postings of the budgets' accounts between them: a
 //!    `budget` defines a budget (another of its name is `DefineDuplicatedBudget`), an add, transfer or close of an
@@ -37,7 +38,7 @@ plugin! {
     manifest: manifest,
 }
 
-/// The manifest: the native provider's tables and column, as zhang describes them, and the budget errors.
+/// The manifest: the legacy tables and column zhang declares for `zhang:budget`, and the budget errors.
 pub fn manifest() -> Manifest {
     serde_json::from_str(include_str!("../manifest.json")).expect("the manifest is JSON")
 }
@@ -460,7 +461,7 @@ fn analyze(input: Input) -> Result<Output, Error> {
             }
             "budget-transfer" => {
                 let (from, to) = (field("from"), field("to"));
-                // `from`, then `to`, as the native check reports them
+                // `from`, then `to`, as zhang has always reported them
                 if let Some(undefined) = [&from, &to].into_iter().find(|name| !budgets.contains_key(*name)) {
                     diagnostics.push(diagnostic("BudgetDoesNotExist", record.seq, &[("budget_name", undefined)]));
                     continue;

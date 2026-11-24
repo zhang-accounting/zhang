@@ -42,11 +42,6 @@ pub fn load_text(content: &str) -> Ledger {
     try_load_text(content).expect("cannot load ledger")
 }
 
-/// [`load_text`] with `options`.
-pub(crate) fn load_text_with(content: &str, options: LoadOptions) -> Ledger {
-    try_load_text_with(content, options).expect("cannot load ledger")
-}
-
 /// [`load_text`] with the load's error instead of a panic, for a test of what fails to load. The directory is kept
 /// like [`load_text`]'s.
 pub fn try_load_text(content: &str) -> ZhangResult<Ledger> {

@@ -32,7 +32,6 @@ use crate::pipeline::{
     StageContext,
 };
 use crate::plugin_policy::PluginPolicy;
-use crate::process::budget::{DefinedBudget, ForeignAmount};
 use crate::process::commodity::commodity_precision;
 use crate::utils::id::FromSpan;
 use crate::{process, ZhangResult};
@@ -131,20 +130,6 @@ pub struct Ledger {
     /// the index in [`Ledger::directives`] of every transaction and balance assertion, by id
     ids: HashMap<Uuid, usize>,
 
-    /// The budgets defined so far, solely for budget validation during the fold. The query
-    /// engine computes budget figures from directives and booked postings; no budget totals are
-    /// stored.
-    pub(crate) defined_budgets: Option<HashMap<String, DefinedBudget>>,
-
-    /// the amounts of budgets in another commodity, checked for a price after the fold
-    pub(crate) foreign_budget_amounts: Vec<ForeignAmount>,
-
-    /// the (account, budget) pairs whose undefined budget the fold already reported
-    pub(crate) reported_undefined_budgets: HashSet<(String, String)>,
-
-    /// the (account, budget) pairs whose closed budget the fold already reported
-    pub(crate) reported_closed_budgets: HashSet<(String, String)>,
-
     /// during the fold, the date and time of the first `commodity` directive of each commodity: an `open` may
     /// name a commodity defined at its own date and time, which sorts after it ([`Ledger::sort_directives_datetime`])
     pub(crate) commodity_dates: HashMap<String, NaiveDateTime>,
@@ -183,13 +168,6 @@ pub struct Ledger {
     /// during the load, where the fold's errors of each directive start in [`Ledger::errors`], by its index, and one
     /// more where the fold's errors end: where the analyzers' diagnostics go ([`crate::analysis::merge`])
     fold_marks: Vec<usize>,
-
-    /// whether the fold runs the native budget checks: only with RFC #698's test switch
-    /// ([`LoadOptions::native_budgets`]), and not when an analyzer `zhang:budget` reports the budget errors instead.
-    /// The bundled script is the only implementation of budgets otherwise: when its analysis fails, the ledger has its
-    /// one `PluginAnalysisFailed` and no budget error
-    // TODO(P5): the native budget checks go with the native budget code
-    native_budget: bool,
 }
 
 pub struct LedgerProcessContext {
@@ -347,20 +325,6 @@ impl Ledger {
         self.lifecycle.open_meta_accounts(key)
     }
 
-    /// The budgets a posting of `account` at the wall-clock time `at` in the ledger's timezone counts in: an alias of
-    /// [`Ledger::open_meta_values_at`] with the key `budget`, the one rule of budget membership. `None` before its first
-    /// `open`. Whether the posting then counts toward one of them also depends on the budget: it must be defined before
-    /// the posting and not closed by then.
-    pub fn account_budgets(&self, account: &str, at: NaiveDateTime) -> Option<&BTreeSet<String>> {
-        self.open_meta_values_at(account, "budget", at)
-    }
-
-    /// The accounts of every budget: those an `open` names it in with its `budget` metadata, at any time. An alias of
-    /// [`Ledger::open_meta_accounts`] with the key `budget`.
-    pub fn budget_accounts(&self) -> HashMap<String, BTreeSet<String>> {
-        self.open_meta_accounts("budget")
-    }
-
     /// The error a directive dated `at`, at the wall-clock time of the ledger's timezone, would raise by using `account`
     /// the way `usage` tells, by the rule every directive is checked with ([`AccountLifecycle`]): what books needs an
     /// active account, what only records one that was opened. `None` when it may.
@@ -369,7 +333,6 @@ impl Ledger {
     }
 
     fn init(context: LedgerProcessContext, options: LoadOptions) -> (Self, SplitDirectives) {
-        let native_budget = options.native_budgets;
         let ledger = Self {
             options: InMemoryOptions::default(),
             entry: context.entry,
@@ -384,10 +347,6 @@ impl Ledger {
             errors: vec![],
             ids: HashMap::new(),
             data_source: context.data_source,
-            defined_budgets: None,
-            foreign_budget_amounts: vec![],
-            reported_undefined_budgets: HashSet::new(),
-            reported_closed_budgets: HashSet::new(),
             commodity_dates: HashMap::new(),
             defined_commodities: HashSet::new(),
             clock: LoadClock::new(context.clock),
@@ -400,7 +359,6 @@ impl Ledger {
             plugin_policy: options.plugin_policy.clone(),
             load_options: options,
             fold_marks: vec![],
-            native_budget,
         };
         let split = SplitDirectives::new(context.directives, context.dialect);
         (ledger, split)
@@ -457,13 +415,13 @@ impl Ledger {
         let stage_errors = self.errors.len();
         let reported = validation.errors.drain(..).map(|error| ErrorDomain::new(error.kind, &error.span, error.metas));
         self.errors.extend(reported.collect_vec());
-        // the fold checks the budgets of postings with it
+        // the fold checks the accounts of directives with it
         self.lifecycle = AccountLifecycle::of(&dated);
         // the undated directives come first in the pipeline's output
         self.outcomes = self.fold(&dated, metas.len(), assertions, validation, stage_errors)?;
         self.metas = metas;
         self.directives = dated;
-        // budgets, when the operator's policy stopped zhang:budget, are said not to be interpreted
+        // budgets, when zhang:budget does not run for the load, are said not to be interpreted
         crate::process::plugin::report_unavailable(&mut self);
         // the analyzers read the final ledger; their diagnostics join the errors before they are placed and identified
         let mut ledger = self.analyze();
@@ -762,11 +720,6 @@ impl Ledger {
     fn handle_plugins(&mut self, plugin_directives: &[(Plugin, SpanInfo)]) -> ZhangResult<()> {
         // the default plugins first, the embedder's and the official ones: they analyse the ledger before its own
         crate::process::plugin::register_all(self, plugin_directives)?;
-        // the native budget checks of the test switch make way for an analyzer zhang:budget reporting the budget errors
-        #[cfg(feature = "plugin_runtime")]
-        {
-            self.native_budget = self.native_budget && !self.plugins.reports_budget_errors();
-        }
         Ok(())
     }
 
@@ -786,7 +739,6 @@ impl Ledger {
     fn fold(
         &mut self, directives: &[Spanned<Directive>], offset: usize, mut assertions: AssertionOutcomes, mut validation: FinalValidation, stage_errors: usize,
     ) -> ZhangResult<Vec<Outcome>> {
-        self.defined_budgets = Some(HashMap::new());
         for directive in directives {
             if let (Directive::Commodity(commodity), Some(at)) = (&directive.data, directive.datetime()) {
                 let first = self.commodity_dates.entry(commodity.currency.clone()).or_insert(at);
@@ -816,7 +768,7 @@ impl Ledger {
                     process::commodity::define(commodity, self)?;
                     Detail::None
                 }
-                Directive::Transaction(txn) => {
+                Directive::Transaction(_) => {
                     // a stage may synthesize several transactions at one place: the paddings of a `pad` serving several
                     // currencies
                     let id = self.unused_id(Uuid::from_span(span));
@@ -829,9 +781,6 @@ impl Ledger {
                         continue;
                     }
                     self.ids.insert(id, index);
-                    if self.native_budget {
-                        process::transaction::check_budgets(txn, self, span);
-                    }
                     Detail::Transaction { id, errors: vec![] }
                 }
                 Directive::BalancePad(_) => {
@@ -848,24 +797,9 @@ impl Ledger {
                     process::price::check(price, self, span);
                     Detail::None
                 }
-                Directive::Budget(budget) if self.native_budget => {
-                    process::budget::define(budget, self, span);
-                    Detail::None
-                }
-                Directive::BudgetAdd(add) if self.native_budget => {
-                    process::budget::add(add, self, span);
-                    Detail::None
-                }
-                Directive::BudgetTransfer(transfer) if self.native_budget => {
-                    process::budget::transfer(transfer, self, span);
-                    Detail::None
-                }
-                Directive::BudgetClose(close) if self.native_budget => {
-                    process::budget::close(close, self, span);
-                    Detail::None
-                }
                 // a `close` the account lifecycle reads from the processed stream (`Ledger::account_status`), a `pad`
-                // the pad stage materialized into its padding transactions, a `query` `Ledger::queries` reads
+                // the pad stage materialized into its padding transactions, a `query` `Ledger::queries` reads, and the
+                // budget directives, which the analyzer `zhang:budget` interprets
                 _ => Detail::None,
             };
             outcomes[index] = Outcome { seq: seq.next(), detail };
@@ -875,9 +809,6 @@ impl Ledger {
         }
         marks.push(self.errors.len());
         self.fold_marks = marks;
-        // every price is known now
-        process::budget::report_unconverted_amounts(self, directives);
-        self.defined_budgets = None;
         self.commodity_dates = HashMap::new();
         self.defined_commodities = HashSet::new();
         Ok(outcomes)
@@ -1551,17 +1482,6 @@ mod test {
         std::fs::write(example, content).unwrap();
         let source = LocalFileSystemDataSource::new(ZhangDataType {});
         Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
-    }
-
-    /// [`load_from_temp_str`] with the budgets interpreted by the native code, through RFC #698's test switch
-    /// ([`crate::analysis::LoadOptions::native_budgets`]): a bare load runs no budget code
-    // TODO(P5): goes with the native budget code
-    fn load_natively_from_temp_str(content: &str) -> Ledger {
-        let temp_dir = tempdir().unwrap().keep().canonicalize().unwrap();
-        std::fs::write(temp_dir.join("example.zhang"), content).unwrap();
-        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let options = crate::analysis::LoadOptions::default().with_native_budgets();
-        Ledger::load_with_options(temp_dir, "example.zhang".to_string(), source, crate::clock::Clock::System, options).unwrap()
     }
 
     /// Every error at a transaction names it in `txn_id`, those the fold reports included (an account that does not
@@ -3286,308 +3206,6 @@ mod test {
             assert!(exists("Assets:Bank"));
             assert!(!exists("Assets:Bank2"));
             Ok(())
-        }
-    }
-
-    mod budget {
-        use std::collections::BTreeMap;
-
-        use bigdecimal::BigDecimal;
-        use indoc::indoc;
-        use itertools::Itertools;
-        use zhang_ast::error::ErrorKind;
-
-        use crate::ledger::test::load_natively_from_temp_str;
-        use crate::ledger::Ledger;
-
-        const ACCOUNTS: &str = indoc! {r#"
-            option "operating_currency" "CNY"
-            1970-01-01 commodity CNY
-            2023-01-01 open Assets:Cash CNY
-            2023-01-01 open Expenses:Food CNY
-              budget: "Food"
-        "#};
-
-        /// the native budget checks, which these tests read until P5 deletes them
-        fn load(body: &str) -> Ledger {
-            load_natively_from_temp_str(&format!("{ACCOUNTS}{body}"))
-        }
-
-        /// reported errors in store order, with the first line of their span and their metas
-        /// the errors with the first line of their span and their metas but `txn_id`, which every error at a
-        /// transaction carries (`every_error_of_a_transaction_names_it`)
-        fn errors(ledger: &Ledger) -> Vec<(ErrorKind, String, BTreeMap<String, String>)> {
-            ledger
-                .errors
-                .iter()
-                .map(|it| {
-                    let span = it.span.as_ref().and_then(|span| span.content.lines().next()).unwrap_or_default();
-                    let metas = it.metas.clone().into_iter().filter(|(key, _)| key != crate::constants::TXN_ID).collect();
-                    (it.error_type.clone(), span.to_owned(), metas)
-                })
-                .collect_vec()
-        }
-
-        fn undefined_budget(span: &str, account: &str, budget: &str) -> (ErrorKind, String, BTreeMap<String, String>) {
-            let metas = BTreeMap::from([("account_name".to_owned(), account.to_owned()), ("budget_name".to_owned(), budget.to_owned())]);
-            (ErrorKind::BudgetDoesNotExist, span.to_owned(), metas)
-        }
-
-        /// balance of `account` after the ledger, in CNY
-        fn balance(ledger: &Ledger, account: &str) -> BigDecimal {
-            let txns = ledger.transactions();
-            txns.iter()
-                .flat_map(|(_, txn)| txn.postings.iter())
-                .filter(|posting| posting.account.name() == account)
-                .filter_map(|posting| posting.units.as_ref().map(|units| units.number.clone()))
-                .sum()
-        }
-
-        #[test]
-        fn should_report_an_undefined_budget_and_book_the_transaction() {
-            // this used to panic with `budget does not exist` (#446)
-            let ledger = load(indoc! {r#"
-                2023-02-01 "Shop" "lunch"
-                  Assets:Cash -10 CNY
-                  Expenses:Food 10 CNY
-            "#});
-
-            assert_eq!(errors(&ledger), vec![undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food")]);
-            assert_eq!(ledger.transactions().len(), 1);
-            assert_eq!(balance(&ledger, "Assets:Cash"), BigDecimal::from(-10));
-            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(10));
-            assert!(ledger.defined_budgets.is_none(), "validation state is dropped after loading");
-        }
-
-        /// a budget directive's `BudgetDoesNotExist` names the budget, as a posting's does
-        #[test]
-        fn should_name_the_undefined_budget_of_a_budget_directive() {
-            let ledger = load(indoc! {r#"
-                2023-02-01 budget-add Travel 10 CNY
-                2023-02-02 budget-close Travel
-            "#});
-
-            let travel = BTreeMap::from([("budget_name".to_owned(), "Travel".to_owned())]);
-            assert_eq!(
-                errors(&ledger),
-                vec![
-                    (ErrorKind::BudgetDoesNotExist, "2023-02-01 budget-add Travel 10 CNY".to_owned(), travel.clone()),
-                    (ErrorKind::BudgetDoesNotExist, "2023-02-02 budget-close Travel".to_owned(), travel),
-                ]
-            );
-        }
-
-        #[test]
-        fn should_report_an_undefined_budget_once_per_account() {
-            let ledger = load(indoc! {r#"
-                2023-01-01 open Expenses:Snack CNY
-                  budget: "Food"
-                2023-02-01 "Shop" "lunch"
-                  Assets:Cash -10 CNY
-                  Expenses:Food 10 CNY
-                2023-02-02 "Shop" "dinner"
-                  Assets:Cash -20 CNY
-                  Expenses:Food 20 CNY
-                2023-03-01 "Shop" "snack"
-                  Assets:Cash -5 CNY
-                  Expenses:Snack 5 CNY
-            "#});
-
-            assert_eq!(
-                errors(&ledger),
-                vec![
-                    undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food"),
-                    undefined_budget(r#"2023-03-01 "Shop" "snack""#, "Expenses:Snack", "Food"),
-                ]
-            );
-            assert_eq!(ledger.transactions().len(), 3);
-            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
-            assert_eq!(balance(&ledger, "Assets:Cash"), BigDecimal::from(-35));
-        }
-
-        #[test]
-        fn should_book_postings_to_a_defined_budget() {
-            let ledger = load(indoc! {r#"
-                2023-01-01 budget Food CNY
-                2023-02-01 "Shop" "lunch"
-                  Assets:Cash -10 CNY
-                  Expenses:Food 10 CNY
-                2023-02-02 "Shop" "dinner"
-                  Assets:Cash -20 CNY
-                  Expenses:Food 20 CNY
-            "#});
-
-            assert_eq!(errors(&ledger), vec![]);
-            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
-        }
-
-        #[test]
-        fn should_report_postings_before_the_budget_is_defined() {
-            // like `budget-add`, a budget only exists from its definition on in the stream
-            let ledger = load(indoc! {r#"
-                2023-02-01 "Shop" "lunch"
-                  Assets:Cash -10 CNY
-                  Expenses:Food 10 CNY
-                2023-03-01 budget Food CNY
-                2023-03-02 "Shop" "dinner"
-                  Assets:Cash -20 CNY
-                  Expenses:Food 20 CNY
-            "#});
-
-            assert_eq!(errors(&ledger), vec![undefined_budget(r#"2023-02-01 "Shop" "lunch""#, "Expenses:Food", "Food")]);
-            assert_eq!(ledger.transactions().len(), 2);
-            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(30));
-        }
-
-        fn metas(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
-            pairs.iter().map(|(key, value)| (key.to_string(), value.to_string())).collect()
-        }
-
-        fn closed_budget(span: &str, account: &str, budget: &str) -> (ErrorKind, String, BTreeMap<String, String>) {
-            (
-                ErrorKind::BudgetClosed,
-                span.to_owned(),
-                metas(&[("account_name", account), ("budget_name", budget)]),
-            )
-        }
-
-        fn unconverted(span: &str, commodity: &str, budget: &str, account: Option<&str>) -> (ErrorKind, String, BTreeMap<String, String>) {
-            let mut metas = metas(&[("budget_name", budget), ("commodity", commodity), ("budget_commodity", "CNY")]);
-            if let Some(account) = account {
-                metas.insert("account_name".to_owned(), account.to_owned());
-            }
-            (ErrorKind::BudgetCommodityMismatch, span.to_owned(), metas)
-        }
-
-        /// #499: the amounts of a budget in another commodity that no price converts are reported, as
-        /// the query engine leaves them out of the budget, and so are the postings after its close
-        #[test]
-        fn should_report_amounts_no_price_converts_and_postings_after_the_close() {
-            // the accounts of the lunch in USD allow any commodity
-            let ledger = load(indoc! {r#"
-                1970-01-01 commodity USD
-                2023-01-01 open Assets:Wallet
-                2023-01-01 open Expenses:Abroad
-                  budget: "Food"
-                2023-01-01 budget Food CNY
-                2023-01-01 budget-add Food 1000 CNY
-                2023-01-02 budget-add Food 50 USD
-                2023-01-10 "Shop" "lunch in CNY"
-                  Assets:Cash -100 CNY
-                  Expenses:Food 100 CNY
-                2023-01-11 "Shop" "lunch in USD"
-                  Assets:Wallet -20 USD
-                  Expenses:Abroad 20 USD
-                2023-03-01 budget-close Food
-                2023-03-01 "Shop" "lunch on the close day"
-                  Assets:Cash -10 CNY
-                  Expenses:Food 10 CNY
-                2023-04-05 "Shop" "lunch after the close"
-                  Assets:Cash -30 CNY
-                  Expenses:Food 30 CNY
-                2023-04-06 "Shop" "dinner after the close"
-                  Assets:Cash -40 CNY
-                  Expenses:Food 40 CNY
-            "#});
-
-            let mut errors = errors(&ledger);
-            errors.sort_by(|a, b| a.1.cmp(&b.1));
-            assert_eq!(
-                errors,
-                vec![
-                    unconverted("2023-01-02 budget-add Food 50 USD", "USD", "Food", None),
-                    unconverted(r#"2023-01-11 "Shop" "lunch in USD""#, "USD", "Food", Some("Expenses:Abroad")),
-                    // once per account and budget
-                    closed_budget(r#"2023-04-05 "Shop" "lunch after the close""#, "Expenses:Food", "Food"),
-                ]
-            );
-            // reported, and still booked: 100, 10, 30 and 40 CNY, and 20 USD
-            assert_eq!(ledger.transactions().len(), 5);
-            assert_eq!(balance(&ledger, "Expenses:Food"), BigDecimal::from(180));
-            assert_eq!(balance(&ledger, "Expenses:Abroad"), BigDecimal::from(20));
-            assert!(ledger.foreign_budget_amounts.is_empty(), "validation state is dropped after loading");
-        }
-
-        /// an amount a price converts at its date is no error, whether the price is on the same day, later in the
-        /// file, inverse, or through the cost currency of a posting held at cost
-        #[test]
-        fn should_not_report_amounts_a_price_converts() {
-            let ledger = load(indoc! {r#"
-                1970-01-01 commodity USD
-                1970-01-01 commodity EUR
-                1970-01-01 commodity GOLD
-                2023-01-01 open Assets:Bank
-                2023-01-01 open Expenses:Gold GOLD
-                  budget: "Food"
-                2023-01-01 budget Food CNY
-                2023-01-02 budget-add Food 50 USD
-                2023-01-02 price USD 7.1 CNY
-                2023-01-03 price CNY 0.13 EUR
-                2023-01-03 budget-transfer Food Food 10 EUR
-                2023-01-04 price GOLD 450 USD
-                2023-01-05 "Shop" "gold"
-                  Assets:Bank -400 USD
-                  Expenses:Gold 1 GOLD {400 USD}
-                2023-01-06 budget-add Food 10 EUR
-                2022-12-31 budget-add Food 5 EUR
-            "#});
-
-            // the budget-add of 2022-12-31 names a budget not defined yet
-            assert_eq!(
-                errors(&ledger).into_iter().map(|it| (it.0, it.1)).collect_vec(),
-                vec![(ErrorKind::BudgetDoesNotExist, "2022-12-31 budget-add Food 5 EUR".to_owned())]
-            );
-        }
-
-        /// a budget-close with a time closes the budget at that time; one without lasts through its day
-        #[test]
-        fn should_close_a_budget_at_the_time_of_its_close() {
-            let ledger = load(indoc! {r#"
-                2023-01-01 budget Food CNY
-                2023-03-01 12:00:00 budget-close Food
-                2023-03-01 10:00:00 "Shop" "before the close"
-                  Assets:Cash -10 CNY
-                  Expenses:Food 10 CNY
-                2023-03-01 12:00:00 "Shop" "at the close"
-                  Assets:Cash -10 CNY
-                  Expenses:Food 10 CNY
-                2023-03-01 13:00:00 "Shop" "after the close"
-                  Assets:Cash -10 CNY
-                  Expenses:Food 10 CNY
-            "#});
-
-            assert_eq!(
-                errors(&ledger),
-                vec![closed_budget(r#"2023-03-01 13:00:00 "Shop" "after the close""#, "Expenses:Food", "Food")]
-            );
-        }
-
-        /// a posting counts in the budgets every `budget` entry of its account's latest `open` names, as the query
-        /// engine counts it: an account opened again without a budget is no longer the closed budget's
-        #[test]
-        fn should_follow_the_budgets_of_the_latest_open() {
-            let ledger = load(indoc! {r#"
-                2023-01-01 open Expenses:Shared CNY
-                  budget: "Food"
-                  budget: "Fun"
-                2023-01-01 budget Food CNY
-                2023-01-01 budget Fun CNY
-                2023-02-01 budget-close Fun
-                2023-03-01 "Shop" "shared"
-                  Assets:Cash -10 CNY
-                  Expenses:Shared 10 CNY
-                2023-03-02 "Shop" "refund"
-                  Assets:Cash 10 CNY
-                  Expenses:Shared -10 CNY
-                2023-03-31 close Expenses:Shared
-                2023-04-01 open Expenses:Shared CNY
-                  budget: "Food"
-                2023-04-02 "Shop" "shared again"
-                  Assets:Cash -10 CNY
-                  Expenses:Shared 10 CNY
-            "#});
-
-            assert_eq!(errors(&ledger), vec![closed_budget(r#"2023-03-01 "Shop" "shared""#, "Expenses:Shared", "Fun")]);
         }
     }
 }

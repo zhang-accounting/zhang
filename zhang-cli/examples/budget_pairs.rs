@@ -1,6 +1,7 @@
-//! Run the budget baseline (`examples/budget_baseline.rs`) in pairs, the native budget implementation against a
-//! candidate (the budget plugin), and judge them with `budget_compare` (`examples/budget_compare.rs`): the fast
-//! procedure of P4 on the "Budget Baseline" page of the developer docs
+//! Run the budget baseline (`examples/budget_baseline.rs`) in pairs, a baseline build (the side called `native`, which
+//! was zhang's native budget code until RFC #698 P5 deleted it) against a candidate, and judge them with
+//! `budget_compare` (`examples/budget_compare.rs`): the fast procedure of P4 on the "Budget Baseline" page of the
+//! developer docs
 //! (`docs/src/content/docs/developers/budget-baseline.md`, "The fast procedure of P4").
 //!
 //! ```sh
@@ -35,13 +36,12 @@
 //!   one after the other, in `<out>/sequential/`, judged the same way; their verdict is the one that counts
 //!   (`<out>/verdicts.json`). `--no-confirm` skips it.
 //!
-//! The binaries are run as they are: one binary for both sides with an environment each (`--native-env
-//! ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin`), or two; `--env` sets a variable on both sides
-//! (`ZHANG_BUDGET_BASELINE_COMMIT`). P4 compares the plugin with the native implementation, so `--expect-analyzer
-//! zhang:budget` is required (`budget_compare` then refuses a candidate that does not publish it, and a native side
-//! that does); `--no-expect-analyzer` allows other candidates, for a self-comparison or a calibration. The reports go
-//! to `<out>/<side>/<mode>/<ledger>/<pair>/<ledger>.json`, with the run's stdout and stderr, which is budget_compare's
-//! layout; `<out>/runs.jsonl` records every pair run (its slot, each run's CPUs, exit and validity),
+//! The binaries are run as they are: two builds, or one binary for both sides with an environment each (`--native-env`,
+//! `--candidate-env`); `--env` sets a variable on both sides (`ZHANG_BUDGET_BASELINE_COMMIT`). `--expect-analyzer
+//! zhang:budget` has `budget_compare` refuse a candidate that does not show the budget script publishing;
+//! `--no-expect-analyzer` allows any candidate, for a self-comparison or a calibration. One of the two is required.
+//! The reports go to `<out>/<side>/<mode>/<ledger>/<pair>/<ledger>.json`, with the run's stdout and stderr, which is
+//! budget_compare's layout; `<out>/runs.jsonl` records every pair run (its slot, each run's CPUs, exit and validity),
 //! `<out>/compare.txt` and `<out>/summary.json` the last judgement. Run again with the same `--out`, it keeps the valid
 //! pairs it finds of the same builds and setup, moves the others aside, and runs what is missing. A run's timings only
 //! mean something in a bench window, with no build running in the machine: on the build pod, run this under `kbuild
@@ -341,19 +341,16 @@ fn parse(args: Vec<String>) -> Result<Config, String> {
             _ => return Err(format!("unknown argument {arg}")),
         }
     }
-    // the plugin against the native implementation, unless told otherwise: a candidate without the budget analyzer, or
-    // a native side with it, is refused by budget_compare
+    // a candidate without the budget analyzer is refused by budget_compare, unless told otherwise
     let passed = compare_args.iter().position(|it| it == "--expect-analyzer");
     match (expect_analyzer, passed, no_expect_analyzer) {
         (Some(_), _, true) | (_, Some(_), true) => return Err("--expect-analyzer and --no-expect-analyzer contradict".to_owned()),
         (Some(analyzer), None, false) => compare_args.extend(["--expect-analyzer".to_owned(), analyzer]),
         (Some(_), Some(_), false) | (None, Some(_), false) | (None, None, true) => {}
         (None, None, false) => {
-            return Err(
-                "P4 compares the budget plugin with the native implementation: give --expect-analyzer zhang:budget, \
+            return Err("give --expect-analyzer zhang:budget, for a candidate that runs the budget script, \
                         or --no-expect-analyzer for a self-comparison or a calibration"
-                    .to_owned(),
-            )
+                .to_owned())
         }
     }
     let out = out.ok_or("--out is required")?;

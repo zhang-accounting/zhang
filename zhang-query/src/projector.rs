@@ -348,13 +348,11 @@ mod tests {
     use crate::value::DataType;
     use crate::Query;
 
-    /// the ledger in `dir`, its budgets interpreted by the native code through RFC #698's test switch (a bare load runs
-    /// no budget code)
+    /// the ledger in `dir`, as a bare load loads it: it runs no plugin, so its budgets are not interpreted
     fn load(dir: PathBuf) -> Ledger {
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let options = zhang_core::analysis::LoadOptions::default().with_native_budgets();
         let dir = dir.canonicalize().expect("the ledger's directory");
-        Ledger::load_with_options(dir, "main.zhang".to_owned(), source, zhang_core::clock::Clock::System, options).expect("cannot load ledger")
+        Ledger::load_with_data_source(dir, "main.zhang".to_owned(), source).expect("cannot load ledger")
     }
 
     fn fava_demo_ledger() -> Ledger {
@@ -523,7 +521,12 @@ option "operating_currency" "USD"
             "{LEDGER}\n2024-04-03 balance Assets:Bank 1999.00 USD\n2024-04-04 note Assets:Bank \"x\"\n"
         ));
         let mut checked = 0;
-        for table in Catalog::standard().tables().iter().filter(|table| !table.is_postings()) {
+        // the core's tables: those zhang declares for zhang:budget have no rows on a ledger the plugin does not run for
+        for table in Catalog::standard()
+            .tables()
+            .iter()
+            .filter(|table| !table.is_postings() && table.provided_by().is_none())
+        {
             let all = Projection::all_of(table.clone());
             let queries = table
                 .columns()

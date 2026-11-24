@@ -24,7 +24,9 @@ serde_json = { workspace = true }
 uuid = { version = "1", default-features = false }
 
 [dev-dependencies]
-zhang-testkit = { path = "../zhang-testkit", features = ["query"] }
+# `server`: the kit's loaders load a ledger as `zhang serve` does, with the bundled script zhang:budget, which computes
+# the budget tables the engine's budget suites read
+zhang-testkit = { path = "../zhang-testkit", features = ["query", "server"] }
 tempfile = "3.20"
 # the allocator of the `zhang` binary, for the timings of `examples/query_bench.rs`
 mimalloc = "0.1"

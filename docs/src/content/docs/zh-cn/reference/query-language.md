@@ -877,6 +877,8 @@ ORDER BY account
 
 张记账有四张自己的表，存放 Beancount 中没有的数据：`#budgets` 是[预算](/zh-cn/reference/directives/budget/)的逐月数据，`#budget_definitions` 是每个预算的定义，`#budget_events` 是预算指令产生的变动，`#errors` 是张记账在账本中发现的问题。它们与[其他表](#其他表)一样用 `FROM #budgets`、`FROM #budget_definitions`、`FROM #budget_events` 和 `FROM #errors` 读取，规则也相同：一个表只有自己的列，例如 `account` 不是 `#budgets` 的列，所有子句和函数都可以用于它。与指令表不同，它们没有 `meta` 列，行的顺序见下面各表的说明。`meta(key)`、`entry_meta(key)` 和 `any_meta(key)` 读取的都是该行自己的元数据。
 
+三张预算表和 postings 的 [`budgets`](#postings-表) 列来自官方插件 `zhang:budget`，它在张记账每次加载账本时计算它们（见[张记账如何计算预算](/zh-cn/guides/budgets/#张记账如何计算预算)）；schema 用 `provided_by` 注明这一点。它不运行时，例如插件关闭时（`ZHANG_PLUGINS=off`）、在线 Playground 中，或它的分析失败时，这些表和列仍会列出，读取它们的查询会失败并说明原因，例如 `table #budgets is unavailable: plugin zhang:budget does not run: plugins are off (ZHANG_PLUGINS=off)`。
+
 ### 预算表
 
 `#budgets` 中每个预算每个月对应一行，数据与网页界面的预算页面在该月显示的一致。

@@ -7,6 +7,15 @@ sidebar:
 
 [RFC #698](https://github.com/zhang-accounting/zhang/issues/698) moves budgets out of the core and the query engine into an official WASM plugin. Its phase P4 compares the plugin with the native implementation on the same ledgers and the same requests. This page is the baseline of phase P0 it compares against: how long the native implementation, served as `zhang serve` serves a local ledger, takes to load and reload a ledger with budgets and without, to answer the budget pages' requests, alone and eight at once, and to write a transaction, how much memory it uses, and how much data the pages and the budget computation move. It also says how the numbers were taken and how to take them again.
 
+:::note[After RFC #698 P5]
+P5 deleted the native budget implementation, and with it the `budget-switch` feature and `ZHANG_BUDGET_IMPL`. This page
+keeps the numbers of P0 and P4 as they were measured, natively and with the plugin. The bench still runs, on the script:
+to measure a change, compare a build of the change with a build of the commit it starts from, two binaries
+(`--native <baseline build> --candidate <build of the change>` of `budget_pairs`; the `native` side of the layout and
+the flags is the baseline build). The native numbers can only be taken again with a build of a commit before P5, such
+as the merge of P3.3 (`f6d65156`) with `--features budget-switch` and `ZHANG_BUDGET_IMPL=native`.
+:::
+
 :::caution[Noisy numbers]
 The numbers were taken on a build machine shared with other jobs. They are given for two runs, and they vary between runs and within one. Compare the plugin with the native implementation by running both in the same session, as [Reproduce](#reproduce) shows, rather than with this page alone.
 :::
@@ -474,16 +483,18 @@ P4 judges three bars at 10,000 and 100,000 transactions, each with the pairs of 
 - **Every mode and ledger gets its valid pairs**: `--pairs` of the `e2e` mode (10 by default), `--requests-pairs` of the `requests` mode (60, each of `--rounds` 200). A pair with a run the bench marked invalid (a build ran, the cgroup was throttled, its tasks waited for a CPU for 2% of the time), a timer with fewer than its 20 clean rounds, or a run that failed, is moved to `<out>/invalid/` and run again, up to `--max-invalid` times. The invalid runs are counted by side and cause in `<out>/invalid-runs.json` and at the end of the run: the CPU pressure the bench reads is the whole pod's, its own processes included, so a heavier candidate may be invalidated more often than the native side, which the counts show.
 - **Then it runs `budget_compare`** on what it collected (`<out>/native`, `<out>/candidate`, one directory per mode, ledger and pair) and, while a verdict of the timers is inconclusive and its ledger has fewer than `--most-pairs` valid `e2e` pairs (15), runs at least 3 more pairs and judges again, as step 3 allows; the p95 gets no more than its 60. It prints the judgement and keeps it in `<out>/compare.txt` and `<out>/summary.json`, and records every pair it ran in `<out>/runs.jsonl` (its slot, the CPUs of each run, its exit, its validity).
 - **Then it confirms the `CONFIRM`s** (step 8): their modes and ledgers get `--confirm-pairs` pairs (10) run one after the other in `<out>/sequential/`, judged the same way, and their verdicts replace the `CONFIRM`s in `<out>/verdicts.json`. It exits with a failure when a verdict that counts fails or is refused. Started again with the same `--out`, it keeps the valid pairs it finds of the same builds, commit and setup, moves the others aside, and runs only what is missing.
-- **It compares the plugin with the native implementation**: `--expect-analyzer zhang:budget` is required, so that `budget_compare` refuses a candidate that does not publish the budget analyzer and a native side that does. `--no-expect-analyzer` allows another candidate, for a self-comparison or a calibration.
+- **It checks the candidate**: `--expect-analyzer zhang:budget` has `budget_compare` refuse a candidate that does not show the budget analyzer publishing; until P5 it refused a native side that did, too, as P4 compared the plugin with the native implementation. `--no-expect-analyzer` allows another candidate, for a self-comparison or a calibration. One of the two is required.
 
-The whole P4 set, in one bench window, with one binary for both sides told apart by their environment (`ZHANG_BUDGET_IMPL` in a build with the `budget-switch` feature), or with two binaries (`--candidate <path>`):
+The whole P4 set, in one bench window, with two binaries (`--candidate <path>`), or one binary for both sides told apart by their environment (`--native-env`, `--candidate-env`; P4 ran one build of P3.3 with the `budget-switch` feature, `ZHANG_BUDGET_IMPL=native` against `plugin`, which P5 removed). Since P5, a build of the commit a change starts from against a build of the change:
 
 ```sh
-kbuild <lane> <worktree> 'CARGO_TARGET_DIR=/cache/target/<lane> cargo build --release -p zhang --examples --features budget-switch'
+kbuild <lane> <worktree-of-the-baseline> 'CARGO_TARGET_DIR=/cache/target/<lane> cargo build --release -p zhang --examples'
+kbuild <lane> --no-sync 'mkdir -p /cache/<lane>-base && cp /cache/target/<lane>/release/examples/budget_{baseline,compare,pairs} /cache/<lane>-base/'
+kbuild <lane> <worktree-of-the-change> 'CARGO_TARGET_DIR=/cache/target/<lane> cargo build --release -p zhang --examples'
 kbuild <lane> --no-sync 'mkdir -p /cache/<lane>-bin && cp /cache/target/<lane>/release/examples/budget_{baseline,compare,pairs} /cache/<lane>-bin/'
 kbuild --bench <lane> --no-sync '/cache/<lane>-bin/budget_pairs --out /cache/<lane>-p4 \
-  --native /cache/<lane>-bin/budget_baseline --env ZHANG_BUDGET_BASELINE_COMMIT=<commit> \
-  --native-env ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin --expect-analyzer zhang:budget'
+  --native /cache/<lane>-base/budget_baseline --candidate /cache/<lane>-bin/budget_baseline \
+  --env ZHANG_BUDGET_BASELINE_COMMIT=<commit> --expect-analyzer zhang:budget'
 ```
 
 The defaults are the P4 set: `--ledgers 10000tx-30b-60m,100000tx-30b-60m --modes e2e,requests --pairs 10 --most-pairs 15 --requests-pairs 60 --rounds 200 --cpus 16-63 --cpus-per-side 8`. Copy the binaries out of the target directory first, so that a build of the lane cannot replace them during the run. A run that outlives the terminal can be started detached in the pod (`nohup setsid`), behind a script that takes the bench window as `kbuild --bench` does.
@@ -539,7 +550,7 @@ A second self-comparison, with the CPU sets alternating per slot, the p95 judged
 
 ## Reproduce
 
-In a checkout of the commit to measure, with nothing else running if possible. Since RFC #698's P3.3 the bundled script `zhang:budget` computes the budgets of every build: the native implementation is measured with a build with the `budget-switch` feature (`--features budget-switch`) and `ZHANG_BUDGET_IMPL=native`, and a build without the feature measures the script.
+In a checkout of the commit to measure, with nothing else running if possible. Since RFC #698's P3.3 the bundled script `zhang:budget` computes the budgets of every build. Until P5 the native implementation was measured with a build with the `budget-switch` feature and `ZHANG_BUDGET_IMPL=native`; since P5 there is only the script, and a change is compared with the commit it starts from, a build of each.
 
 ```sh
 # the machine
@@ -566,10 +577,10 @@ cargo run --release -p zhang --example budget_compare -- /tmp/cmp/native /tmp/cm
 ZHANG_BUDGET_BASELINE_ONLY=requests cargo run --release -p zhang --example budget_baseline -- 100000tx-30b-60m
 
 # the whole P4 set, its pairs run two sides at a time, then judged (in a bench window on the build pod: see
-# "The fast procedure of P4")
-cargo build --release -p zhang --examples --features budget-switch
-target/release/examples/budget_pairs --out /tmp/p4 --native target/release/examples/budget_baseline \
-  --native-env ZHANG_BUDGET_IMPL=native --candidate-env ZHANG_BUDGET_IMPL=plugin --expect-analyzer zhang:budget
+# "The fast procedure of P4"): the baseline build against the build of a change
+cargo build --release -p zhang --examples
+target/release/examples/budget_pairs --out /tmp/p4 --native /tmp/baseline/budget_baseline \
+  --candidate target/release/examples/budget_baseline --expect-analyzer zhang:budget
 
 # the load and the writes of one ledger only, to repeat them
 ZHANG_BUDGET_BASELINE_ONLY=writes cargo run --release -p zhang --example budget_baseline -- 10000tx-30b-60m
@@ -580,4 +591,4 @@ cd /tmp/budget-ledgers/100000tx-30b-60m && LC_ALL=C sha256sum *.zhang | sha256su
 
 A ledger prints its figures as a table on stderr and as a `BASELINE {...}` line of JSON on stdout, with every sample in the order it was taken (up to 200 of them), the machine and the load average before and after. `ZHANG_BUDGET_BASELINE_OUT` writes the same JSON to `<dir>/<ledger>.json`. `ZHANG_BUDGET_BASELINE_KEEP` writes each ledger, as generated, to `<dir>/<ledger>/`, which `zhang serve` can open too. `ZHANG_BUDGET_BASELINE_SOURCE=local` reads the files with `LocalFileSystemDataSource` instead of the data source of `zhang serve`, for comparison. `ZHANG_BUDGET_BASELINE_ONLY=writes` measures the load and the writes only, `ZHANG_BUDGET_BASELINE_ONLY=e2e` the load and the end-to-end timers only, `ZHANG_BUDGET_BASELINE_ONLY=requests` the load and the warm requests only; another value is refused. `ZHANG_BUDGET_BASELINE_ROUNDS=<n>` sets the rounds of the warm requests (30). `ZHANG_BUDGET_BASELINE_BURDEN_MIB=<n>` makes a synthetic heavier candidate for a calibration: each round of an end-to-end timer also writes `n` MiB of fresh memory and reads them back, on the clock. Every run writes its report to `ZHANG_BUDGET_BASELINE_OUT` when it is set, a single ledger's too. A run is pinned to `ZHANG_BUDGET_BASELINE_CPUS` (`8-15`) with `ZHANG_BUDGET_BASELINE_WORKERS` worker threads (8), records the commit `ZHANG_BUDGET_BASELINE_COMMIT` names, and is marked invalid when a build, throttling or CPU pressure disturbed it. `ZHANG_BUDGET_BASELINE_IDLE=<seconds>` reads the resident memory again after that long idle at the end of the run. The bench uses the allocator of the binary: mimalloc, or the system's with `--no-default-features`.
 
-Run the whole bench at least twice, and compare the plugin with the native implementation in the same session, alternating them.
+Run the whole bench at least twice, and compare two builds in the same session, alternating them, or two at a time as `budget_pairs` does.

@@ -1,10 +1,10 @@
 //! The official default plugin `zhang:budget` under the ledger's options and the operator's switch (RFC #698 §6): every
 //! ledger has it, without a `plugin` directive and whatever its `features.plugin` says, so no option of a ledger turns
 //! budgets off; `ZHANG_PLUGINS=off` stops it as it stops every plugin, and the ledger then says once that its budgets
-//! are not interpreted. Its bundled script, the only implementation of budgets (P3.3), runs only with an analysis
-//! host, which the server has and zhang-core has not: these tests read the budgets of the native code, through RFC
-//! #698's test switch, with the plugin runtime and without it, and a load that runs neither says once that its budgets
-//! are not interpreted, as the playground's does. `zhang-server/tests/api/default_plugins.rs` has the script's.
+//! are not interpreted. Its bundled script, the only implementation of budgets (P3.3; P5 deleted the native code), runs
+//! only with an analysis host, which the server has and zhang-core has not: these tests read what a load that does not
+//! run it does, with the plugin runtime and without it, which says once that its budgets are not interpreted, as the
+//! playground's does. `zhang-server/tests/api/default_plugins.rs` has the script's.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -43,9 +43,10 @@ fn headers() -> Vec<String> {
     headers
 }
 
-/// `content`, loaded with plugins at `level`, its budgets interpreted by the native code (RFC #698's test switch).
+/// `content`, loaded with plugins at `level`, without an analysis host or the bundled script: its budgets are not
+/// interpreted.
 fn load(dir: &Path, content: &str, level: PluginLevel) -> Ledger {
-    load_with(dir, content, LoadOptions::with_policy(policy(level)).with_native_budgets())
+    load_with(dir, content, LoadOptions::with_policy(policy(level)))
 }
 
 fn policy(level: PluginLevel) -> Arc<PluginPolicy> {
@@ -72,18 +73,6 @@ fn errors(ledger: &Ledger, header: &str) -> Vec<(ErrorKind, usize)> {
         .collect::<Vec<_>>();
     errors.sort_by_key(|(_, line)| *line);
     errors
-}
-
-#[test]
-fn every_ledger_interprets_its_budgets_whatever_its_options_say() {
-    let dir = tempfile::tempdir().unwrap();
-    for header in headers() {
-        for level in [PluginLevel::Read, PluginLevel::Write] {
-            let ledger = load(dir.path(), &format!("{header}{LEDGER}"), level);
-            assert_eq!(errors(&ledger, &header), [(ErrorKind::BudgetDoesNotExist, 10)], "{level}: {header}");
-            assert_eq!(ledger.extensions.unavailable("zhang:budget"), None);
-        }
-    }
 }
 
 #[test]
@@ -123,9 +112,9 @@ fn configures_nothing(ledger: &Ledger) -> Vec<(usize, String)> {
         .collect()
 }
 
-/// `zhang:budget` has no options, served natively too: each argument and meta of the directive naming it configures
-/// nothing, and so does a second directive naming it, and each says so. With plugins off, each directive says only
-/// that the plugin is not loaded. The server's tests check the same with the script.
+/// `zhang:budget` has no options, even when the load does not run it: each argument and meta of the directive naming it
+/// configures nothing, and so does a second directive naming it, and each says so. With plugins off, each directive
+/// says only that the plugin is not loaded. The server's tests check the same with the script.
 #[test]
 fn what_configures_nothing_of_zhang_budget_says_so() {
     let dir = tempfile::tempdir().unwrap();
@@ -151,25 +140,25 @@ fn what_configures_nothing_of_zhang_budget_says_so() {
             ],
             "{level}"
         );
-        // the budgets are interpreted as without the directives
+        // the budgets are not interpreted, as without the directives
         let budgets = ledger
             .errors
             .iter()
             .filter(|it| it.error_type != ErrorKind::PluginError)
             .map(|it| it.error_type.clone());
-        assert_eq!(budgets.collect::<Vec<_>>(), [ErrorKind::BudgetDoesNotExist], "{level}");
+        assert_eq!(budgets.collect::<Vec<_>>(), [ErrorKind::ExtensionUnavailable], "{level}");
     }
     let ledger = load(dir.path(), &format!("{header}{LEDGER}"), PluginLevel::Off);
     let kinds = ledger.errors.iter().map(|it| it.error_type.clone()).collect::<Vec<_>>();
     assert_eq!(kinds, [ErrorKind::PluginsDisabled, ErrorKind::PluginsDisabled, ErrorKind::ExtensionUnavailable]);
 }
 
-/// `ZHANG_PLUGINS=off` stops `zhang:budget` when the embedder registers its bundled script too: nothing registers, the
-/// fold runs no budget check, and the ledger says once that its budgets are not interpreted, exactly as with the native
-/// provider, whatever the ledger says about plugins.
+/// `ZHANG_PLUGINS=off` stops `zhang:budget` when the embedder registers its bundled script too: nothing registers, and
+/// the ledger says once that its budgets are not interpreted, exactly as a load that does not register it, whatever the
+/// ledger says about plugins.
 #[cfg(feature = "plugin_runtime")]
 #[test]
-fn plugins_off_stop_the_budget_script_as_they_stop_the_native_budgets() {
+fn plugins_off_stop_the_budget_script_as_a_load_without_it() {
     use zhang_core::analysis::DefaultPlugin;
 
     let dir = tempfile::tempdir().unwrap();
@@ -185,15 +174,15 @@ fn plugins_off_stop_the_budget_script_as_they_stop_the_native_budgets() {
         };
         let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
         let script = Ledger::load_with_options(dir.path().to_path_buf(), "main.zhang".to_owned(), source, Clock::System, options).unwrap();
-        let native = load(dir.path(), &content, PluginLevel::Off);
+        let without = load(dir.path(), &content, PluginLevel::Off);
         assert!(script.plugins.ordered.is_empty(), "{header:?}");
-        assert_eq!(errors(&script, &header), errors(&native, &header), "{header:?}");
+        assert_eq!(errors(&script, &header), errors(&without, &header), "{header:?}");
         let unavailable = errors(&script, &header)
             .into_iter()
             .filter(|(kind, _)| *kind == ErrorKind::ExtensionUnavailable)
             .count();
         assert_eq!(unavailable, 1, "{header:?}");
-        assert_eq!(script.extensions.unavailable("zhang:budget"), native.extensions.unavailable("zhang:budget"));
+        assert_eq!(script.extensions.unavailable("zhang:budget"), without.extensions.unavailable("zhang:budget"));
     }
 }
 
@@ -233,7 +222,6 @@ fn a_directive_naming_a_default_plugin_configures_it() {
             file: "router_now.wat".to_owned(),
             content: Arc::from(&include_bytes!("../plugins/router_now.wat")[..]),
         }],
-        native_budgets: false,
     };
     let load = |content: &str, level: PluginLevel| {
         std::fs::write(dir.path().join("main.zhang"), content).unwrap();
@@ -289,10 +277,10 @@ fn a_directive_naming_a_default_plugin_configures_it() {
     );
 }
 
-/// A load that runs neither the bundled script `zhang:budget`, the only implementation of budgets (RFC #698 P3.3), nor
-/// the native code of the test switch says once, on its first use of budgets, that they are not interpreted, and
-/// reports no budget error: a build without the plugin runtime (the playground's, or `cargo test -p zhang-core`), or one
-/// with it but without the script or an analysis host to run it (a bare `Ledger::load`). The budget tables say so too
+/// A load that does not run the bundled script `zhang:budget`, the only implementation of budgets (RFC #698 P3.3), says
+/// once, on its first use of budgets, that they are not interpreted, and reports no budget error: a build without the
+/// plugin runtime (the playground's, or `cargo test -p zhang-core`), or one with it but without the script or an
+/// analysis host to run it (a bare `Ledger::load`). The budget tables say so too
 /// ([`zhang_core::extensions::Extensions::unavailable`]). A directive naming `zhang:budget` still configures nothing,
 /// and says so; a ledger without budgets has nothing to say.
 #[test]
@@ -325,15 +313,11 @@ fn a_load_that_runs_no_budget_code_says_its_budgets_are_not_interpreted() {
             #[cfg(feature = "plugin_runtime")]
             assert!(ledger.plugins.ordered.is_empty(), "{header:?}: nothing registers");
         }
-        // what configures nothing of zhang:budget says so, as natively
+        // what configures nothing of zhang:budget says so
         let header = "plugin \"zhang:budget\"\n  timeout: \"5s\"\n";
         let ledger = load_with(dir.path(), &format!("{header}{LEDGER}"), options.clone());
         assert_eq!(configures_nothing(&ledger).len(), 1);
         let ledger = load_with(dir.path(), "1970-01-01 open Assets:Bank\n", options);
         assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
     }
-    // the native code of the test switch interprets them
-    let native = load(dir.path(), LEDGER, PluginLevel::Read);
-    assert_eq!(native.extensions.unavailable("zhang:budget"), None);
-    assert_eq!(errors(&native, ""), [(ErrorKind::BudgetDoesNotExist, 10)]);
 }

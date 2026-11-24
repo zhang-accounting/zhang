@@ -538,7 +538,9 @@ fn analyze(input: Input) -> Result<Output, Error> {
 
 `zhang-plugin-sdk/examples/budget` is a whole analyzer: Zhang's budgets, their tables and their errors, computed from
 the budget records and queries. Zhang's tests run it in place of the bundled script `zhang:budget` and check that it
-answers the budget pages alike, its errors included, with the same ids.
+answers the budget pages alike, its errors included, with the same ids, and the budget fuzzer compares the script
+with it on generated ledgers ([Testing](/developers/testing/#the-differential-fuzzer)): written to the rules Zhang's
+native budget code had before the script replaced it, it is the reference a change of the script is checked against.
 
 ### In Lua
 

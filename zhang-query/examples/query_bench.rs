@@ -108,7 +108,7 @@ struct Budget {
 }
 
 fn defined(ledger: &Ledger) -> Vec<Budget> {
-    let mut accounts = ledger.budget_accounts();
+    let mut accounts = ledger.open_meta_accounts("budget");
     let mut budgets: Vec<Budget> = vec![];
     for (_, directive, outcome) in ledger.entries() {
         if let Directive::Budget(budget) = &directive.data {

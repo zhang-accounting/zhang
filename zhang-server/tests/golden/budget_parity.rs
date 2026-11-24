@@ -24,7 +24,7 @@ use zhang_core::clock::Clock;
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin::router::{Conversion, ConvertedAmount, QueryFailure, RawQueryParam, RouterHost};
 use zhang_core::plugin_policy::{parse_size, PluginPolicy, MAX_MEMORY_ENV};
-use zhang_server::analysis::{analysis_host, load_options_for, BudgetImpl};
+use zhang_server::analysis::{analysis_host, load_options};
 use zhang_shared::plugin_abi::{analysis as abi, HostError};
 use zhang_testkit::budget_ledger::{Spec, MAIN};
 use zhang_testkit::budget_parity::{compare, differences, oracle, published, requests};
@@ -203,7 +203,7 @@ fn load_with_the_script(dir: &Path, clock: Clock, script: Option<&Arc<[u8]>>) ->
     if let Ok(size) = std::env::var(MAX_MEMORY_ENV) {
         policy.max_memory = parse_size(&size).unwrap_or_else(|error| panic!("{MAX_MEMORY_ENV}: {error}"));
     }
-    let mut options = load_options_for(Arc::new(policy), BudgetImpl::Plugin);
+    let mut options = load_options(Arc::new(policy));
     options.analysis = Some(measured.clone());
     if let Some(content) = script {
         for plugin in &mut options.default_plugins {
@@ -611,7 +611,7 @@ async fn a_budget_analysis_out_of_memory_publishes_once_the_server_allows_more_m
             max_memory,
             ..PluginPolicy::default()
         };
-        let options = load_options_for(Arc::new(policy), BudgetImpl::Plugin);
+        let options = load_options(Arc::new(policy));
         Ledger::load_with_options(scratch.dir().to_path_buf(), MAIN.to_owned(), data_source_for(MAIN), clock, options)
     };
     let kinds = |ledger: &Ledger| ledger.errors.iter().map(|error| error.error_type.to_string()).collect::<Vec<_>>();
@@ -662,8 +662,9 @@ async fn a_budget_analysis_out_of_memory_publishes_once_the_server_allows_more_m
 /// What the script's analysis costs, on the probe of 3,600 closed budgets, on the monthly budgets of one account per
 /// category (`monthly`: 10 categories, 1,200 budgets; `monthly<N>`: N categories, `monthly35` 4,200 budgets) and on the
 /// budget baseline's ledgers of 10,000 and 100,000 transactions: its queries and their time, its time, the peak
-/// resident memory of the process during the load (Linux), and the time of the whole load with the script and
-/// natively, the median of `ZHANG_BUDGET_COST_RUNS` loads (5) of each. `ZHANG_BUDGET_COST_LEDGERS` chooses the ledgers
+/// resident memory of the process during the load (Linux), and the time of the whole load with the script and without
+/// it (a load the script does not run for, whose budgets are not interpreted), the median of `ZHANG_BUDGET_COST_RUNS`
+/// loads (5) of each. `ZHANG_BUDGET_COST_LEDGERS` chooses the ledgers
 /// (`probe,monthly,10k,100k`), `ZHANG_BUDGET_COST_SCRIPT` a script to measure in place of the bundled one, such as an
 /// earlier `budget.lua`, and `ZHANG_PLUGIN_MAX_MEMORY` the memory of the script's instance, as the server reads it. On
 /// demand, in release:
@@ -702,19 +703,19 @@ fn the_budget_script_costs() {
             }
             other => panic!("no ledger {other}: probe, monthly, monthly<categories>, 10k or 100k"),
         };
-        let (mut analyses, mut loads, mut natives, mut queries, mut failure) = (vec![], vec![], vec![], 0, None);
+        let (mut analyses, mut loads, mut withouts, mut queries, mut failure) = (vec![], vec![], vec![], 0, None);
         let (mut querying, mut peaks) = (vec![], vec![]);
         for _ in 0..runs {
             let started = Instant::now();
-            let native = Ledger::load_with_options(
+            let without = Ledger::load_with_options(
                 scratch.dir().to_path_buf(),
                 MAIN.to_owned(),
                 data_source_for(MAIN),
                 clock,
-                load_options_for(Arc::new(PluginPolicy::default()), BudgetImpl::Native),
+                zhang_core::analysis::LoadOptions::with_policy(Arc::new(PluginPolicy::default())),
             );
-            natives.push(started.elapsed());
-            drop(native.expect("the ledger loads natively"));
+            withouts.push(started.elapsed());
+            drop(without.expect("the ledger loads without the script"));
             let started = Instant::now();
             let (cost, outcome) = load_with_the_script(scratch.dir(), clock, script.as_ref());
             loads.push(started.elapsed());
@@ -734,10 +735,10 @@ fn the_budget_script_costs() {
             .get(peaks.len() / 2)
             .map_or("-".to_owned(), |it| format!("{:.1} MiB", *it as f64 / 1048576.0));
         println!(
-            "COST {ledger}: {queries} queries in {:.1?}, analysis {analysis}, peak RSS {peak}, load with the script {:.1?}, native load {:.1?}, {runs} runs{}",
+            "COST {ledger}: {queries} queries in {:.1?}, analysis {analysis}, peak RSS {peak}, load with the script {:.1?}, without it {:.1?}, {runs} runs{}",
             median(querying),
             median(loads),
-            median(natives),
+            median(withouts),
             failure
                 .map(|it| format!(", FAILED: {}", it.chars().take(300).collect::<String>()))
                 .unwrap_or_default()

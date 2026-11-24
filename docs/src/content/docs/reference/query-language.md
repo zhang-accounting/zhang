@@ -877,6 +877,8 @@ An attribute of a missing directive is `NULL`. An unknown attribute, such as `op
 
 Zhang has four tables of its own, for data that Beancount does not have: `#budgets`, the monthly figures of your [budgets](/reference/directives/budget/), `#budget_definitions`, what each budget is, `#budget_events`, what your budget directives did, and `#errors`, the problems Zhang found in your ledger. They are read like the [other tables](#other-tables), with `FROM #budgets`, `FROM #budget_definitions`, `FROM #budget_events` and `FROM #errors`, and the same rules apply: a table has only its own columns, so `account` is not a column of `#budgets`, and every clause and function works on it. Unlike the directive tables, they have no `meta` column, and their rows come in the order given below for each table. `meta(key)`, `entry_meta(key)` and `any_meta(key)` all read the row's own metadata.
 
+The three budget tables and the [`budgets`](#the-postings-table) column of postings are those of the official plugin `zhang:budget`, which computes them every time Zhang loads the ledger (see [How Zhang computes budgets](/guides/budgets/#how-zhang-computes-budgets)); the schema says so with `provided_by`. Where it does not run, with plugins off (`ZHANG_PLUGINS=off`), in the online playground, or when its analysis failed, they are still listed, and a query that reads them fails, saying why, such as `table #budgets is unavailable: plugin zhang:budget does not run: plugins are off (ZHANG_PLUGINS=off)`.
+
 ### Budgets
 
 `#budgets` has one row per budget per month, with the figures the budget page of the web UI shows for that month.

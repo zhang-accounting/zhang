@@ -105,4 +105,4 @@ sidebar:
 - **限制。** 它在服务器允许每个插件使用的范围内运行，即 [`ZHANG_PLUGIN_MAX_TIMEOUT` 和 `ZHANG_PLUGIN_MAX_MEMORY`](/zh-cn/guides/plugins/#服务器允许的范围)。预算需要更多资源的账本加载时没有预算页面，也没有预算错误，错误列表会显示一个 [`PluginAnalysisFailed`](/zh-cn/reference/error-codes/#pluginanalysisfailed) 错误，说明应调大哪个限制。预算数以千计时需要的最多：45 个类别十年间每个类别每月一个预算，约需 100 MiB 的 Lua 内存，而默认的 `ZHANG_PLUGIN_MAX_MEMORY`（256 MiB）给它 224 MiB。
 - **第一次启动。** 和其他 Lua 插件一样，张记账在它第一次运行时编译它，大约需要半秒，并把编译后的代码保存在[缓存](/zh-cn/guides/plugins/#编译后的代码)中：下次启动只需几十毫秒就能读回，重新加载（也就是每次写入）复用它。
 - **日志。** 每次加载都会记录分析用了多长时间，例如 `analyzer zhang:budget analysed the ledger in 19.182292ms: 0 diagnostics`；没有预算的账本则记录它没有可读的内容（`analyzer zhang:budget has nothing to read in the ledger: its tables are empty`）。
-- **不解释预算的情况。** 关闭插件时，或者在没有插件运行时的构建中（例如在线 Playground），预算指令不会被解释，错误列表会用一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误说明一次。
+- **不解释预算的情况。** 关闭插件时，或者在没有插件运行时的构建中（例如在线 Playground），预算指令不会被解释，错误列表会用一个 [`ExtensionUnavailable`](/zh-cn/reference/error-codes/#extensionunavailable) 错误说明一次。张记账没有可以退回的其他预算实现：预算表和预算页面的查询仍会列出，并回答它们不可用及其原因。

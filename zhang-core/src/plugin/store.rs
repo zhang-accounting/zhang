@@ -218,17 +218,6 @@ impl PluginStore {
             .map(|(plugin, _)| plugin)
     }
 
-    /// whether the analyzer `zhang:budget` reports the budget system's errors: the native checks of RFC #698's test
-    /// switch then do not run, even when its analysis fails
-    pub fn reports_budget_errors(&self) -> bool {
-        self.analyzers().any(|plugin| {
-            plugin.is_budget_provider()
-                && plugin
-                    .analyzer_manifest()
-                    .is_some_and(|manifest| manifest.diagnostics.iter().any(|it| crate::analysis::LEGACY_KINDS.contains(&it.kind.as_str())))
-        })
-    }
-
     /// build the pipeline stages of the plugins declared to run in `stage` (their `stage` meta,
     /// [`PluginStage`]), in plugin declaration order. A plugin supporting both types contributes its
     /// processor stage first, then its mapper stage.

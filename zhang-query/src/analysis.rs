@@ -34,12 +34,12 @@ impl LedgerCatalog {
     }
 }
 
-/// The catalog of a ledger whose analyzers declare `analyzers`: the core tables, those of the native providers, and
-/// those of the analyzers, in order. An analyzer whose manifest does not hold, or whose tables, columns and named
-/// queries cannot all be had (a name taken by the core, a native provider or an earlier analyzer, a limit reached, or
-/// a query that does not compile), has none of them and is skipped. The tables, columns and queries of `zhang:budget`
-/// keep their legacy names and replace the native provider's: the catalog serves them from its snapshot. Without
-/// analyzers it is [`Catalog::standard`].
+/// The catalog of a ledger whose analyzers declare `analyzers`: the core tables, those zhang declares (the legacy names
+/// of `zhang:budget`), and those of the analyzers, in order. An analyzer whose manifest does not hold, or whose tables,
+/// columns and named queries cannot all be had (a name taken by the core, a declared provider or an earlier analyzer, a
+/// limit reached, or a query that does not compile), has none of them and is skipped. The tables, columns and queries
+/// of `zhang:budget` keep their legacy names and replace the declared ones: the catalog serves them from its snapshot.
+/// Without analyzers it is [`Catalog::standard`].
 pub fn ledger_catalog(analyzers: &[AnalyzerTables<'_>]) -> LedgerCatalog {
     if analyzers.is_empty() {
         return LedgerCatalog {
@@ -47,11 +47,11 @@ pub fn ledger_catalog(analyzers: &[AnalyzerTables<'_>]) -> LedgerCatalog {
             skipped: vec![],
         };
     }
-    let natives = extension::native_providers();
+    let declared = extension::declared_providers();
     let mut skipped = vec![];
     let mut accepted: Vec<(usize, Provider, bool)> = vec![];
     for (index, analyzer) in analyzers.iter().enumerate() {
-        let name_taken = natives.iter().any(|native| native.manifest.provider == analyzer.provider) && !analyzer.legacy
+        let name_taken = declared.iter().any(|it| it.manifest.provider == analyzer.provider) && !analyzer.legacy
             || accepted.iter().any(|(_, provider, _)| provider.manifest.provider == analyzer.provider);
         if name_taken {
             skipped.push((
@@ -73,7 +73,7 @@ pub fn ledger_catalog(analyzers: &[AnalyzerTables<'_>]) -> LedgerCatalog {
         }
     }
     loop {
-        // the native providers, without the tables and columns a legacy analyzer serves instead
+        // the declared providers, without the tables and columns a legacy analyzer serves instead
         let replaced = |name: &str| {
             accepted
                 .iter()
@@ -89,14 +89,14 @@ pub fn ledger_catalog(analyzers: &[AnalyzerTables<'_>]) -> LedgerCatalog {
                 .iter()
                 .any(|(_, provider, legacy)| *legacy && provider.manifest.queries.iter().any(|it| it.name == name))
         };
-        let mut providers = natives
+        let mut providers = declared
             .iter()
-            .map(|native| {
-                let mut native = native.clone();
-                native.manifest.tables.retain(|table| !replaced(&table.name));
-                native.manifest.labels.retain(|label| !relabelled(&label.name));
-                native.manifest.queries.retain(|query| !queried_instead(&query.name));
-                native
+            .map(|provider| {
+                let mut provider = provider.clone();
+                provider.manifest.tables.retain(|table| !replaced(&table.name));
+                provider.manifest.labels.retain(|label| !relabelled(&label.name));
+                provider.manifest.queries.retain(|query| !queried_instead(&query.name));
+                provider
             })
             .collect::<Vec<_>>();
         providers.extend(accepted.iter().map(|(_, provider, _)| provider.clone()));
@@ -104,11 +104,11 @@ pub fn ledger_catalog(analyzers: &[AnalyzerTables<'_>]) -> LedgerCatalog {
         let refused = refused
             .into_iter()
             .map(|refused| {
-                let at = refused.index.checked_sub(natives.len()).expect("the native providers fit every catalog");
+                let at = refused.index.checked_sub(declared.len()).expect("the declared providers fit every catalog");
                 (at, refused.message)
             })
             .collect::<Vec<_>>();
-        // a legacy analyzer refused gives the native provider its tables back: build again without it
+        // a legacy analyzer refused gives the declared provider its tables back: build again without it
         let legacy_refused = refused.iter().any(|(at, _)| accepted[*at].2);
         if !legacy_refused {
             skipped.extend(refused.iter().map(|(at, message)| (accepted[*at].0, message.clone())));

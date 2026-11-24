@@ -99,7 +99,7 @@ pub fn identify_errors(errors: &mut [ErrorDomain]) {
 }
 
 /// The price map of the `price` directives of `directives`, in their order, each at its date in the ledger's timezone
-/// `timezone`: what the budget check and the query engine's valuation convert with.
+/// `timezone`: what the query engine's valuation, and `zhang_convert` for analyzers, convert with.
 pub fn price_map<'a>(directives: impl IntoIterator<Item = &'a Spanned<Directive>>, timezone: &Tz) -> PriceMap {
     PriceMap::from_points(directives.into_iter().filter_map(|directive| match &directive.data {
         Directive::Price(price) => Some((

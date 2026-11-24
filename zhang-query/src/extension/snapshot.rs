@@ -9,26 +9,21 @@
 //! carries the digest of the provider it was built for ([`super::ManifestDigest`]), which the table reading it must
 //! have.
 //!
-//! Where the snapshot is depends on the source the catalog decided on ([`Source`]):
-//!
-//! - a native provider's ([`NativeSnapshot`]) lives with its ledger in the query cache ([`LedgerCache`]) and builds
-//!   each table and label column from the ledger, checked, the first time a query reads it, so a query reads only the
-//!   parts it needs, as the native tables always did;
-//! - an analyzer's ([`Snapshot`]) is published into the ledger while it loads ([`publish`], `Ledger::extensions`):
-//!   whole, or as a failure without any data.
+//! Where the snapshot is depends on the source the catalog decided on ([`Source`]): an analyzer's ([`Snapshot`]) is
+//! published into the ledger while it loads ([`publish`], `Ledger::extensions`), whole, or as a failure without any
+//! data; a provider zhang only declares has none, and its tables answer why.
 
 use std::cmp::Ordering;
 use std::collections::HashSet;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 
 use chrono::{Datelike, NaiveDate};
 use zhang_ast::Meta;
 use zhang_core::extensions::SnapshotStatus;
 use zhang_core::ledger::Ledger;
 
-use super::{ExtensionRows, LabelColumn, LabelDecl, Manifest, ManifestDigest, NativeProvider, PeriodUnit, Provider, RecordOrder, Source, TableDecl, TableKind};
+use super::{ExtensionRows, LabelColumn, LabelDecl, ManifestDigest, PeriodUnit, Provider, RecordOrder, Source, TableDecl, TableKind};
 use crate::params::{ParamRef, Params};
-use crate::table::LedgerCache;
 use crate::value::Value;
 
 /// The snapshot an analyzer published: every table and label column of its manifest, checked.
@@ -138,89 +133,16 @@ impl Snapshot {
     }
 }
 
-/// The snapshot of a native provider of a ledger: its parts are built from the ledger on first use, and checked. A
-/// catalog may serve some of the provider's tables from an analyzer instead ([`super::abi`]); the parts it serves are
-/// the same whichever of them it serves.
-pub(crate) struct NativeSnapshot {
-    native: &'static NativeProvider,
-    provider: &'static Provider,
-    /// the rows of every table, by name, each built on first use
-    tables: Vec<(&'static TableDecl, Part<TableData>)>,
-    /// the labels of every label column, by name, each built on first use
-    labels: Vec<(&'static LabelDecl, Part<Vec<Label>>)>,
-}
-
-/// A part of a native snapshot, built on first use: an error when it does not hold.
-type Part<T> = OnceLock<Result<T, String>>;
-
-impl NativeSnapshot {
-    /// The snapshot of the native provider `native`, whose declaration is `provider`, empty until a part is read.
-    fn new(native: &'static NativeProvider, provider: &'static Provider) -> NativeSnapshot {
-        let manifest: &'static Manifest = &provider.manifest;
-        NativeSnapshot {
-            native,
-            provider,
-            tables: manifest.tables.iter().map(|table| (table, OnceLock::new())).collect(),
-            labels: manifest.labels.iter().map(|label| (label, OnceLock::new())).collect(),
-        }
-    }
-
-    /// The rows of the table `name` of `ledger`, the ledger of this snapshot; `None` when the provider has no such
-    /// table.
-    fn table(&self, ledger: &Ledger, name: &str) -> Option<&Result<TableData, String>> {
-        let (decl, data) = self.tables.iter().find(|(table, _)| table.name == name)?;
-        Some(data.get_or_init(|| {
-            let data = (self.native.table)(ledger, name);
-            check_table(decl, &data).map(|()| data).map_err(|err| {
-                debug_assert!(false, "{}: table {}: {}", self.provider.manifest.provider, name, err);
-                err
-            })
-        }))
-    }
-
-    /// The labels of the label column `name` of `ledger`, the ledger of this snapshot; `None` when the provider has no
-    /// such column.
-    fn labels(&self, ledger: &Ledger, name: &str) -> Option<&Result<Vec<Label>, String>> {
-        let (decl, labels) = self.labels.iter().find(|(column, _)| column.name == name)?;
-        Some(labels.get_or_init(|| {
-            let labels = (self.native.labels)(ledger, name);
-            check_labels(decl, &labels).map(|()| labels).map_err(|err| {
-                debug_assert!(false, "{}: label column {}: {}", self.provider.manifest.provider, name, err);
-                err
-            })
-        }))
-    }
-}
-
-/// The snapshots of a ledger's native providers, for its query cache, empty until read: one per native provider of
-/// every catalog, the standard one's and those of the providers a ledger's analyzers leave tables of.
-pub(crate) fn native_snapshots() -> Vec<NativeSnapshot> {
-    super::native_providers()
-        .iter()
-        .map(|provider| match provider.source {
-            Source::Native(native) => NativeSnapshot::new(native, provider),
-            Source::Published => unreachable!("a native provider"),
-        })
-        .collect()
-}
-
 /// The rows of the table `table` of `ledger`, from the snapshot of its provider: `Ok(None)` when its provider was
 /// skipped, as the ledger gives it nothing to read, so the table is empty; an error when the snapshot cannot be read,
 /// saying why.
 pub(crate) fn table_data<'l>(ledger: &'l Ledger, rows: &ExtensionRows, table: &str) -> Result<Option<&'l TableData>, String> {
     let unavailable = |why: &str| format!("table #{} is unavailable: {}", table, why);
-    let no_data = || unavailable(&format!("{} has no data for this ledger", rows.provider));
-    if let (Source::Native(_), Some(why)) = (rows.source, stopped(ledger, &rows.provider)) {
-        return Err(unavailable(&why));
-    }
+    let no_data = || format!("{} has no data for this ledger", rows.provider);
     match rows.source {
-        Source::Native(native) => match native_snapshot(ledger, native).and_then(|snapshot| snapshot.table(ledger, table)) {
-            Some(Ok(data)) => Ok(Some(data)),
-            Some(Err(err)) => Err(unavailable(err)),
-            None => Err(no_data()),
-        },
+        Source::Declared => Err(unavailable(&stopped(ledger, &rows.provider).unwrap_or_else(no_data))),
         Source::Published => match published(ledger, &rows.provider, rows.digest) {
-            Published::Data(snapshot) => snapshot.table(table).map(Some).ok_or_else(no_data),
+            Published::Data(snapshot) => snapshot.table(table).map(Some).ok_or_else(|| unavailable(&no_data())),
             Published::Skipped => Ok(None),
             Published::NotYet(analysing) => Err(format!("table #{} is not available while {} analyses the ledger", table, analysing)),
             Published::Unavailable(why) => Err(unavailable(&why)),
@@ -233,11 +155,7 @@ pub(crate) fn table_data<'l>(ledger: &'l Ledger, rows: &ExtensionRows, table: &s
 /// has no label.
 pub(crate) fn label_data<'l>(ledger: &'l Ledger, column: &LabelColumn) -> &'l [Label] {
     match column.source {
-        Source::Native(_) if stopped(ledger, &column.provider).is_some() => &[],
-        Source::Native(native) => native_snapshot(ledger, native)
-            .and_then(|snapshot| snapshot.labels(ledger, &column.name))
-            .and_then(|labels| labels.as_deref().ok())
-            .unwrap_or_default(),
+        Source::Declared => &[],
         Source::Published => match published(ledger, &column.provider, column.digest) {
             Published::Data(snapshot) => snapshot.labels(&column.name).unwrap_or_default(),
             _ => &[],
@@ -247,37 +165,32 @@ pub(crate) fn label_data<'l>(ledger: &'l Ledger, column: &LabelColumn) -> &'l [L
 
 /// Whether the label column `column` of `ledger` can be read, as for its provider's tables (RFC #698 §2.5): not when
 /// its provider failed (`column postings.x is unavailable: plugin P failed (see the ledger errors)`), nor while it has
-/// not analysed the ledger yet. A column whose provider was skipped reads empty, as its tables do.
+/// not analysed the ledger yet, nor when zhang only declares it. A column whose provider was skipped reads empty, as
+/// its tables do.
 pub(crate) fn check_label_column(ledger: &Ledger, column: &LabelColumn) -> Result<(), String> {
+    let unavailable = |why: &str| format!("column postings.{} is unavailable: {}", column.name, why);
     match column.source {
-        Source::Native(_) => match stopped(ledger, &column.provider) {
-            Some(why) => Err(format!("column postings.{} is unavailable: {}", column.name, why)),
-            None => Ok(()),
-        },
+        Source::Declared => {
+            let no_data = || format!("{} has no data for this ledger", column.provider);
+            Err(unavailable(&stopped(ledger, &column.provider).unwrap_or_else(no_data)))
+        }
         Source::Published => match published(ledger, &column.provider, column.digest) {
             Published::Data(_) | Published::Skipped => Ok(()),
             Published::NotYet(analysing) => Err(format!(
                 "column postings.{} is not available while {} analyses the ledger",
                 column.name, analysing
             )),
-            Published::Unavailable(why) => Err(format!("column postings.{} is unavailable: {}", column.name, why)),
+            Published::Unavailable(why) => Err(unavailable(&why)),
         },
     }
 }
 
-/// Why the native provider `provider` serves nothing of `ledger`: the official default plugin it is does not run for
-/// the ledger, as the operator turned plugins off ([`zhang_core::extensions::Extensions::unavailable`]).
+/// Why the declared provider `provider`, an official default plugin, serves nothing of `ledger`: it does not run for
+/// the ledger, as the operator turned plugins off or the load cannot run it
+/// ([`zhang_core::extensions::Extensions::unavailable`]).
 fn stopped(ledger: &Ledger, provider: &str) -> Option<String> {
     let reason = ledger.extensions.unavailable(provider)?;
     Some(format!("plugin {} does not run: {}", provider, reason))
-}
-
-/// The native snapshot of `native` of `ledger`.
-fn native_snapshot<'l>(ledger: &'l Ledger, native: &NativeProvider) -> Option<&'l NativeSnapshot> {
-    LedgerCache::of(ledger)
-        .native_snapshots()
-        .iter()
-        .find(|snapshot| std::ptr::eq(snapshot.native, native))
 }
 
 /// What a provider published into a ledger, as a query reads it.

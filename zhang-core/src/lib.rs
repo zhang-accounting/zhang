@@ -48,15 +48,13 @@ mod test {
         ledger.commodities().into_iter().map(|(commodity, _)| commodity).find(|it| it.name == name)
     }
 
-    /// `content` loaded, its budgets interpreted by the native code through RFC #698's test switch, as a bare load
-    /// runs no budget code ([`crate::analysis::LoadOptions::native_budgets`])
+    /// `content` loaded as a bare load does, which runs no plugin: its budgets are not interpreted
     fn load_from_text(content: &str) -> Ledger {
         let temp_dir = tempdir().unwrap().keep().canonicalize().unwrap();
         let example = temp_dir.join("example.zhang");
         std::fs::write(example, content).unwrap();
-        let source = Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}));
-        let options = crate::analysis::LoadOptions::default().with_native_budgets();
-        Ledger::load_with_options(temp_dir, "example.zhang".to_string(), source, crate::clock::Clock::System, options).unwrap()
+        let source = LocalFileSystemDataSource::new(ZhangDataType {});
+        Ledger::load_with_data_source(temp_dir, "example.zhang".to_string(), Arc::new(source)).unwrap()
     }
     fn load_store(content: &str) -> StoreTest {
         let temp_dir = tempdir().unwrap().keep();
@@ -193,7 +191,9 @@ mod test {
                     a: "1"
                     a: "0"
             "#});
-            assert!(ledger.errors.is_empty(), "{:?}", ledger.errors);
+            // a bare load does not interpret the budget, and says so once
+            let kinds = ledger.errors.iter().map(|it| it.error_type.clone()).collect::<Vec<_>>();
+            assert_eq!(kinds, [zhang_ast::error::ErrorKind::ExtensionUnavailable], "{:?}", ledger.errors);
             let (_, txn) = ledger.transactions().into_iter().next().unwrap();
             let pairs = |posting: &zhang_ast::Posting| {
                 posting
@@ -219,7 +219,7 @@ mod test {
             metas.sort();
             assert_eq!(metas, vec!["document=receipts/transaction.pdf", "memo=m"]);
 
-            // Budget ownership remains account metadata; figures are computed by zhang-query.
+            // which accounts a budget has is the metadata of their open; the plugin zhang:budget reads it
             let food = ledger.directives.iter().find_map(|it| match &it.data {
                 Directive::Open(open) if open.account.name() == "Expenses:Food" => Some(open),
                 _ => None,

@@ -24,8 +24,8 @@
 //!
 //! A query then only does the work its own rows need (see [`super::Dataset`]): it keeps the parts
 //! of the rows its projection reads. The other tables read the same parts: the directive tables
-//! list their rows in the order of [`Entries`], `#balances` and `#budgets` add up the booked rows
-//! of their accounts only, and `#documents` reads the transactions that name documents.
+//! list their rows in the order of [`Entries`], `#balances` adds up the booked rows of its
+//! accounts only, and `#documents` reads the transactions that name documents.
 
 use std::collections::{BTreeSet, HashMap};
 use std::ops::{Index, Range};
@@ -42,7 +42,6 @@ use zhang_core::utils::id::FromSpan;
 
 use super::lookups::Lookups;
 use super::postings;
-use crate::extension::NativeSnapshot;
 use crate::prices::PriceMap;
 use crate::value::Cost;
 use crate::Amount;
@@ -61,8 +60,6 @@ pub(crate) struct LedgerCache {
     documented: OnceLock<Vec<u32>>,
     /// the account and commodity directives by name
     lookups: OnceLock<Lookups>,
-    /// the snapshots of the native providers of the ledger ([`crate::extension`])
-    snapshots: OnceLock<Vec<NativeSnapshot>>,
     /// for every `#entries` row, by `seq`, the kinds of the errors recorded for its transaction, when there are any:
     /// the one part of the cache that depends on the ledger's errors ([`DerivedData::errors_changed`])
     entry_errors: OnceLock<Vec<Option<BTreeSet<String>>>>,
@@ -70,8 +67,7 @@ pub(crate) struct LedgerCache {
 
 /// The ledger's analyzers may query it while it loads, before its errors are placed: the load then drops the error
 /// kinds of the entries, and keeps everything else, the booked postings first, so the first query after a load does
-/// not book the ledger's rows again. The native providers' snapshots are kept too, so a native provider must not read
-/// the ledger's errors.
+/// not book the ledger's rows again.
 impl DerivedData for LedgerCache {
     fn errors_changed(&mut self) {
         self.entry_errors = OnceLock::new();
@@ -133,11 +129,6 @@ impl LedgerCache {
                 })
                 .collect()
         })
-    }
-
-    /// The snapshots of the ledger's native providers, each part built on first use.
-    pub fn native_snapshots(&self) -> &[NativeSnapshot] {
-        self.snapshots.get_or_init(crate::extension::native_snapshots)
     }
 
     /// The account and commodity directives of the ledger by name.
@@ -268,6 +259,7 @@ impl<T> Parts<T> {
     }
 
     /// The items, in order.
+    #[cfg(test)]
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.parts.iter().flatten()
     }

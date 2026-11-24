@@ -2,7 +2,7 @@
 //! ledger of a given number of transactions over a number of months, with a given number of budgets, and the same
 //! ledger without any budget directive or `budget` metadata.
 //!
-//! The ledger exercises every part of the native budget code:
+//! The ledger exercises every part of the budget rules:
 //!
 //! - expense accounts in the categories of a household, linked to budgets by the `budget` metadata of their
 //!   `open`s: `Expenses:Food:Market` is in two budgets, and two accounts are closed and opened again with other

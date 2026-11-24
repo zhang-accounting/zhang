@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 
 use chrono::NaiveDate;
 use zhang_core::ledger::Ledger;
-use zhang_query::{DataType, ExecuteOptions, Params, Query, QueryErrorKind, Value};
+use zhang_query::{DataType, ExecuteOptions, Params, QueryErrorKind, Value};
 
 /// `integration-tests/query-zhang-tables`: a ledger in two files with budgets that carry over,
 /// transfer, overspend and close, and errors of several kinds in both files.
@@ -20,7 +20,7 @@ fn ledger() -> &'static Ledger {
 }
 
 fn fixture(name: &str) -> Ledger {
-    zhang_testkit::native::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests").join(name), "main.zhang")
+    zhang_testkit::ledger::load_ledger(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../integration-tests").join(name), "main.zhang")
 }
 
 /// `today()` of the executions: before every entry of the fixtures, so that the current month
@@ -34,7 +34,7 @@ fn run(ledger: &Ledger, sql: &str) -> Vec<Vec<String>> {
 }
 
 fn run_at(ledger: &Ledger, sql: &str, today: NaiveDate) -> Vec<Vec<String>> {
-    let result = Query::compile(sql)
+    let result = crate::compile(sql)
         .and_then(|query| query.execute_at(ledger, &Params::new(), today))
         .unwrap_or_else(|err| panic!("{}: {}", sql, err));
     result.rows.iter().map(|row| row.iter().map(Value::to_string).collect()).collect()
@@ -376,7 +376,7 @@ fn errors_come_by_file_then_position() {
 
 #[test]
 fn explain_and_projection_of_the_zhang_tables() {
-    let compiled = Query::compile("SELECT kind, count(*) FROM #errors WHERE date >= 2024-01-01 GROUP BY kind").unwrap();
+    let compiled = crate::compile("SELECT kind, count(*) FROM #errors WHERE date >= 2024-01-01 GROUP BY kind").unwrap();
     assert_eq!(compiled.table(), "errors");
     assert_eq!(compiled.referenced_columns(), vec!["date", "kind"]);
     assert_eq!(
@@ -389,7 +389,7 @@ fn explain_and_projection_of_the_zhang_tables() {
          group by: [0]\n\
          project: [date, kind] (2 of 12 columns)\n"
     );
-    let compiled = Query::compile("SELECT name, sum(number(activity)) FROM #budgets WHERE 'Expenses:Food' IN accounts GROUP BY name").unwrap();
+    let compiled = crate::compile("SELECT name, sum(number(activity)) FROM #budgets WHERE 'Expenses:Food' IN accounts GROUP BY name").unwrap();
     assert_eq!(compiled.table(), "budgets");
     assert!(
         compiled.explain().contains("project: [accounts, activity, name] (3 of 13 columns)"),
@@ -406,20 +406,20 @@ fn explain_and_projection_of_the_zhang_tables() {
     );
     assert_eq!(query("SELECT count(*) FROM #budgets"), rows(&[&["10"]]));
     // columns belong to their table
-    let err = Query::compile("SELECT account FROM #budgets").err().unwrap();
+    let err = crate::compile("SELECT account FROM #budgets").err().unwrap();
     assert_eq!(err.kind, QueryErrorKind::Compile);
     assert!(
         err.message.starts_with("unknown column 'account' in #budgets (its columns are name, alias, "),
         "{}",
         err.message
     );
-    let err = Query::compile("SELECT position FROM #errors").err().unwrap();
+    let err = crate::compile("SELECT position FROM #errors").err().unwrap();
     assert!(err.message.contains("unknown column 'position' in #errors"), "{}", err.message);
 }
 
 #[test]
 fn zhang_tables_export_to_csv_and_respect_the_result_budget() {
-    let result = Query::compile("SELECT name, date, assigned, activity, available, accounts, closed FROM #budgets WHERE name = 'food' AND month <= 3")
+    let result = crate::compile("SELECT name, date, assigned, activity, available, accounts, closed FROM #budgets WHERE name = 'food' AND month <= 3")
         .unwrap()
         .execute_at(ledger(), &Params::new(), today())
         .unwrap();
@@ -430,7 +430,7 @@ fn zhang_tables_export_to_csv_and_respect_the_result_budget() {
          food,2024-02-01,300,10,290,\"Expenses:Dining,Expenses:Food\",FALSE\r\n\
          food,2024-03-01,540,650,-110,\"Expenses:Dining,Expenses:Food\",FALSE\r\n"
     );
-    let result = Query::compile("SELECT kind, account, source FROM #errors WHERE file = 'more.zhang' LIMIT 2")
+    let result = crate::compile("SELECT kind, account, source FROM #errors WHERE file = 'more.zhang' LIMIT 2")
         .unwrap()
         .execute_at(ledger(), &Params::new(), today())
         .unwrap();
@@ -449,7 +449,7 @@ fn zhang_tables_export_to_csv_and_respect_the_result_budget() {
     };
     // 10 rows of 5 values plus the 10 generated budget rows, 6 rows of 4 values
     for (sql, values) in [("SELECT * FROM #budgets", 60), ("SELECT file, date, kind, account FROM #errors", 24)] {
-        let compiled = Query::compile(sql).unwrap();
+        let compiled = crate::compile(sql).unwrap();
         assert!(compiled.execute_with_options(ledger(), &Params::new(), &options(values)).is_ok(), "{}", sql);
         let err = compiled.execute_with_options(ledger(), &Params::new(), &options(values - 1)).unwrap_err();
         assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", sql);
@@ -515,7 +515,7 @@ fn the_schema_describes_the_zhang_tables() {
         ]
     );
     let wildcard = |name: &str| {
-        let query = Query::compile(&format!("SELECT * FROM #{}", name)).unwrap();
+        let query = crate::compile(&format!("SELECT * FROM #{}", name)).unwrap();
         query.columns().iter().map(|column| column.name.clone()).collect::<Vec<_>>()
     };
     assert_eq!(wildcard("budgets"), ["name", "date", "assigned", "activity", "available"]);
@@ -597,7 +597,7 @@ option "operating_currency" "CNY"
 /// activity after it: the lunch of April is left out and reported.
 #[test]
 fn a_budget_leaves_out_unconverted_amounts_and_spending_after_its_close() {
-    let ledger = zhang_testkit::native::load_text(BUDGET_499);
+    let ledger = zhang_testkit::ledger::load_text(BUDGET_499);
     assert_eq!(
         run(&ledger, "SELECT date, assigned, added, activity, available, closed FROM #budgets"),
         rows(&[
@@ -633,7 +633,7 @@ fn a_budget_leaves_out_unconverted_amounts_and_spending_after_its_close() {
 
     // with a price, the amounts in USD are converted at their date and nothing is reported but
     // the spending after the close
-    let ledger = zhang_testkit::native::load_text(&format!("{}\n2024-01-01 price USD 7 CNY\n", BUDGET_499));
+    let ledger = zhang_testkit::ledger::load_text(&format!("{}\n2024-01-01 price USD 7 CNY\n", BUDGET_499));
     assert_eq!(
         run(
             &ledger,
@@ -682,7 +682,7 @@ const ONE_MEMBERSHIP_RULE: &str = r#"
 
 #[test]
 fn a_posting_counts_toward_a_budget_by_one_rule() {
-    let ledger = zhang_testkit::native::load_text(ONE_MEMBERSHIP_RULE);
+    let ledger = zhang_testkit::ledger::load_text(ONE_MEMBERSHIP_RULE);
     // the lunch at 09:00 counts in A, the budget of the open in effect then, not in B, which
     // the account names from 10:00 on; the market before the budget's definition and the
     // dollars no price converts are not food's
@@ -742,7 +742,7 @@ fn a_posting_counts_toward_a_budget_by_one_rule() {
 /// closes it at that time.
 #[test]
 fn a_budget_takes_activity_until_its_close() {
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 1970-01-01 commodity CNY
 1970-01-01 open Assets:Bank
@@ -798,7 +798,7 @@ fn a_budget_takes_activity_until_its_close() {
 /// transaction, whichever is later; other directives do not extend them.
 #[test]
 fn budget_months_follow_the_budget_and_the_transactions() {
-    let ledger = zhang_testkit::native::load_text(
+    let ledger = zhang_testkit::ledger::load_text(
         r#"
 1970-01-01 commodity CNY
 1970-01-01 open Assets:Bank
@@ -832,7 +832,7 @@ fn a_far_future_event_does_not_generate_months() {
     for index in 0..100 {
         text.push_str(&format!("1000-01-01 budget b{} CNY\n", index));
     }
-    let ledger = zhang_testkit::native::load_text(&text);
+    let ledger = zhang_testkit::ledger::load_text(&text);
     let in_the_year_1000 = NaiveDate::from_ymd_opt(1000, 1, 15).unwrap();
     assert_eq!(
         run_at(&ledger, "SELECT count(*), min(date), max(date) FROM #budgets", in_the_year_1000),
@@ -840,7 +840,7 @@ fn a_far_future_event_does_not_generate_months() {
     );
     assert!(run_at(&ledger, "SELECT name FROM #budgets WHERE year = 2024", in_the_year_1000).is_empty());
 
-    let err = Query::compile("SELECT count(*) FROM #budgets")
+    let err = crate::compile("SELECT count(*) FROM #budgets")
         .unwrap()
         .execute_at(&ledger, &Params::new(), today())
         .unwrap_err();
@@ -862,8 +862,8 @@ fn generated_budget_months_are_bounded_by_the_result_budget_and_the_deadline() {
     for index in 0..100 {
         text.push_str(&format!("1000-01-01 budget b{} CNY\n", index));
     }
-    let ledger = zhang_testkit::native::load_text(&text);
-    let compiled = Query::compile("SELECT count(*) FROM #budgets WHERE year = 2024").unwrap();
+    let ledger = zhang_testkit::ledger::load_text(&text);
+    let compiled = crate::compile("SELECT count(*) FROM #budgets WHERE year = 2024").unwrap();
     // 100 budgets of 9000 years of months would be 10.8 million rows
     let err = compiled.execute_at(&ledger, &Params::new(), today()).unwrap_err();
     assert_eq!(err.kind, QueryErrorKind::TooLarge, "{}", err.message);
@@ -890,7 +890,7 @@ fn generated_budget_months_are_bounded_by_the_result_budget_and_the_deadline() {
     // one budget fits: 9000 years of months, of which 12 are in 2024
     let mut text = String::from("1970-01-01 open Assets:Bank\n1970-01-01 open Expenses:Food\n1970-01-01 commodity CNY\n");
     text.push_str("9999-12-31 * \"a typo\"\n  Expenses:Food 1 CNY\n  Assets:Bank\n1000-01-01 budget b CNY\n");
-    let ledger = zhang_testkit::native::load_text(&text);
+    let ledger = zhang_testkit::ledger::load_text(&text);
     assert_eq!(run(&ledger, "SELECT count(*) FROM #budgets WHERE year = 2024"), rows(&[&["12"]]));
 }
 
@@ -907,8 +907,8 @@ fn too_many_budget_months_name_the_directive_that_sets_the_end() {
     };
     // a filter that keeps the months of a year still generates every month before it is applied
     let message = |text: &str| {
-        let ledger = zhang_testkit::native::load_text(text);
-        let err = Query::compile("SELECT name, available FROM #budgets WHERE year = 2024")
+        let ledger = zhang_testkit::ledger::load_text(text);
+        let err = crate::compile("SELECT name, available FROM #budgets WHERE year = 2024")
             .unwrap()
             .execute_with_options(&ledger, &Params::new(), &options)
             .unwrap_err();
@@ -920,7 +920,7 @@ fn too_many_budget_months_name_the_directive_that_sets_the_end() {
             "SELECT name, last(available) FROM #budgets WHERE date <= 2024-06-01 GROUP BY name",
             "SELECT name, available FROM #budgets WHERE name = 'food' AND yearmonth(date) = 2024-06-01",
         ] {
-            let result = Query::compile(bounded).unwrap().execute_with_options(&ledger, &Params::new(), &options);
+            let result = crate::compile(bounded).unwrap().execute_with_options(&ledger, &Params::new(), &options);
             assert!(result.is_ok(), "{bounded}: {:?}", result.err());
         }
         err.message
@@ -951,8 +951,8 @@ fn too_many_budget_months_name_the_directive_that_sets_the_end() {
     );
 
     // without the typo, the same query is small
-    let ledger = zhang_testkit::native::load_text(header);
-    let result = Query::compile("SELECT name, available FROM #budgets WHERE date = 2024-02-01")
+    let ledger = zhang_testkit::ledger::load_text(header);
+    let result = crate::compile("SELECT name, available FROM #budgets WHERE date = 2024-02-01")
         .unwrap()
         .execute_with_options(&ledger, &Params::new(), &options)
         .unwrap();
@@ -970,13 +970,13 @@ fn the_postings_of_a_budgets_month_add_up_to_its_activity_on_every_fixture_ledge
     use bigdecimal::{BigDecimal, Zero};
     use zhang_query::ParamTypes;
 
-    let budgets = Query::compile("SELECT name, currency FROM #budget_definitions").unwrap();
-    let activity = Query::compile_with_params(
+    let budgets = crate::compile("SELECT name, currency FROM #budget_definitions").unwrap();
+    let activity = crate::compile_with_params(
         "SELECT date, number(activity) FROM #budgets WHERE name = :name",
         &ParamTypes::new().bind("name", DataType::Str),
     )
     .unwrap();
-    let postings = Query::compile_with_params(
+    let postings = crate::compile_with_params(
         "SELECT yearmonth(date) AS month, sum(possign(number(convert(position, :currency, date)), account)) \
          WHERE :name IN budgets GROUP BY month",
         &ParamTypes::new().bind("name", DataType::Str).bind("currency", DataType::Str),
@@ -993,10 +993,8 @@ fn the_postings_of_a_budgets_month_add_up_to_its_activity_on_every_fixture_ledge
     let today = NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
     let mut checked = 0;
     for fixture in zhang_testkit::fixtures::every_fixture_ledger() {
-        // the native provider of the budget tables, which the query compiled against the core catalog reads
-        let ledger = fixture
-            .load_with(zhang_testkit::fixtures::native_budgets())
-            .unwrap_or_else(|error| panic!("{}: {error}", fixture.name));
+        // the budget tables of the bundled script, which the queries compiled against its catalog read
+        let ledger = fixture.load().unwrap_or_else(|error| panic!("{}: {error}", fixture.name));
         for budget in budgets.execute_at(&ledger, &Params::new(), today).unwrap().rows {
             let (Value::Str(name), Value::Str(currency)) = (&budget[0], &budget[1]) else {
                 panic!("{}: a budget {budget:?}", fixture.name)

@@ -1,7 +1,7 @@
 //! `unnest(set)`, a group key per element of a set (a zhang extension): a row counts in the group of each element, in
 //! none without any, and the groups hold what a query per element filtering on membership holds.
 
-use zhang_query::{DataType, ParamTypes, Params, Query, QueryErrorKind, QueryResult, Value};
+use zhang_query::{DataType, ParamTypes, Params, QueryErrorKind, QueryResult, Value};
 use zhang_testkit::budget_ledger::Spec;
 
 const TAGGED: &str = r#"
@@ -28,13 +28,13 @@ option "operating_currency" "USD"
 "#;
 
 fn run(ledger: &zhang_core::ledger::Ledger, query: &str) -> QueryResult {
-    Query::compile(query)
+    crate::compile(query)
         .and_then(|compiled| compiled.execute(ledger, &Params::default()))
         .unwrap_or_else(|err| panic!("{}: {}", query, err))
 }
 
 fn compile_error(query: &str) -> zhang_query::QueryError {
-    Query::compile(query).err().unwrap_or_else(|| panic!("{} compiles", query))
+    crate::compile(query).err().unwrap_or_else(|| panic!("{} compiles", query))
 }
 
 fn text(rows: &[Vec<Value>]) -> Vec<String> {
@@ -101,7 +101,7 @@ fn an_unnested_key_works_with_having_order_limit_and_pivot() {
     );
     assert_eq!((pivot.rows.len(), pivot.columns.len()), (3, 3));
     // the plan shows the key
-    let explain = Query::compile("SELECT unnest(tags) AS tag, count(*) GROUP BY tag").unwrap().explain();
+    let explain = crate::compile("SELECT unnest(tags) AS tag, count(*) GROUP BY tag").unwrap().explain();
     assert!(explain.contains("target 0: tag = unnest(tags) : str\n"), "{}", explain);
 }
 
@@ -113,7 +113,7 @@ fn a_null_or_empty_set_puts_a_row_in_no_group() {
     let constant = run(&ledger, "SELECT unnest(set('a', 'b')) AS x, count(*) GROUP BY x ORDER BY x");
     assert_eq!(text(&constant.rows), vec!["a | 8", "b | 8"]);
     // a parameter, bound per execution
-    let query = Query::compile_with_params(
+    let query = crate::compile_with_params(
         "SELECT unnest(:labels) AS label, count(*) WHERE account = 'Assets:Cash' GROUP BY label ORDER BY label",
         &ParamTypes::new().bind("labels", DataType::Set),
     )
@@ -175,7 +175,7 @@ fn grouping_by_the_budgets_of_postings_sums_what_a_query_per_budget_sums() {
     );
     let budgets = grouped.rows.iter().map(|row| row[0].to_string()).collect::<std::collections::BTreeSet<_>>();
     assert!(budgets.len() >= 10, "{budgets:?}");
-    let per_budget = Query::compile_with_params(
+    let per_budget = crate::compile_with_params(
         &format!(
             "SELECT :budget AS budget, yearmonth(date) AS month, count(*) AS n, {activity} AS activity \
              WHERE open_meta_has(account, 'budget', :budget, date, time) GROUP BY budget, month ORDER BY month"
@@ -206,7 +206,7 @@ fn grouping_by_the_budgets_of_postings_sums_what_a_query_per_budget_sums() {
             ),
         );
         assert!(!grouped.rows.is_empty(), "{set}");
-        let member = Query::compile_with_params(
+        let member = crate::compile_with_params(
             &format!(
                 "SELECT :budget AS budget, yearmonth(date) AS month, count(*), {activity} WHERE :budget IN {set} \
                  GROUP BY budget, month ORDER BY month"
@@ -223,7 +223,7 @@ fn grouping_by_the_budgets_of_postings_sums_what_a_query_per_budget_sums() {
     }
     // and fail alike on a time that is none
     let failure = |query: &str| {
-        Query::compile(query)
+        crate::compile(query)
             .unwrap()
             .execute(&ledger, &Params::default())
             .expect_err("the query fails")
@@ -278,7 +278,7 @@ fn assert_unnest_is_one_query_per_element(ledger: &zhang_core::ledger::Ledger, s
         ledger,
         &format!("SELECT unnest({set}) AS element, {aggregates} GROUP BY element ORDER BY element"),
     );
-    let per_element = Query::compile_with_params(
+    let per_element = crate::compile_with_params(
         &format!("SELECT :element AS element, {aggregates} WHERE :element IN {set}"),
         &ParamTypes::new().bind("element", DataType::Str),
     )

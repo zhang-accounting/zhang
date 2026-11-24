@@ -22,10 +22,10 @@ use zhang_core::data_type::text::ZhangDataType;
 use zhang_core::ledger::Ledger;
 use zhang_core::plugin_policy::PluginPolicy;
 use zhang_query::Params;
-use zhang_server::analysis::{load_options_for, BudgetImpl};
 use zhang_server::response::{QueryResultEntity, ResponseWrapper};
 use zhang_server::state::SharedLedger;
 use zhang_server::ServerResult;
+use zhang_testkit::budget_parity::Budgets;
 
 use super::budget_reference::{Figures, Reference};
 
@@ -166,25 +166,31 @@ impl Fixture {
     /// the ledger, with the current time read from `clock`, or `None` if it cannot be loaded. The local data source
     /// does not expand wildcard includes and fails on a missing include, so a ledger that has either is loaded from a
     /// copy with its wildcards expanded and its missing includes empty ([`materialize`]). The budgets are those of the
-    /// bundled script `zhang:budget`, the only implementation of budgets, or the native ones when `ZHANG_BUDGET_IMPL`
-    /// is `native` (RFC #698's test switch): then this whole module checks the native code against the reference.
+    /// bundled script `zhang:budget`, the only implementation of budgets.
     pub(crate) async fn try_load_at(&self, clock: Clock) -> Option<SharedLedger> {
-        let budgets = BudgetImpl::from_env().unwrap_or_else(|error| panic!("{error}"));
-        self.try_load_with(clock, budgets).await
+        self.try_load_with(clock, Budgets::Script).await
     }
 
-    /// [`Fixture::try_load_at`] with the budgets computed by `budgets`.
-    pub(crate) async fn try_load_with(&self, clock: Clock, budgets: BudgetImpl) -> Option<SharedLedger> {
+    /// [`Fixture::try_load_at`] with the budgets computed by `budgets`: the script, or the oracle the budget fuzzer
+    /// compares it with, the SDK's budget analyzer (`zhang_testkit::budget_parity::oracle`), which must be there.
+    pub(crate) async fn try_load_with(&self, clock: Clock, budgets: Budgets) -> Option<SharedLedger> {
         let load = |dir: PathBuf| async move {
             let source: Arc<dyn zhang_core::data_source::DataSource> = if self.entry.ends_with(".bean") {
                 Arc::new(LocalFileSystemDataSource::new(beancount::Beancount {}))
             } else {
                 Arc::new(LocalFileSystemDataSource::new(ZhangDataType {}))
             };
-            let options = load_options_for(Arc::new(PluginPolicy::default()), budgets);
+            let options = match budgets {
+                Budgets::Script => zhang_server::analysis::load_options(Arc::new(PluginPolicy::default())),
+                Budgets::Oracle => {
+                    let (file, content) = zhang_testkit::budget_parity::oracle().ok().flatten().expect("an oracle");
+                    zhang_testkit::budget_parity::with_budget_plugin(&file, content)
+                }
+            };
             let ledger = Ledger::load_with_options(dir, self.entry.clone(), source, clock, options).ok()?;
-            if budgets != BudgetImpl::Native {
-                zhang_testkit::budget_parity::assert_published(&ledger);
+            match budgets {
+                Budgets::Script => zhang_testkit::budget_parity::assert_published(&ledger),
+                Budgets::Oracle => zhang_testkit::budget_parity::published_by_any(&ledger).unwrap_or_else(|why| panic!("{why}")),
             }
             Some(ledger)
         };
@@ -546,27 +552,25 @@ pub(crate) fn check(probe: &Probe, outcome: &Outcome, context: &Context) -> Resu
 mod test {
     use super::*;
 
-    /// Every answer of the handlers on the repository's ledgers is right ([`check`]), the budgets computed as
-    /// `ZHANG_BUDGET_IMPL` chooses: by the bundled script `zhang:budget` when it is unset.
+    /// Every answer of the handlers on the repository's ledgers is right ([`check`]), the budgets computed by the
+    /// bundled script `zhang:budget`, as the server computes them.
     #[tokio::test(flavor = "multi_thread")]
     async fn the_handlers_answer_the_reference_figures_on_every_ledger() {
-        answer_the_reference_figures(BudgetImpl::from_env().unwrap_or_else(|error| panic!("{error}"))).await
+        answer_the_reference_figures(Budgets::Script).await
     }
 
-    /// The same with the bundled script `zhang:budget` computing the budgets (RFC #698's `plugin` mode), in every run.
+    /// The same with the oracle the budget fuzzer compares the script with, the SDK's budget analyzer, computing the
+    /// budgets; skipped locally without the wasm32 target (it fails on CI).
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_budget_script_answers_the_reference_figures_on_every_ledger() {
-        answer_the_reference_figures(BudgetImpl::Plugin).await
+    async fn the_budget_oracle_answers_the_reference_figures_on_every_ledger() {
+        if zhang_testkit::budget_parity::oracle().unwrap_or_else(|error| panic!("{error}")).is_none() {
+            eprintln!("skipped: no oracle, as the wasm32 target is not installed");
+            return;
+        }
+        answer_the_reference_figures(Budgets::Oracle).await
     }
 
-    /// The same with zhang's native budget code (RFC #698's `native` mode), in every run, until P5 deletes it.
-    // TODO(P5): goes with the native budget code
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_native_budgets_answer_the_reference_figures_on_every_ledger() {
-        answer_the_reference_figures(BudgetImpl::Native).await
-    }
-
-    async fn answer_the_reference_figures(budgets: BudgetImpl) {
+    async fn answer_the_reference_figures(budgets: Budgets) {
         let mut wrong = vec![];
         for fixture in repository_fixtures() {
             let Some(ledger) = fixture.try_load_with(Clock::System, budgets).await else {

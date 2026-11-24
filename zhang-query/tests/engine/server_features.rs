@@ -43,7 +43,7 @@ use chrono::NaiveDate;
 use zhang_core::ledger::Ledger;
 use zhang_core::outcome::Detail;
 use zhang_query::decimal::to_plain_string;
-use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, Query, QueryError, QueryErrorKind, QueryResult, Value};
+use zhang_query::{DataType, ExecuteOptions, ParamTypes, Params, QueryError, QueryErrorKind, QueryResult, Value};
 
 // =======================================================================================
 // helpers
@@ -56,7 +56,7 @@ macro_rules! fixture_ledger {
     ($function:ident, $name:literal) => {
         fn $function() -> &'static Ledger {
             static CELL: OnceLock<Ledger> = OnceLock::new();
-            CELL.get_or_init(|| zhang_testkit::native::load_ledger(fixture_dir($name), "main.zhang"))
+            CELL.get_or_init(|| zhang_testkit::ledger::load_ledger(fixture_dir($name), "main.zhang"))
         }
     };
 }
@@ -72,7 +72,7 @@ fixture_ledger!(budgets, "budgets");
 fn oracle_ledger() -> &'static Ledger {
     static CELL: OnceLock<Ledger> = OnceLock::new();
     CELL.get_or_init(|| {
-        zhang_testkit::native::load_ledger(
+        zhang_testkit::ledger::load_ledger(
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/oracle/ledgers/server_features"),
             "main.zhang",
         )
@@ -93,7 +93,7 @@ fn options() -> ExecuteOptions {
 
 /// Compile `sql` with the types of `params` and execute it.
 fn try_query(ledger: &Ledger, sql: &str, params: &Params) -> Result<QueryResult, QueryError> {
-    Query::compile_with_params(sql, &params.types())?.execute_with_options(ledger, params, &options())
+    crate::compile_with_params(sql, &params.types())?.execute_with_options(ledger, params, &options())
 }
 
 fn query_with(ledger: &Ledger, sql: &str, params: &Params) -> Vec<Vec<String>> {
@@ -110,7 +110,7 @@ fn query_on(ledger: &Ledger, today: NaiveDate, sql: &str) -> Vec<Vec<String>> {
         today: Some(today),
         ..ExecuteOptions::default()
     };
-    let result = Query::compile(sql).and_then(|query| query.execute_with_options(ledger, &Params::new(), &options));
+    let result = crate::compile(sql).and_then(|query| query.execute_with_options(ledger, &Params::new(), &options));
     cells(&result.unwrap_or_else(|err| panic!("{}\n  failed: {:?} {}", sql, err.kind, err.message)))
 }
 
@@ -288,7 +288,7 @@ fn d2_schema_has_the_new_columns_and_tables() {
             ("timestamp", "int"),
         ])
     );
-    let wildcard = Query::compile("SELECT * FROM #documents").unwrap().columns();
+    let wildcard = crate::compile("SELECT * FROM #documents").unwrap().columns();
     let wildcard = wildcard.iter().map(|it| it.name.as_str()).collect::<Vec<_>>();
     assert_eq!(&wildcard[..5], ["date", "account", "filename", "tags", "links"]);
     // #budgets keeps its columns and their order
@@ -337,7 +337,7 @@ fn a_schema_has_the_columns_that_place_assertions_and_documents() {
         ("documents", "timestamp", "int"),
     ]);
     // after beanquery's columns, which SELECT * keeps
-    let wildcard = Query::compile("SELECT * FROM #balances").unwrap().columns();
+    let wildcard = crate::compile("SELECT * FROM #balances").unwrap().columns();
     let wildcard = wildcard.iter().map(|it| it.name.as_str()).collect::<Vec<_>>();
     assert_eq!(wildcard, ["date", "account", "amount", "tolerance", "discrepancy"]);
     assert_documented(&["`pad`"]);
@@ -957,10 +957,10 @@ fn d1_a_reloaded_ledger_is_queried_afresh() {
     let second = tempfile::tempdir().unwrap();
     write(first.path(), HEADER);
     write(second.path(), HEADER);
-    let mut ledger = zhang_testkit::native::load_ledger(first.path().to_path_buf(), "main.zhang");
-    let other = zhang_testkit::native::load_ledger(second.path().to_path_buf(), "main.zhang");
+    let mut ledger = zhang_testkit::ledger::load_ledger(first.path().to_path_buf(), "main.zhang");
+    let other = zhang_testkit::ledger::load_ledger(second.path().to_path_buf(), "main.zhang");
 
-    let compiled = Query::compile("SELECT narration, position, balance, account_balance, seq FROM #postings WHERE account = 'Assets:Bank'").unwrap();
+    let compiled = crate::compile("SELECT narration, position, balance, account_balance, seq FROM #postings WHERE account = 'Assets:Bank'").unwrap();
     let run = |ledger: &Ledger| cells(&compiled.execute_with_options(ledger, &Params::new(), &options()).unwrap());
     // 3 opens/commodities before the transaction: open, open, commodity, then January (seq 3)
     let before = rows(&[&["January", "100 CNY", "100 CNY", "100 CNY", "3"]]);
@@ -1555,7 +1555,7 @@ fn l_limit_and_offset_take_parameters() {
     assert_eq!(query_with(journal(), &sql, &page(5, 15)), rows(&[]));
     assert_eq!(query_with(journal(), &sql, &page(0, 0)), rows(&[]));
     // one compiled query, executed for several pages
-    let compiled = Query::compile_with_params(&sql, &ParamTypes::new().bind("limit", DataType::Int).bind("offset", DataType::Int)).unwrap();
+    let compiled = crate::compile_with_params(&sql, &ParamTypes::new().bind("limit", DataType::Int).bind("offset", DataType::Int)).unwrap();
     let pages = (0..4)
         .map(|index| cells(&compiled.execute_with_options(journal(), &page(4, index * 4), &options()).unwrap()))
         .collect::<Vec<_>>();
@@ -1634,13 +1634,13 @@ fn l_limit_offset_reject_negative_overflowing_and_mistyped_values() {
     }
     // parameters of the wrong type: compile errors when declared so...
     for ty in [DataType::Str, DataType::Decimal, DataType::Date, DataType::Bool] {
-        let err = Query::compile_with_params(&sql, &ParamTypes::new().bind("limit", ty).bind("offset", DataType::Int))
+        let err = crate::compile_with_params(&sql, &ParamTypes::new().bind("limit", ty).bind("offset", DataType::Int))
             .err()
             .unwrap_or_else(|| panic!("LIMIT :limit compiled with a {} parameter", ty.name()));
         assert_kind(&err, &[QueryErrorKind::Compile], &format!("LIMIT of type {}", ty.name()));
     }
     // ...and execution errors when compiled as INT but bound to something else
-    let compiled = Query::compile_with_params(&sql, &ParamTypes::new().bind("limit", DataType::Int).bind("offset", DataType::Int)).unwrap();
+    let compiled = crate::compile_with_params(&sql, &ParamTypes::new().bind("limit", DataType::Int).bind("offset", DataType::Int)).unwrap();
     let err = compiled
         .execute_with_options(journal(), &Params::new().bind("limit", "10").bind("offset", 0i64), &options())
         .unwrap_err();
@@ -1733,7 +1733,7 @@ fn l_parameters_give_the_results_of_the_same_literals() {
 /// of its own parameters.
 #[test]
 fn l_folded_parameters_belong_to_one_execution() {
-    let compiled = Query::compile_with_params(
+    let compiled = crate::compile_with_params(
         "SELECT narration FROM #transactions WHERE narration ~ :re AND icontains(payee, :needle)",
         &ParamTypes::new().bind("re", DataType::Str).bind("needle", DataType::Str),
     )
@@ -1992,11 +1992,11 @@ fn l_new_functions_reject_parameters_of_the_wrong_type() {
         ("SELECT open_date(:p) FROM #postings", DataType::Str, DataType::Int),
     ] {
         // the function exists and takes a parameter of the right type...
-        if let Err(err) = Query::compile_with_params(sql, &ParamTypes::new().bind("p", right)) {
+        if let Err(err) = crate::compile_with_params(sql, &ParamTypes::new().bind("p", right)) {
             panic!("{} with a {} parameter: {:?} {}", sql, right.name(), err.kind, err.message);
         }
         // ...and a parameter of the wrong type is a compile error
-        let err = Query::compile_with_params(sql, &ParamTypes::new().bind("p", wrong))
+        let err = crate::compile_with_params(sql, &ParamTypes::new().bind("p", wrong))
             .err()
             .unwrap_or_else(|| panic!("{} compiled with a {} parameter", sql, wrong.name()));
         assert_kind(&err, &[QueryErrorKind::Compile], sql);
@@ -2299,7 +2299,7 @@ fn timed(ledger: &Ledger, sql: &str, params: &Params, runs: usize) -> Duration {
 
 /// The median time of `sql`, or its error (a feature that has not landed yet).
 fn try_timed(ledger: &Ledger, sql: &str, params: &Params, runs: usize) -> Result<Duration, QueryError> {
-    let compiled = Query::compile_with_params(sql, &params.types())?;
+    let compiled = crate::compile_with_params(sql, &params.types())?;
     compiled.execute_with_options(ledger, params, &options())?;
     Ok(median_time(runs, || {
         compiled.execute_with_options(ledger, params, &options()).unwrap();
@@ -2342,7 +2342,7 @@ fn big_ledger() -> Option<Ledger> {
         return None;
     }
     let start = Instant::now();
-    let ledger = zhang_testkit::native::load_ledger(dir, "main.zhang");
+    let ledger = zhang_testkit::ledger::load_ledger(dir, "main.zhang");
     eprintln!("loaded the big ledger in {:?}", start.elapsed());
     Some(ledger)
 }
@@ -2386,7 +2386,7 @@ fn perf_fixed_cost_per_query_on_fava_demo() {
     if !release_only() {
         return;
     }
-    let ledger = zhang_testkit::native::fava_demo_ledger();
+    let ledger = zhang_testkit::ledger::fava_demo_ledger();
     let slow = time_all(
         &ledger,
         &[
@@ -2416,7 +2416,7 @@ fn perf_parameterized_regex_costs_what_a_literal_costs() {
     let literal = "SELECT count(*) WHERE payee ~ 'restaurant' OR narration ~ 'restaurant' OR account ~ 'restaurant'";
     let parameterized = literal.replace("'restaurant'", ":keyword");
     let params = Params::new().bind("keyword", "restaurant");
-    let mut ledgers = vec![("fava-demo", zhang_testkit::native::fava_demo_ledger())];
+    let mut ledgers = vec![("fava-demo", zhang_testkit::ledger::fava_demo_ledger())];
     ledgers.extend(big_ledger().map(|it| ("big", it)));
     let mut slow = vec![];
     for (name, ledger) in &ledgers {
